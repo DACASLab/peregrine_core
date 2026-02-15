@@ -1,1 +1,1 @@
-# peregrine_examples
+# examples

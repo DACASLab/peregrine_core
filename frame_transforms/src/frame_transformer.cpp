@@ -1,8 +1,8 @@
-#include <peregrine_transforms/frame_transformer.hpp>
+#include <frame_transforms/frame_transformer.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 
-namespace peregrine_transforms
+namespace frame_transforms
 {
 FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options) : Node("frame_transformer", options)
 {
@@ -200,4 +200,4 @@ void FrameTransformer::publish_dynamic_transforms()
     world_to_map.child_frame_id = map_frame_;
     world_to_map.transform = tf2::toMsg(world_to_map_tf);
     dynamic_transforms.push_back(world_to_map);
-  }  // namespace peregrine_transforms
+  }  // namespace frame_transforms

@@ -1,1 +1,1 @@
-# peregrine_trajectory_generators
+# trajectory_manager

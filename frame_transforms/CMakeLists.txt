@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(peregrine_transforms)
+project(frame_transforms)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -55,7 +55,7 @@ ament_target_dependencies(tf_connector_component
 )
 
 # --- TRANSFORM BROADCASTER COMPONENT ---
-add_library( transform_broadcaster_component SHARED src/transform_broadcaster_component.cpp)
+add_library(transform_broadcaster_component SHARED src/transform_broadcaster.cpp)
 target_link_libraries(transform_broadcaster_component frame_transformer)
 ament_target_dependencies(transform_broadcaster_component
   rclcpp
@@ -66,12 +66,12 @@ ament_target_dependencies(transform_broadcaster_component
 
 
 rclcpp_components_register_node(tf_connector_component
-  PLUGIN "peregrine_transforms::TFConnectorComponent"
+  PLUGIN "frame_transforms::TFConnectorComponent"
   EXECUTABLE tf_connector_node
 )
 
 rclcpp_components_register_node(transform_broadcaster_component
-  PLUGIN "peregrine_transforms::TransformBroadcasterComponent"
+  PLUGIN "frame_transforms::TransformBroadcasterComponent"
   EXECUTABLE transform_broadcaster_node
 )
 

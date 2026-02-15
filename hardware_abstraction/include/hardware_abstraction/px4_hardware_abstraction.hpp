@@ -19,7 +19,7 @@
 
 #include <sensor_msgs/msg/battery_state.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <peregrine_autopilot_abstraction/msg_version.hpp>
+#include <hardware_abstraction/msg_version.hpp>
 
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>

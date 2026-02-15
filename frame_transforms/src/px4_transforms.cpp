@@ -38,11 +38,11 @@
  * Adapted from MAVROS ftf_frame_conversions.cpp and ftf_quaternion_utils.cpp.
  */
 
-#include <peregrine_transforms/px4_transforms.hpp>
+#include <frame_transforms/px4_transforms.hpp>
 
 #include <assert.h>
 
-namespace peregrine_transforms {
+namespace frame_transforms {
 
 // Utils to ease conversions
 namespace utils {
@@ -389,4 +389,4 @@ Covariance9d transform_frame(const Covariance9d &cov,
   return cov_out_;
 }
 
-} // namespace peregrine_transforms
+} // namespace frame_transforms

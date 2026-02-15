@@ -1,1 +1,1 @@
-# peregrine_rviz_plugins
+# rviz_plugins

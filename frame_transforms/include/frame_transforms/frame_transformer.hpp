@@ -6,13 +6,13 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <peregrine_transforms/geodetic_conv.hpp>
-#include <peregrine_transforms/px4_transforms.hpp>
+#include <frame_transforms/geodetic_conv.hpp>
+#include <frame_transforms/px4_transforms.hpp>
 
 #include <mutex>
 #include <optional>
 
-namespace peregrine_transforms
+namespace frame_transforms
 {
 
 /**
@@ -71,4 +71,4 @@ private:
   std::string localization_mode_;
 };
 
-}  // namespace peregrine_transforms
+}  // namespace frame_transforms

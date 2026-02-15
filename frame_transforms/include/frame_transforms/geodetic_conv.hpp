@@ -3,7 +3,7 @@
 
 #include <cmath>
 
-namespace peregrine_transforms
+namespace frame_transforms
 {
 
 // A simple geodetic converter class based on WGS84 ellipsoid model.
@@ -97,6 +97,6 @@ private:
   bool is_reference_set_ = false;
 };
 
-}  // namespace peregrine_transforms
+}  // namespace frame_transforms
 
 #endif  // GEODETIC_CONV_HPP

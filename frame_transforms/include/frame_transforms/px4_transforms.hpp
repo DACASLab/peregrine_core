@@ -53,7 +53,7 @@
 #include <geometry_msgs/msg/vector3.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
-namespace peregrine_transforms {
+namespace frame_transforms {
 
 //! Type matching rosmsg for 3x3 covariance matrix
 using Covariance3d = sensor_msgs::msg::Imu::_angular_velocity_covariance_type;
@@ -193,7 +193,7 @@ static const auto AIRCRAFT_BASELINK_Q =
 /**
  * @brief Static vector needed for rotating between ENU and NED frames
  * +PI rotation around X (North) axis follwed by +PI/2 rotation about Z (Down)
- * gives the ENU frame.  Similarly, a +PI rotation about X (East) followed by
+ * gives the ENU frame.  Similarly, a +PI rotation around X (East) followed by
  * a +PI/2 roation about Z (Up) gives the NED frame.
  */
 static const Eigen::Affine3d NED_ENU_AFFINE(NED_ENU_Q);
@@ -460,6 +460,6 @@ inline T enu_to_baselink_frame(const T &in, const Eigen::Quaterniond &q) {
   return transform_frame(in, q);
 }
 
-} // namespace peregrine_transforms
+} // namespace frame_transforms
 
 #endif // FRAME_TRANSFORMS_H

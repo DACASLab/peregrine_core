@@ -1,5 +1,5 @@
-#include <peregrine_autopilot_abstraction/msg_version.hpp>
-#include <peregrine_autopilot_abstraction/px4_hardware_abstraction.hpp>
+#include <hardware_abstraction/msg_version.hpp>
+#include <hardware_abstraction/px4_hardware_abstraction.hpp>
 namespace px4_hardware_abstraction
 {
 

@@ -1,1 +1,1 @@
-# peregrine_status
+# tui_status
