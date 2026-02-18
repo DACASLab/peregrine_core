@@ -1,13 +1,13 @@
 # safety_monitor
 
 **Package Type:** ROS2 Node Package  
-**Dependencies:** aerion_interfaces, rclcpp, Eigen3  
+**Dependencies:** peregrine_interfaces, rclcpp, Eigen3  
 
 ---
 
 ## Overview
 
-`safety_monitor` is the **watchdog and safety enforcement layer** for AERION. It runs independently of other managers and can trigger emergency actions when safety violations occur.
+`safety_monitor` is the **watchdog and safety enforcement layer** for PEREGRINE. It runs independently of other managers and can trigger emergency actions when safety violations occur.
 
 ---
 
@@ -34,7 +34,7 @@
 │  • RC loss          • Battery failsafe     • Geofence (PX4)     │
 │  • Data link loss   • Position loss        • Motor failure      │
 │                                                                  │
-│  Layer 2: AERION Safety Monitor (THIS PACKAGE)                  │
+│  Layer 2: PEREGRINE Safety Monitor (THIS PACKAGE)                  │
 │  ───────────────────────────────────────────────────────────────│
 │  • Software geofence    • Heartbeat monitor   • State validation│
 │  • Flight envelope      • Battery monitor     • Collision alert │

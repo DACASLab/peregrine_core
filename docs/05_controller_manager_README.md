@@ -1,13 +1,13 @@
 # controller_manager
 
 **Package Type:** ROS2 Node Package with Plugin Architecture  
-**Dependencies:** aerion_interfaces, frame_transforms, pluginlib, rclcpp, Eigen3  
+**Dependencies:** peregrine_interfaces, frame_transforms, pluginlib, rclcpp, Eigen3  
 
 ---
 
 ## Overview
 
-`controller_manager` provides **plugin-based flight control** for the AERION flight stack. This package:
+`controller_manager` provides **plugin-based flight control** for the PEREGRINE flight stack. This package:
 
 1. **Loads controller plugins** at runtime using pluginlib
 2. **Manages controller lifecycle** (activate/deactivate/switch mid-flight)
@@ -109,16 +109,16 @@
 ```cpp
 // controller_manager/include/controller_manager/controller_base.hpp
 
-#ifndef AERION_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
-#define AERION_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
+#ifndef PEREGRINE_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
+#define PEREGRINE_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
 
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Dense>
-#include <aerion_interfaces/msg/state.hpp>
-#include <aerion_interfaces/msg/trajectory_setpoint.hpp>
-#include <aerion_interfaces/msg/control_output.hpp>
+#include <peregrine_interfaces/msg/state.hpp>
+#include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
+#include <peregrine_interfaces/msg/control_output.hpp>
 
-namespace aerion::control {
+namespace peregrine::control {
 
 /**
  * @brief Control output mode - determines what hardware_abstraction sends to PX4
@@ -170,9 +170,9 @@ public:
      * @param dt Time since last update [s]
      * @return Control output (in mode specified by getControlMode())
      */
-    virtual aerion_interfaces::msg::ControlOutput compute(
-        const aerion_interfaces::msg::State& current_state,
-        const aerion_interfaces::msg::TrajectorySetpoint& reference,
+    virtual peregrine_interfaces::msg::ControlOutput compute(
+        const peregrine_interfaces::msg::State& current_state,
+        const peregrine_interfaces::msg::TrajectorySetpoint& reference,
         double dt) = 0;
     
     /**
@@ -213,9 +213,9 @@ protected:
     bool active_{false};
 };
 
-}  // namespace aerion::control
+}  // namespace peregrine::control
 
-#endif  // AERION_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
+#endif  // PEREGRINE_CONTROLLER_MANAGER_CONTROLLER_BASE_HPP
 ```
 
 ### PX4 Passthrough Controller (Default)
@@ -223,7 +223,7 @@ protected:
 ```cpp
 // controller_plugins/src/px4_passthrough_controller.cpp
 
-namespace aerion::control {
+namespace peregrine::control {
 
 /**
  * @brief Passthrough controller - sends position/velocity directly to PX4
@@ -261,23 +261,23 @@ public:
         return true;
     }
     
-    aerion_interfaces::msg::ControlOutput compute(
-        const aerion_interfaces::msg::State& current_state,
-        const aerion_interfaces::msg::TrajectorySetpoint& reference,
+    peregrine_interfaces::msg::ControlOutput compute(
+        const peregrine_interfaces::msg::State& current_state,
+        const peregrine_interfaces::msg::TrajectorySetpoint& reference,
         double dt) override {
         
-        aerion_interfaces::msg::ControlOutput output;
+        peregrine_interfaces::msg::ControlOutput output;
         output.header.stamp = node_->get_clock()->now();
         output.controller_name = name_;
         
         if (use_velocity_mode_ && reference.velocity_valid) {
             output.control_mode = 
-                aerion_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY;
+                peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY;
             output.velocity = reference.velocity;
             output.yaw_rate_radps = reference.yaw_rate_radps;
         } else {
             output.control_mode = 
-                aerion_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION;
+                peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION;
             output.position = reference.position;
             output.yaw_rad = reference.yaw_rad;
         }
@@ -310,11 +310,11 @@ private:
     bool use_velocity_mode_{false};
 };
 
-}  // namespace aerion::control
+}  // namespace peregrine::control
 
 PLUGINLIB_EXPORT_CLASS(
-    aerion::control::Px4PassthroughController,
-    aerion::control::ControllerBase)
+    peregrine::control::Px4PassthroughController,
+    peregrine::control::ControllerBase)
 ```
 
 ### Geometric Controller Example
@@ -322,7 +322,7 @@ PLUGINLIB_EXPORT_CLASS(
 ```cpp
 // controller_plugins/src/geometric_controller.cpp
 
-namespace aerion::control {
+namespace peregrine::control {
 
 /**
  * @brief Geometric tracking controller for quadrotors
@@ -366,9 +366,9 @@ public:
         return true;
     }
     
-    aerion_interfaces::msg::ControlOutput compute(
-        const aerion_interfaces::msg::State& state,
-        const aerion_interfaces::msg::TrajectorySetpoint& ref,
+    peregrine_interfaces::msg::ControlOutput compute(
+        const peregrine_interfaces::msg::State& state,
+        const peregrine_interfaces::msg::TrajectorySetpoint& ref,
         double dt) override {
         
         using namespace Eigen;
@@ -429,11 +429,11 @@ public:
         q_des.normalize();
         
         // Build output
-        aerion_interfaces::msg::ControlOutput output;
+        peregrine_interfaces::msg::ControlOutput output;
         output.header.stamp = node_->get_clock()->now();
         output.controller_name = name_;
         output.control_mode = 
-            aerion_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE;
+            peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE;
         
         output.orientation.w = q_des.w();
         output.orientation.x = q_des.x();
@@ -454,11 +454,11 @@ private:
     double mass_, gravity_, max_thrust_;
 };
 
-}  // namespace aerion::control
+}  // namespace peregrine::control
 
 PLUGINLIB_EXPORT_CLASS(
-    aerion::control::GeometricController,
-    aerion::control::ControllerBase)
+    peregrine::control::GeometricController,
+    peregrine::control::ControllerBase)
 ```
 
 ---
@@ -470,7 +470,7 @@ PLUGINLIB_EXPORT_CLASS(
 ```cpp
 // controller_manager/include/controller_manager/controller_manager_node.hpp
 
-namespace aerion::control {
+namespace peregrine::control {
 
 class ControllerManagerNode : public rclcpp::Node {
 public:
@@ -485,14 +485,14 @@ private:
     void controlLoop();
     
     // Callbacks
-    void onState(const aerion_interfaces::msg::State::SharedPtr msg);
+    void onState(const peregrine_interfaces::msg::State::SharedPtr msg);
     void onTrajectorySetpoint(
-        const aerion_interfaces::msg::TrajectorySetpoint::SharedPtr msg);
+        const peregrine_interfaces::msg::TrajectorySetpoint::SharedPtr msg);
     
     // Services
     void setControllerCallback(
-        const aerion_interfaces::srv::SetController::Request::SharedPtr req,
-        aerion_interfaces::srv::SetController::Response::SharedPtr res);
+        const peregrine_interfaces::srv::SetController::Request::SharedPtr req,
+        peregrine_interfaces::srv::SetController::Response::SharedPtr res);
     
     // Plugin loader
     std::unique_ptr<pluginlib::ClassLoader<ControllerBase>> plugin_loader_;
@@ -506,8 +506,8 @@ private:
     std::mutex controller_mutex_;
     
     // State and reference storage
-    aerion_interfaces::msg::State current_state_;
-    aerion_interfaces::msg::TrajectorySetpoint current_reference_;
+    peregrine_interfaces::msg::State current_state_;
+    peregrine_interfaces::msg::TrajectorySetpoint current_reference_;
     std::mutex data_mutex_;
     bool state_received_{false};
     bool reference_received_{false};
@@ -516,18 +516,18 @@ private:
     rclcpp::Time last_control_time_;
     
     // Subscribers
-    rclcpp::Subscription<aerion_interfaces::msg::State>::SharedPtr state_sub_;
-    rclcpp::Subscription<aerion_interfaces::msg::TrajectorySetpoint>::SharedPtr 
+    rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr state_sub_;
+    rclcpp::Subscription<peregrine_interfaces::msg::TrajectorySetpoint>::SharedPtr 
         reference_sub_;
     
     // Publishers
-    rclcpp::Publisher<aerion_interfaces::msg::ControlOutput>::SharedPtr 
+    rclcpp::Publisher<peregrine_interfaces::msg::ControlOutput>::SharedPtr 
         control_output_pub_;
-    rclcpp::Publisher<aerion_interfaces::msg::ControllerStatus>::SharedPtr 
+    rclcpp::Publisher<peregrine_interfaces::msg::ControllerStatus>::SharedPtr 
         status_pub_;
     
     // Services
-    rclcpp::Service<aerion_interfaces::srv::SetController>::SharedPtr 
+    rclcpp::Service<peregrine_interfaces::srv::SetController>::SharedPtr 
         set_controller_srv_;
     
     // Control timer
@@ -539,7 +539,7 @@ private:
     std::vector<std::string> plugin_names_;
 };
 
-}  // namespace aerion::control
+}  // namespace peregrine::control
 ```
 
 ### Control Loop
@@ -564,7 +564,7 @@ void ControllerManagerNode::controlLoop() {
     }
     
     // Default reference if none received
-    aerion_interfaces::msg::TrajectorySetpoint reference;
+    peregrine_interfaces::msg::TrajectorySetpoint reference;
     if (reference_received_) {
         reference = current_reference_;
     } else {
@@ -630,7 +630,7 @@ controller_manager:
 ```bash
 # Switch to geometric controller
 ros2 service call /controller_manager/set_controller \
-    aerion_interfaces/srv/SetController \
+    peregrine_interfaces/srv/SetController \
     "{controller_name: 'geometric_controller'}"
 
 # Check status

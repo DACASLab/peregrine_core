@@ -1,7 +1,7 @@
 # tui_status
 
 **Package Type:** ROS2 Node Package  
-**Dependencies:** aerion_interfaces, rclcpp, ncurses  
+**Dependencies:** peregrine_interfaces, rclcpp, ncurses  
 
 ---
 
@@ -28,7 +28,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ AERION Flight Stack - UAV1 (Alpha)                      [HOVERING]   │
+│ PEREGRINE Flight Stack - UAV1 (Alpha)                      [HOVERING]   │
 ├────────────────────────────────────┬─────────────────────────────────┤
 │ STATE                              │ POSITION (ENU)                  │
 │   Mode:     OFFBOARD               │   X:     12.45 m   (East)       │
@@ -67,7 +67,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ AERION Fleet Status                                    4 UAVs Active │
+│ PEREGRINE Fleet Status                                    4 UAVs Active │
 ├────────┬─────────┬──────────┬────────────┬─────────┬────────────────┤
 │  ID    │  State  │ Position │   Battery  │ Safety  │    Status      │
 ├────────┼─────────┼──────────┼────────────┼─────────┼────────────────┤

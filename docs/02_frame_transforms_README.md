@@ -1,18 +1,18 @@
 # frame_transforms
 
 **Package Type:** ROS2 Library Package  
-**Dependencies:** aerion_interfaces, Eigen3, tf2, tf2_ros, tf2_eigen, geometry_msgs  
+**Dependencies:** peregrine_interfaces, Eigen3, tf2, tf2_ros, tf2_eigen, geometry_msgs  
 
 ---
 
 ## Overview
 
-`frame_transforms` provides **coordinate frame transformation utilities** for the AERION flight stack. This package serves two critical functions:
+`frame_transforms` provides **coordinate frame transformation utilities** for the PEREGRINE flight stack. This package serves two critical functions:
 
 1. **Static Transformations**: Convert between ROS conventions (ENU/FLU) and PX4 conventions (NED/FRD)
 2. **Dynamic TF Broadcasting**: Publish TF2 transforms for the UAV and sensor frames
 
-This package is the **single source of truth** for frame conventions in AERION.
+This package is the **single source of truth** for frame conventions in PEREGRINE.
 
 ---
 
@@ -35,14 +35,14 @@ These functions are called at high rates (250Hz+), so they must be efficient wit
 
 | Frame | Convention | X-Axis | Y-Axis | Z-Axis | Used By |
 |-------|------------|--------|--------|--------|---------|
-| ENU | ROS Standard | East | North | Up | AERION |
+| ENU | ROS Standard | East | North | Up | PEREGRINE |
 | NED | Aviation/PX4 | North | East | Down | PX4 |
 
 ### Body Frames
 
 | Frame | Convention | X-Axis | Y-Axis | Z-Axis | Used By |
 |-------|------------|--------|--------|--------|---------|
-| FLU | ROS Standard | Forward | Left | Up | AERION |
+| FLU | ROS Standard | Forward | Left | Up | PEREGRINE |
 | FRD | Aviation/PX4 | Forward | Right | Down | PX4 |
 
 ### Visual Reference
@@ -83,7 +83,7 @@ These functions are called at high rates (250Hz+), so they must be efficient wit
 ```cpp
 // frame_transforms/include/frame_transforms/conversions.hpp
 
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Position Transformations
@@ -133,13 +133,13 @@ inline geometry_msgs::msg::Point ned_to_enu(
     return enu;
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Velocity Conversions
 
 ```cpp
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Velocity Transformations (same as position in linear case)
@@ -176,13 +176,13 @@ inline geometry_msgs::msg::Vector3 velocity_ned_to_enu(
     return v_enu;
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Body Frame Conversions
 
 ```cpp
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Body Frame Transformations (FLU ↔ FRD)
@@ -225,13 +225,13 @@ inline Eigen::Vector3d angular_velocity_frd_to_flu(
     return Eigen::Vector3d(omega_frd.x(), -omega_frd.y(), -omega_frd.z());
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Quaternion Conversions
 
 ```cpp
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Quaternion Transformations
@@ -292,13 +292,13 @@ inline geometry_msgs::msg::Quaternion quaternion_enu_to_ned(
     return q_ned;
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Yaw Angle Conversions
 
 ```cpp
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Yaw/Heading Transformations
@@ -339,13 +339,13 @@ inline double normalize_angle(double angle) {
     return angle;
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Covariance Transformations
 
 ```cpp
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // ═══════════════════════════════════════════════════════════════════
 // Covariance Matrix Transformations
@@ -390,7 +390,7 @@ inline Eigen::Matrix<double, 6, 6> pose_covariance_enu_to_ned(
     return R_full * cov_enu * R_full.transpose();
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ---
@@ -402,7 +402,7 @@ inline Eigen::Matrix<double, 6, 6> pose_covariance_enu_to_ned(
 ```cpp
 // frame_transforms/include/frame_transforms/tf_broadcaster.hpp
 
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 /**
  * @brief TF2 transform broadcaster for UAV frames
@@ -418,7 +418,7 @@ public:
      * @brief Broadcast world -> base_link transform
      * @param state Current UAV state in ENU/FLU
      */
-    void broadcastState(const aerion_interfaces::msg::State& state);
+    void broadcastState(const peregrine_interfaces::msg::State& state);
     
     /**
      * @brief Broadcast static sensor transforms
@@ -449,7 +449,7 @@ private:
     std::string base_link_frame_{"base_link"};
 };
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### Frame Tree Configuration
@@ -515,7 +515,7 @@ sensor_transforms:
    find_package(tf2_eigen REQUIRED)
    find_package(geometry_msgs REQUIRED)
    find_package(Eigen3 REQUIRED)
-   find_package(aerion_interfaces REQUIRED)
+   find_package(peregrine_interfaces REQUIRED)
    
    # Header-only conversions library
    add_library(frame_conversions INTERFACE)
@@ -534,7 +534,7 @@ sensor_transforms:
      $<INSTALL_INTERFACE:include>
    )
    ament_target_dependencies(tf_broadcaster
-     rclcpp tf2 tf2_ros tf2_eigen geometry_msgs aerion_interfaces
+     rclcpp tf2 tf2_ros tf2_eigen geometry_msgs peregrine_interfaces
    )
    
    # Install
@@ -642,7 +642,7 @@ frame_transforms/
 #include <gtest/gtest.h>
 #include "frame_transforms/conversions.hpp"
 
-using namespace aerion::frame_transforms;
+using namespace peregrine::frame_transforms;
 
 TEST(FrameConversions, PositionRoundTrip) {
     Eigen::Vector3d original(1.0, 2.0, 3.0);

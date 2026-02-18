@@ -1,20 +1,20 @@
 # hardware_abstraction
 
 **Package Type:** ROS2 Node Package  
-**Dependencies:** aerion_interfaces, frame_transforms, px4_msgs, rclcpp  
+**Dependencies:** peregrine_interfaces, frame_transforms, px4_msgs, rclcpp  
 
 ---
 
 ## Overview
 
-`hardware_abstraction` is the **sole interface between AERION and PX4**. This package:
+`hardware_abstraction` is the **sole interface between PEREGRINE and PX4**. This package:
 
 1. **Bridges ROS2 and PX4** via uXRCE-DDS (no MAVLink)
 2. **Handles all frame conversions** at the hardware boundary
 3. **Manages PX4 connection lifecycle**
 4. **Abstracts PX4 specifics** from the rest of the stack
 
-All other AERION packages interact with PX4 ONLY through this package.
+All other PEREGRINE packages interact with PX4 ONLY through this package.
 
 ---
 
@@ -23,15 +23,15 @@ All other AERION packages interact with PX4 ONLY through this package.
 ### Single Gateway Principle
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        AERION STACK                              │
-│     (Everything in ENU/FLU, uses aerion_interfaces)             │
+│                        PEREGRINE STACK                              │
+│     (Everything in ENU/FLU, uses peregrine_interfaces)             │
 └─────────────────────────────────────┬───────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    HARDWARE ABSTRACTION                          │
 │    • Frame conversion (ENU↔NED, FLU↔FRD)                        │
-│    • Message translation (aerion_interfaces ↔ px4_msgs)         │
+│    • Message translation (peregrine_interfaces ↔ px4_msgs)         │
 │    • Connection management                                       │
 │    • Time synchronization                                        │
 └─────────────────────────────────────┬───────────────────────────┘
@@ -73,15 +73,15 @@ hardware_abstraction_node
 │   ├── publishOffboardMode() → /fmu/in/offboard_control_mode
 │   └── publishCommand() → /fmu/in/vehicle_command
 │
-├── AERION Publishers (to stack)
-│   ├── /hardware_abstraction/px4_state (aerion_interfaces/State)
-│   ├── /hardware_abstraction/px4_status (aerion_interfaces/PX4Status)
+├── PEREGRINE Publishers (to stack)
+│   ├── /hardware_abstraction/px4_state (peregrine_interfaces/State)
+│   ├── /hardware_abstraction/px4_status (peregrine_interfaces/PX4Status)
 │   └── /hardware_abstraction/battery (sensor_msgs/BatteryState)
 │
-├── AERION Subscribers (from stack)
-│   └── /hardware_abstraction/control_output (aerion_interfaces/ControlOutput)
+├── PEREGRINE Subscribers (from stack)
+│   └── /hardware_abstraction/control_output (peregrine_interfaces/ControlOutput)
 │
-└── AERION Services
+└── PEREGRINE Services
     ├── /hardware_abstraction/arm
     ├── /hardware_abstraction/disarm
     ├── /hardware_abstraction/set_mode
@@ -141,7 +141,7 @@ auto qos = rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(px4_qos_profile));
 ```cpp
 // hardware_abstraction/include/hardware_abstraction/hardware_abstraction_node.hpp
 
-namespace aerion::hardware_abstraction {
+namespace peregrine::hardware_abstraction {
 
 class HardwareAbstractionNode : public rclcpp::Node {
 public:
@@ -162,19 +162,19 @@ private:
     // Stack Callbacks (ENU/FLU in, convert to NED/FRD, send to PX4)
     // ═══════════════════════════════════════════════════════════════
     
-    void onControlOutput(const aerion_interfaces::msg::ControlOutput::SharedPtr msg);
+    void onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg);
     
     // ═══════════════════════════════════════════════════════════════
     // Services
     // ═══════════════════════════════════════════════════════════════
     
     void armCallback(
-        const aerion_interfaces::srv::Arm::Request::SharedPtr request,
-        aerion_interfaces::srv::Arm::Response::SharedPtr response);
+        const peregrine_interfaces::srv::Arm::Request::SharedPtr request,
+        peregrine_interfaces::srv::Arm::Response::SharedPtr response);
     
     void setModeCallback(
-        const aerion_interfaces::srv::SetMode::Request::SharedPtr request,
-        aerion_interfaces::srv::SetMode::Response::SharedPtr response);
+        const peregrine_interfaces::srv::SetMode::Request::SharedPtr request,
+        peregrine_interfaces::srv::SetMode::Response::SharedPtr response);
     
     // ═══════════════════════════════════════════════════════════════
     // Internal Methods
@@ -189,14 +189,14 @@ private:
     // Frame Conversion Helpers
     // ═══════════════════════════════════════════════════════════════
     
-    aerion_interfaces::msg::State convertToAerionState(
+    peregrine_interfaces::msg::State convertToPeregrineState(
         const px4_msgs::msg::VehicleOdometry& odom);
     
     px4_msgs::msg::TrajectorySetpoint convertToTrajectorySetpoint(
-        const aerion_interfaces::msg::ControlOutput& output);
+        const peregrine_interfaces::msg::ControlOutput& output);
     
     px4_msgs::msg::VehicleAttitudeSetpoint convertToAttitudeSetpoint(
-        const aerion_interfaces::msg::ControlOutput& output);
+        const peregrine_interfaces::msg::ControlOutput& output);
     
     // ═══════════════════════════════════════════════════════════════
     // Member Variables
@@ -216,15 +216,15 @@ private:
     rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr command_pub_;
     
     // Stack publishers
-    rclcpp::Publisher<aerion_interfaces::msg::State>::SharedPtr state_pub_;
-    rclcpp::Publisher<aerion_interfaces::msg::PX4Status>::SharedPtr px4_status_pub_;
+    rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr state_pub_;
+    rclcpp::Publisher<peregrine_interfaces::msg::PX4Status>::SharedPtr px4_status_pub_;
     
     // Stack subscribers
-    rclcpp::Subscription<aerion_interfaces::msg::ControlOutput>::SharedPtr control_sub_;
+    rclcpp::Subscription<peregrine_interfaces::msg::ControlOutput>::SharedPtr control_sub_;
     
     // Services
-    rclcpp::Service<aerion_interfaces::srv::Arm>::SharedPtr arm_service_;
-    rclcpp::Service<aerion_interfaces::srv::SetMode>::SharedPtr mode_service_;
+    rclcpp::Service<peregrine_interfaces::srv::Arm>::SharedPtr arm_service_;
+    rclcpp::Service<peregrine_interfaces::srv::SetMode>::SharedPtr mode_service_;
     
     // Timers
     rclcpp::TimerBase::SharedPtr offboard_timer_;  // Publish offboard mode at 10Hz
@@ -245,7 +245,7 @@ private:
     double watchdog_timeout_s_{1.0};
 };
 
-}  // namespace aerion::hardware_abstraction
+}  // namespace peregrine::hardware_abstraction
 ```
 
 ### State Conversion Implementation
@@ -253,12 +253,12 @@ private:
 ```cpp
 // hardware_abstraction/src/hardware_abstraction_node.cpp
 
-aerion_interfaces::msg::State HardwareAbstractionNode::convertToAerionState(
+peregrine_interfaces::msg::State HardwareAbstractionNode::convertToPeregrineState(
     const px4_msgs::msg::VehicleOdometry& odom) {
     
-    using namespace aerion::frame_transforms;
+    using namespace peregrine::frame_transforms;
     
-    aerion_interfaces::msg::State state;
+    peregrine_interfaces::msg::State state;
     state.header.stamp = this->get_clock()->now();
     state.header.frame_id = "world";  // ENU frame
     
@@ -318,15 +318,15 @@ aerion_interfaces::msg::State HardwareAbstractionNode::convertToAerionState(
 
 ```cpp
 void HardwareAbstractionNode::onControlOutput(
-    const aerion_interfaces::msg::ControlOutput::SharedPtr msg) {
+    const peregrine_interfaces::msg::ControlOutput::SharedPtr msg) {
     
-    using namespace aerion::frame_transforms;
+    using namespace peregrine::frame_transforms;
     
     // Update control mode
     control_mode_.store(msg->control_mode);
     
     switch (msg->control_mode) {
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION: {
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION: {
             // Convert position setpoint ENU → NED
             px4_msgs::msg::TrajectorySetpoint setpoint;
             setpoint.timestamp = getTimestamp();
@@ -349,7 +349,7 @@ void HardwareAbstractionNode::onControlOutput(
             break;
         }
         
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY: {
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY: {
             px4_msgs::msg::TrajectorySetpoint setpoint;
             setpoint.timestamp = getTimestamp();
             
@@ -372,7 +372,7 @@ void HardwareAbstractionNode::onControlOutput(
             break;
         }
         
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE: {
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE: {
             px4_msgs::msg::VehicleAttitudeSetpoint setpoint;
             setpoint.timestamp = getTimestamp();
             
@@ -394,7 +394,7 @@ void HardwareAbstractionNode::onControlOutput(
             break;
         }
         
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_BODY_RATE: {
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_BODY_RATE: {
             px4_msgs::msg::VehicleRatesSetpoint setpoint;
             setpoint.timestamp = getTimestamp();
             
@@ -426,7 +426,7 @@ void HardwareAbstractionNode::publishOffboardControlMode() {
     
     // Set flags based on current control mode
     switch (control_mode_.load()) {
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION:
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_POSITION:
             msg.position = true;
             msg.velocity = false;
             msg.acceleration = false;
@@ -434,7 +434,7 @@ void HardwareAbstractionNode::publishOffboardControlMode() {
             msg.body_rate = false;
             break;
             
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY:
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_VELOCITY:
             msg.position = false;
             msg.velocity = true;
             msg.acceleration = false;
@@ -442,7 +442,7 @@ void HardwareAbstractionNode::publishOffboardControlMode() {
             msg.body_rate = false;
             break;
             
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE:
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_ATTITUDE:
             msg.position = false;
             msg.velocity = false;
             msg.acceleration = false;
@@ -450,7 +450,7 @@ void HardwareAbstractionNode::publishOffboardControlMode() {
             msg.body_rate = false;
             break;
             
-        case aerion_interfaces::msg::ControlOutput::CONTROL_MODE_BODY_RATE:
+        case peregrine_interfaces::msg::ControlOutput::CONTROL_MODE_BODY_RATE:
             msg.position = false;
             msg.velocity = false;
             msg.acceleration = false;
@@ -512,8 +512,8 @@ void HardwareAbstractionNode::sendVehicleCommand(
 
 // Arming service
 void HardwareAbstractionNode::armCallback(
-    const aerion_interfaces::srv::Arm::Request::SharedPtr request,
-    aerion_interfaces::srv::Arm::Response::SharedPtr response) {
+    const peregrine_interfaces::srv::Arm::Request::SharedPtr request,
+    peregrine_interfaces::srv::Arm::Response::SharedPtr response) {
     
     if (request->arm) {
         // Arm command
@@ -732,7 +732,7 @@ class HardwareAbstractionTest : public ::testing::Test {
 protected:
     void SetUp() override {
         rclcpp::init(0, nullptr);
-        node_ = std::make_shared<aerion::hardware_abstraction::HardwareAbstractionNode>(
+        node_ = std::make_shared<peregrine::hardware_abstraction::HardwareAbstractionNode>(
             rclcpp::NodeOptions());
     }
     
@@ -741,15 +741,15 @@ protected:
         rclcpp::shutdown();
     }
     
-    std::shared_ptr<aerion::hardware_abstraction::HardwareAbstractionNode> node_;
+    std::shared_ptr<peregrine::hardware_abstraction::HardwareAbstractionNode> node_;
 };
 
 TEST_F(HardwareAbstractionTest, PublishesState) {
     // Verify state is published when PX4 data arrives
     bool received = false;
-    auto sub = node_->create_subscription<aerion_interfaces::msg::State>(
+    auto sub = node_->create_subscription<peregrine_interfaces::msg::State>(
         "hardware_abstraction/px4_state", 10,
-        [&received](aerion_interfaces::msg::State::SharedPtr) {
+        [&received](peregrine_interfaces::msg::State::SharedPtr) {
             received = true;
         });
     

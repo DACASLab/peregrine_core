@@ -1,4 +1,4 @@
-# aerion_interfaces
+# peregrine_interfaces
 
 **Package Type:** ROS2 Interface Package  
 **Dependencies:** std_msgs, geometry_msgs, nav_msgs, sensor_msgs  
@@ -7,7 +7,7 @@
 
 ## Overview
 
-`aerion_interfaces` is the **central message and service definition package** for the AERION flight stack. All custom messages, services, and actions are defined here to:
+`peregrine_interfaces` is the **central message and service definition package** for the PEREGRINE flight stack. All custom messages, services, and actions are defined here to:
 
 1. **Minimize dependency coupling** - All packages depend only on this interface package
 2. **Simplify rosbag compatibility** - Only this package needs version matching for replay
@@ -37,7 +37,7 @@ All messages include `std_msgs/Header` for proper time synchronization.
 
 #### `State.msg` - Complete UAV State
 ```
-# aerion_interfaces/msg/State.msg
+# peregrine_interfaces/msg/State.msg
 # Complete UAV state in ENU/FLU frame
 
 std_msgs/Header header
@@ -74,7 +74,7 @@ float64 confidence                     # [0.0 - 1.0] Estimator confidence
 
 #### `TrajectorySetpoint.msg` - Reference Setpoint
 ```
-# aerion_interfaces/msg/TrajectorySetpoint.msg
+# peregrine_interfaces/msg/TrajectorySetpoint.msg
 # Setpoint for trajectory tracking in ENU/FLU frame
 
 std_msgs/Header header
@@ -106,7 +106,7 @@ float64 yaw_rate_radps                 # [rad/s] Desired yaw rate
 
 #### `ControlOutput.msg` - Controller Output
 ```
-# aerion_interfaces/msg/ControlOutput.msg
+# peregrine_interfaces/msg/ControlOutput.msg
 # Output from controller to hardware abstraction
 
 std_msgs/Header header
@@ -142,7 +142,7 @@ string controller_name                 # Which controller produced this output
 
 #### `Trajectory.msg` - Complete Trajectory
 ```
-# aerion_interfaces/msg/Trajectory.msg
+# peregrine_interfaces/msg/Trajectory.msg
 # Complete trajectory representation
 
 std_msgs/Header header
@@ -184,7 +184,7 @@ uint8 SETPOINT_FULL_STATE = 2
 
 #### `TrajectoryStatus.msg` - Trajectory Progress
 ```
-# aerion_interfaces/msg/TrajectoryStatus.msg
+# peregrine_interfaces/msg/TrajectoryStatus.msg
 # Current trajectory execution status
 
 std_msgs/Header header
@@ -218,7 +218,7 @@ uint8 STATUS_ERROR = 5
 
 #### `SafetyStatus.msg` - Overall Safety State
 ```
-# aerion_interfaces/msg/SafetyStatus.msg
+# peregrine_interfaces/msg/SafetyStatus.msg
 # Comprehensive safety status
 
 std_msgs/Header header
@@ -273,7 +273,7 @@ uint8 ACTION_EMERGENCY_STOP = 5
 
 #### `CollisionConstraint.msg` - Collision Avoidance Constraint
 ```
-# aerion_interfaces/msg/CollisionConstraint.msg
+# peregrine_interfaces/msg/CollisionConstraint.msg
 # Collision avoidance constraint from multi-agent coordinator
 
 std_msgs/Header header
@@ -302,7 +302,7 @@ float64 expiry_time_s                  # [s] When constraint expires
 
 #### `UAVMode.msg` - Current UAV Mode
 ```
-# aerion_interfaces/msg/UAVMode.msg
+# peregrine_interfaces/msg/UAVMode.msg
 # Current operational mode
 
 std_msgs/Header header
@@ -340,7 +340,7 @@ bool can_land
 
 #### `UAVStatus.msg` - Comprehensive UAV Status
 ```
-# aerion_interfaces/msg/UAVStatus.msg
+# peregrine_interfaces/msg/UAVStatus.msg
 # Complete UAV status for monitoring
 
 std_msgs/Header header
@@ -385,7 +385,7 @@ float64 mission_progress_percent
 
 #### `SetController.srv`
 ```
-# aerion_interfaces/srv/SetController.srv
+# peregrine_interfaces/srv/SetController.srv
 # Switch active controller
 
 string controller_name                 # Plugin name to activate
@@ -397,7 +397,7 @@ string active_controller               # Currently active controller after switc
 
 #### `SetEstimator.srv`
 ```
-# aerion_interfaces/srv/SetEstimator.srv
+# peregrine_interfaces/srv/SetEstimator.srv
 # Switch active estimator
 
 string estimator_name                  # Plugin name to activate
@@ -409,7 +409,7 @@ string active_estimator                # Currently active estimator after switch
 
 #### `SetTrajectoryGenerator.srv`
 ```
-# aerion_interfaces/srv/SetTrajectoryGenerator.srv
+# peregrine_interfaces/srv/SetTrajectoryGenerator.srv
 # Switch active trajectory generator
 
 string generator_name                  # Plugin name to activate
@@ -423,7 +423,7 @@ string active_generator                # Currently active generator after switch
 
 #### `Arm.srv`
 ```
-# aerion_interfaces/srv/Arm.srv
+# peregrine_interfaces/srv/Arm.srv
 # Arm or disarm the UAV
 
 bool arm                               # true = arm, false = disarm
@@ -435,7 +435,7 @@ bool armed                             # Current armed state
 
 #### `EmergencyStop.srv`
 ```
-# aerion_interfaces/srv/EmergencyStop.srv
+# peregrine_interfaces/srv/EmergencyStop.srv
 # Emergency stop - use with extreme caution!
 
 bool confirm                           # Must be true to execute
@@ -451,7 +451,7 @@ string message
 
 ### `Takeoff.action`
 ```
-# aerion_interfaces/action/Takeoff.action
+# peregrine_interfaces/action/Takeoff.action
 # Takeoff to specified altitude
 
 # Goal
@@ -470,7 +470,7 @@ float64 progress_percent               # [%] Completion progress
 
 ### `Land.action`
 ```
-# aerion_interfaces/action/Land.action
+# peregrine_interfaces/action/Land.action
 # Land at current position or specified location
 
 # Goal
@@ -490,7 +490,7 @@ float64 progress_percent               # [%] Completion progress
 
 ### `SetTrajectory.action`
 ```
-# aerion_interfaces/action/SetTrajectory.action
+# peregrine_interfaces/action/SetTrajectory.action
 # Execute a trajectory
 
 # Goal
@@ -508,7 +508,7 @@ TrajectoryStatus status                # Current trajectory status
 
 ### `GoToPosition.action`
 ```
-# aerion_interfaces/action/GoToPosition.action
+# peregrine_interfaces/action/GoToPosition.action
 # Go to a position
 
 # Goal
@@ -541,7 +541,7 @@ float64 eta_s                          # [s] Estimated time of arrival
 2. **CMakeLists.txt Structure**
    ```cmake
    cmake_minimum_required(VERSION 3.8)
-   project(aerion_interfaces)
+   project(peregrine_interfaces)
    
    find_package(ament_cmake REQUIRED)
    find_package(rosidl_default_generators REQUIRED)
@@ -570,9 +570,9 @@ float64 eta_s                          # [s] Estimated time of arrival
 3. **package.xml Structure**
    ```xml
    <package format="3">
-     <name>aerion_interfaces</name>
+     <name>peregrine_interfaces</name>
      <version>1.0.0</version>
-     <description>AERION flight stack interfaces</description>
+     <description>PEREGRINE flight stack interfaces</description>
      
      <buildtool_depend>ament_cmake</buildtool_depend>
      <buildtool_depend>rosidl_default_generators</buildtool_depend>
@@ -625,7 +625,7 @@ float64 eta_s                          # [s] Estimated time of arrival
 ## File Structure
 
 ```
-aerion_interfaces/
+peregrine_interfaces/
 ├── CMakeLists.txt
 ├── package.xml
 ├── msg/

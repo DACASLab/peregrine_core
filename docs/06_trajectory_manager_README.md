@@ -1,7 +1,7 @@
 # trajectory_manager
 
 **Package Type:** ROS2 Node Package with Plugin Architecture  
-**Dependencies:** aerion_interfaces, pluginlib, rclcpp, Eigen3  
+**Dependencies:** peregrine_interfaces, pluginlib, rclcpp, Eigen3  
 
 ---
 

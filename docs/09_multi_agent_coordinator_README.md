@@ -1,7 +1,7 @@
 # multi_agent_coordinator
 
 **Package Type:** ROS2 Node Package  
-**Dependencies:** aerion_interfaces, rclcpp, Eigen3  
+**Dependencies:** peregrine_interfaces, rclcpp, Eigen3  
 
 ---
 

@@ -1,13 +1,13 @@
 # estimator_manager
 
 **Package Type:** ROS2 Node Package with Plugin Architecture  
-**Dependencies:** aerion_interfaces, frame_transforms, pluginlib, rclcpp  
+**Dependencies:** peregrine_interfaces, frame_transforms, pluginlib, rclcpp  
 
 ---
 
 ## Overview
 
-`estimator_manager` provides **plugin-based state estimation** for the AERION flight stack. This package:
+`estimator_manager` provides **plugin-based state estimation** for the PEREGRINE flight stack. This package:
 
 1. **Loads estimator plugins** at runtime using pluginlib
 2. **Manages estimator lifecycle** (activate/deactivate/switch)
@@ -45,7 +45,7 @@
 │                             │                                    │
 │                             ▼                                    │
 │                    Unified State Output                          │
-│               (aerion_interfaces/State)                         │
+│               (peregrine_interfaces/State)                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,15 +97,15 @@
 ```cpp
 // estimator_manager/include/estimator_manager/estimator_base.hpp
 
-#ifndef AERION_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
-#define AERION_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
+#ifndef PEREGRINE_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
+#define PEREGRINE_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
 
 #include <rclcpp/rclcpp.hpp>
-#include <aerion_interfaces/msg/state.hpp>
+#include <peregrine_interfaces/msg/state.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
-namespace aerion::estimator {
+namespace peregrine::estimator {
 
 /**
  * @brief Base class for all estimator plugins
@@ -143,7 +143,7 @@ public:
      * @param px4_state State from hardware_abstraction (ENU/FLU)
      */
     virtual void processPX4State(
-        const aerion_interfaces::msg::State& px4_state) = 0;
+        const peregrine_interfaces::msg::State& px4_state) = 0;
     
     /**
      * @brief Inject external pose (e.g., from MoCap)
@@ -163,7 +163,7 @@ public:
      * @brief Get current state estimate
      * @return Current estimated state (ENU/FLU)
      */
-    virtual aerion_interfaces::msg::State getState() const = 0;
+    virtual peregrine_interfaces::msg::State getState() const = 0;
     
     /**
      * @brief Get estimator name
@@ -190,7 +190,7 @@ public:
      * @param initial_state Optional initial state
      */
     virtual void reset(
-        const aerion_interfaces::msg::State* initial_state = nullptr) = 0;
+        const peregrine_interfaces::msg::State* initial_state = nullptr) = 0;
     
 protected:
     rclcpp::Node::SharedPtr node_;
@@ -206,9 +206,9 @@ enum class EstimatorType {
     CUSTOM          // Research/custom implementation
 };
 
-}  // namespace aerion::estimator
+}  // namespace peregrine::estimator
 
-#endif  // AERION_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
+#endif  // PEREGRINE_ESTIMATOR_MANAGER_ESTIMATOR_BASE_HPP
 ```
 
 ### Plugin Registration
@@ -219,7 +219,7 @@ enum class EstimatorType {
 #include <pluginlib/class_list_macros.hpp>
 #include "estimator_manager/estimator_base.hpp"
 
-namespace aerion::estimator {
+namespace peregrine::estimator {
 
 /**
  * @brief Passthrough estimator - forwards PX4 state directly
@@ -258,7 +258,7 @@ public:
         return true;
     }
     
-    void processPX4State(const aerion_interfaces::msg::State& px4_state) override {
+    void processPX4State(const peregrine_interfaces::msg::State& px4_state) override {
         std::lock_guard<std::mutex> lock(state_mutex_);
         
         if (use_external_pose_ && hasRecentExternalPose()) {
@@ -283,7 +283,7 @@ public:
         last_external_pose_time_ = node_->get_clock()->now();
     }
     
-    aerion_interfaces::msg::State getState() const override {
+    peregrine_interfaces::msg::State getState() const override {
         std::lock_guard<std::mutex> lock(state_mutex_);
         return current_state_;
     }
@@ -293,7 +293,7 @@ public:
     bool isHealthy() const override { return healthy_; }
     double getConfidence() const override { return confidence_; }
     
-    void reset(const aerion_interfaces::msg::State* initial_state) override {
+    void reset(const peregrine_interfaces::msg::State* initial_state) override {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (initial_state) {
             current_state_ = *initial_state;
@@ -308,7 +308,7 @@ private:
     }
     
     mutable std::mutex state_mutex_;
-    aerion_interfaces::msg::State current_state_;
+    peregrine_interfaces::msg::State current_state_;
     geometry_msgs::msg::PoseStamped external_pose_;
     rclcpp::Time last_external_pose_time_;
     
@@ -318,12 +318,12 @@ private:
     double confidence_{0.0};
 };
 
-}  // namespace aerion::estimator
+}  // namespace peregrine::estimator
 
 // Register plugin
 PLUGINLIB_EXPORT_CLASS(
-    aerion::estimator::PX4PassthroughEstimator,
-    aerion::estimator::EstimatorBase)
+    peregrine::estimator::PX4PassthroughEstimator,
+    peregrine::estimator::EstimatorBase)
 ```
 
 ### Plugin Registration XML
@@ -331,9 +331,9 @@ PLUGINLIB_EXPORT_CLASS(
 ```xml
 <!-- estimator_plugins/plugins.xml -->
 <library path="estimator_plugins">
-  <class name="aerion::estimator::PX4PassthroughEstimator"
-         type="aerion::estimator::PX4PassthroughEstimator"
-         base_class_type="aerion::estimator::EstimatorBase">
+  <class name="peregrine::estimator::PX4PassthroughEstimator"
+         type="peregrine::estimator::PX4PassthroughEstimator"
+         base_class_type="peregrine::estimator::EstimatorBase">
     <description>
       Passthrough estimator that forwards PX4 state directly.
       Optionally fuses external pose (MoCap) for position.
@@ -351,7 +351,7 @@ PLUGINLIB_EXPORT_CLASS(
 ```cpp
 // estimator_manager/include/estimator_manager/estimator_manager_node.hpp
 
-namespace aerion::estimator {
+namespace peregrine::estimator {
 
 class EstimatorManagerNode : public rclcpp::Node {
 public:
@@ -363,15 +363,15 @@ private:
     bool switchEstimator(const std::string& name);
     
     // Callbacks
-    void onPX4State(const aerion_interfaces::msg::State::SharedPtr msg);
+    void onPX4State(const peregrine_interfaces::msg::State::SharedPtr msg);
     void onExternalPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
     void publishLoop();
     void healthCheckLoop();
     
     // Services
     void setEstimatorCallback(
-        const aerion_interfaces::srv::SetEstimator::Request::SharedPtr request,
-        aerion_interfaces::srv::SetEstimator::Response::SharedPtr response);
+        const peregrine_interfaces::srv::SetEstimator::Request::SharedPtr request,
+        peregrine_interfaces::srv::SetEstimator::Response::SharedPtr response);
     
     // Plugin loader
     std::unique_ptr<pluginlib::ClassLoader<EstimatorBase>> plugin_loader_;
@@ -385,15 +385,15 @@ private:
     std::mutex estimator_mutex_;
     
     // Subscribers
-    rclcpp::Subscription<aerion_interfaces::msg::State>::SharedPtr px4_state_sub_;
+    rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr px4_state_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr external_pose_sub_;
     
     // Publishers
-    rclcpp::Publisher<aerion_interfaces::msg::State>::SharedPtr state_pub_;
-    rclcpp::Publisher<aerion_interfaces::msg::EstimatorStatus>::SharedPtr status_pub_;
+    rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr state_pub_;
+    rclcpp::Publisher<peregrine_interfaces::msg::EstimatorStatus>::SharedPtr status_pub_;
     
     // Services
-    rclcpp::Service<aerion_interfaces::srv::SetEstimator>::SharedPtr set_estimator_srv_;
+    rclcpp::Service<peregrine_interfaces::srv::SetEstimator>::SharedPtr set_estimator_srv_;
     
     // Timers
     rclcpp::TimerBase::SharedPtr publish_timer_;
@@ -405,7 +405,7 @@ private:
     std::vector<std::string> plugin_names_;
 };
 
-}  // namespace aerion::estimator
+}  // namespace peregrine::estimator
 ```
 
 ---
@@ -498,7 +498,7 @@ def generate_launch_description():
 ```bash
 # Switch to a different estimator at runtime
 ros2 service call /estimator_manager/set_estimator \
-    aerion_interfaces/srv/SetEstimator \
+    peregrine_interfaces/srv/SetEstimator \
     "{estimator_name: 'custom_ekf'}"
 
 # Check current estimator status
@@ -519,7 +519,7 @@ ros2 topic echo /estimator_manager/status
 
 namespace my_plugins {
 
-class MyCustomEKF : public aerion::estimator::EstimatorBase {
+class MyCustomEKF : public peregrine::estimator::EstimatorBase {
 public:
     bool initialize(const rclcpp::Node::SharedPtr& node,
                    const std::string& name) override {
@@ -545,7 +545,7 @@ private:
 
 PLUGINLIB_EXPORT_CLASS(
     my_plugins::MyCustomEKF,
-    aerion::estimator::EstimatorBase)
+    peregrine::estimator::EstimatorBase)
 ```
 
 ### Step 2: Register Plugin
@@ -555,7 +555,7 @@ PLUGINLIB_EXPORT_CLASS(
 <library path="my_estimator_plugins">
   <class name="my_plugins::MyCustomEKF"
          type="my_plugins::MyCustomEKF"
-         base_class_type="aerion::estimator::EstimatorBase">
+         base_class_type="peregrine::estimator::EstimatorBase">
     <description>Custom EKF implementation for research</description>
   </class>
 </library>

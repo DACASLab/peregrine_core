@@ -1,7 +1,7 @@
 # uav_manager
 
 **Package Type:** ROS2 Node Package  
-**Dependencies:** aerion_interfaces, rclcpp  
+**Dependencies:** peregrine_interfaces, rclcpp  
 
 ---
 

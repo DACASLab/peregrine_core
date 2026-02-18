@@ -1,13 +1,13 @@
-# aerion_bringup
+# peregrine_bringup
 
 **Package Type:** ROS2 Launch/Configuration Package  
-**Dependencies:** All AERION packages, launch_ros, ros2launch  
+**Dependencies:** All PEREGRINE packages, launch_ros, ros2launch  
 
 ---
 
 ## Overview
 
-`aerion_bringup` provides **launch files, configurations, and deployment infrastructure** for the AERION flight stack. This is the primary entry point for starting the system.
+`peregrine_bringup` provides **launch files, configurations, and deployment infrastructure** for the PEREGRINE flight stack. This is the primary entry point for starting the system.
 
 ---
 
@@ -65,7 +65,7 @@ def generate_launch_description():
     
     # Load config
     config_path = PathJoinSubstitution([
-        FindPackageShare('aerion_bringup'),
+        FindPackageShare('peregrine_bringup'),
         'config', config_file
     ])
     
@@ -151,10 +151,10 @@ def generate_launch_description():
 
 ```bash
 # Basic launch
-ros2 launch aerion_bringup single_uav.launch.py
+ros2 launch peregrine_bringup single_uav.launch.py
 
 # With custom namespace and config
-ros2 launch aerion_bringup single_uav.launch.py \
+ros2 launch peregrine_bringup single_uav.launch.py \
     namespace:=uav1 \
     config:=outdoor_config.yaml \
     environment:=gps
@@ -217,10 +217,10 @@ def generate_launch_description():
 
 ```bash
 # Launch 4 UAVs
-ros2 launch aerion_bringup multi_uav.launch.py num_uavs:=4
+ros2 launch peregrine_bringup multi_uav.launch.py num_uavs:=4
 
 # With custom config
-ros2 launch aerion_bringup multi_uav.launch.py \
+ros2 launch peregrine_bringup multi_uav.launch.py \
     num_uavs:=4 \
     config:=fleet_config.yaml
 ```
@@ -290,9 +290,9 @@ def generate_launch_description():
     )
     
     # Include multi-UAV launch
-    aerion_launch = IncludeLaunchDescription(
+    peregrine_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            FindPackageShare('aerion_bringup'),
+            FindPackageShare('peregrine_bringup'),
             '/launch/multi_uav.launch.py'
         ]),
         launch_arguments={'num_uavs': num_uavs}.items()
@@ -303,7 +303,7 @@ def generate_launch_description():
         *px4_instances,
         *dds_agents,
         gz_bridge,
-        aerion_launch,
+        peregrine_launch,
     ])
 ```
 
@@ -311,13 +311,13 @@ def generate_launch_description():
 
 ```bash
 # Single UAV simulation
-ros2 launch aerion_bringup simulation.launch.py
+ros2 launch peregrine_bringup simulation.launch.py
 
 # 4-UAV simulation
-ros2 launch aerion_bringup simulation.launch.py num_uavs:=4
+ros2 launch peregrine_bringup simulation.launch.py num_uavs:=4
 
 # Custom world
-ros2 launch aerion_bringup simulation.launch.py \
+ros2 launch peregrine_bringup simulation.launch.py \
     world:=/path/to/custom_world.sdf
 ```
 
@@ -411,18 +411,18 @@ multi_agent_coordinator:
 ### Systemd Service
 
 ```ini
-# /etc/systemd/system/aerion.service
+# /etc/systemd/system/peregrine.service
 
 [Unit]
-Description=AERION Flight Stack
+Description=PEREGRINE Flight Stack
 After=network.target
 
 [Service]
 Type=simple
-User=aerion
+User=peregrine
 Environment="ROS_DOMAIN_ID=0"
 Environment="RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
-ExecStart=/opt/ros/humble/bin/ros2 launch aerion_bringup hardware.launch.py
+ExecStart=/opt/ros/humble/bin/ros2 launch peregrine_bringup hardware.launch.py
 Restart=on-failure
 RestartSec=5
 
@@ -434,17 +434,17 @@ WantedBy=multi-user.target
 
 ```bash
 # Install service
-sudo cp aerion.service /etc/systemd/system/
+sudo cp peregrine.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable aerion.service
+sudo systemctl enable peregrine.service
 
 # Start/Stop
-sudo systemctl start aerion
-sudo systemctl stop aerion
+sudo systemctl start peregrine
+sudo systemctl stop peregrine
 
 # Check status
-sudo systemctl status aerion
-journalctl -u aerion -f  # Follow logs
+sudo systemctl status peregrine
+journalctl -u peregrine -f  # Follow logs
 ```
 
 ### Jetson Optimization
@@ -477,7 +477,7 @@ sudo setcap cap_sys_nice+ep /opt/ros/humble/lib/*/controller_manager_node
 ## File Structure
 
 ```
-aerion_bringup/
+peregrine_bringup/
 ├── CMakeLists.txt
 ├── package.xml
 ├── launch/

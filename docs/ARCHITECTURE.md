@@ -1,4 +1,4 @@
-# AERION Flight Stack - System Architecture Document
+# PEREGRINE Flight Stack - System Architecture Document
 
 **Version:** 1.0  
 **Target Platform:** ROS2 Humble/Jazzy, PX4 v1.15+, Jetson Orin Series  
@@ -25,7 +25,7 @@
 
 ## 1. Executive Summary
 
-AERION (Aerial Robotics Infrastructure for Operational Navigation) is a ROS2-based flight stack designed for multi-agent UAV operations with PX4 autopilots. The stack prioritizes:
+PEREGRINE (Aerial Robotics Infrastructure for Operational Navigation) is a ROS2-based flight stack designed for multi-agent UAV operations with PX4 autopilots. The stack prioritizes:
 
 - **Manager-based architecture**: Each functional domain has a dedicated manager node
 - **Plugin flexibility**: Controllers, estimators, and trajectory generators are runtime-loadable
@@ -46,7 +46,7 @@ AERION (Aerial Robotics Infrastructure for Operational Navigation) is a ROS2-bas
 
 ### 2.1 Manager-Based Architecture
 
-Unlike monolithic designs, AERION uses dedicated manager nodes that orchestrate their domains:
+Unlike monolithic designs, PEREGRINE uses dedicated manager nodes that orchestrate their domains:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -104,7 +104,7 @@ Unlike monolithic designs, AERION uses dedicated manager nodes that orchestrate 
 
 | Package | Purpose | Key Responsibility |
 |---------|---------|-------------------|
-| `aerion_interfaces` | Message/Service definitions | Central interface definitions |
+| `peregrine_interfaces` | Message/Service definitions | Central interface definitions |
 | `hardware_abstraction` | PX4 communication | uXRCE-DDS bridge, frame conversion at boundary |
 | `frame_transforms` | Coordinate transforms | ENU↔NED, FLU↔FRD, TF2 broadcasting |
 | `estimator_manager` | State estimation | Plugin loading, estimator switching, state publishing |
@@ -114,7 +114,7 @@ Unlike monolithic designs, AERION uses dedicated manager nodes that orchestrate 
 | `safety_monitor` | Safety systems | Geofencing, heartbeat, emergency handling |
 | `multi_agent_coordinator` | Fleet coordination | Collision avoidance, shared reference frames |
 | `tui_status` | Terminal interface | ncurses-based monitoring display |
-| `aerion_bringup` | Launch infrastructure | Launch files, configurations, simulation setup |
+| `peregrine_bringup` | Launch infrastructure | Launch files, configurations, simulation setup |
 
 ### 3.2 Technology Stack
 
@@ -172,12 +172,12 @@ Layer 0: External        ┌──────────────┴──�
 | Publisher → Subscriber | Topic/Service | Message Type | Rate |
 |------------------------|---------------|--------------|------|
 | hardware_abstraction → estimator_manager | `/px4_state` | `VehicleOdometry` | 250Hz |
-| estimator_manager → controller_manager | `/estimated_state` | `aerion_interfaces/State` | 250Hz |
-| trajectory_manager → controller_manager | `/trajectory_setpoint` | `aerion_interfaces/TrajectorySetpoint` | 50Hz |
-| controller_manager → hardware_abstraction | `/control_output` | `aerion_interfaces/ControlOutput` | 250Hz |
-| safety_monitor → uav_manager | `/safety_status` | `aerion_interfaces/SafetyStatus` | 10Hz |
-| uav_manager → all managers | `/uav_mode` | `aerion_interfaces/UAVMode` | 10Hz |
-| multi_agent_coordinator → trajectory_manager | `/collision_constraint` | `aerion_interfaces/CollisionConstraint` | 20Hz |
+| estimator_manager → controller_manager | `/estimated_state` | `peregrine_interfaces/State` | 250Hz |
+| trajectory_manager → controller_manager | `/trajectory_setpoint` | `peregrine_interfaces/TrajectorySetpoint` | 50Hz |
+| controller_manager → hardware_abstraction | `/control_output` | `peregrine_interfaces/ControlOutput` | 250Hz |
+| safety_monitor → uav_manager | `/safety_status` | `peregrine_interfaces/SafetyStatus` | 10Hz |
+| uav_manager → all managers | `/uav_mode` | `peregrine_interfaces/UAVMode` | 10Hz |
+| multi_agent_coordinator → trajectory_manager | `/collision_constraint` | `peregrine_interfaces/CollisionConstraint` | 20Hz |
 
 ---
 
@@ -407,12 +407,12 @@ PX4 Body (FRD)               ROS Body (FLU)
 
 ### 7.2 Conversion Strategy
 
-**Golden Rule**: All AERION packages work in ENU/FLU. Conversion happens ONLY in `hardware_abstraction`.
+**Golden Rule**: All PEREGRINE packages work in ENU/FLU. Conversion happens ONLY in `hardware_abstraction`.
 
 ```cpp
 // frame_transforms/include/frame_transforms/conversions.hpp
 
-namespace aerion::frame_transforms {
+namespace peregrine::frame_transforms {
 
 // Position: ENU ↔ NED
 // x_ned =  y_enu
@@ -452,7 +452,7 @@ inline Eigen::Vector3d flu_to_frd(const Eigen::Vector3d& flu) {
     return Eigen::Vector3d(flu.x(), -flu.y(), -flu.z());
 }
 
-}  // namespace aerion::frame_transforms
+}  // namespace peregrine::frame_transforms
 ```
 
 ### 7.3 TF2 Frame Tree
@@ -477,7 +477,7 @@ world (ENU)                      # Global reference frame
 
 ### 8.1 Plugin System Overview
 
-AERION uses ROS2 `pluginlib` for runtime-loadable algorithms:
+PEREGRINE uses ROS2 `pluginlib` for runtime-loadable algorithms:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -508,7 +508,7 @@ AERION uses ROS2 `pluginlib` for runtime-loadable algorithms:
 ```cpp
 // controller_manager/include/controller_manager/controller_base.hpp
 
-namespace aerion::controller {
+namespace peregrine::controller {
 
 class ControllerBase {
 public:
@@ -549,7 +549,7 @@ enum class ControlMode {
     DIRECT_ALLOCATION   // Send motor commands (future)
 };
 
-}  // namespace aerion::controller
+}  // namespace peregrine::controller
 ```
 
 ### 8.3 Estimator Plugin Interface
@@ -557,7 +557,7 @@ enum class ControlMode {
 ```cpp
 // estimator_manager/include/estimator_manager/estimator_base.hpp
 
-namespace aerion::estimator {
+namespace peregrine::estimator {
 
 class EstimatorBase {
 public:
@@ -597,7 +597,7 @@ enum class EstimatorType {
     CUSTOM          // Research implementations
 };
 
-}  // namespace aerion::estimator
+}  // namespace peregrine::estimator
 ```
 
 ### 8.4 Trajectory Generator Plugin Interface
@@ -605,7 +605,7 @@ enum class EstimatorType {
 ```cpp
 // trajectory_manager/include/trajectory_manager/trajectory_generator_base.hpp
 
-namespace aerion::trajectory {
+namespace peregrine::trajectory {
 
 class TrajectoryGeneratorBase {
 public:
@@ -649,7 +649,7 @@ enum class SetpointType {
     FULL_STATE,          // pos, vel, acc, jerk, yaw, yaw_rate
 };
 
-}  // namespace aerion::trajectory
+}  // namespace peregrine::trajectory
 ```
 
 ---
@@ -668,7 +668,7 @@ enum class SetpointType {
 │   • Battery critical           • Data link loss                      │
 │   • Position loss              • Motor failure detection             │
 │                                                                      │
-│   Layer 3: AERION Safety Monitor                                     │
+│   Layer 3: PEREGRINE Safety Monitor                                     │
 │   ─────────────────────────────────                                 │
 │   • Software geofencing        • Heartbeat monitoring                │
 │   • Trajectory bounds check    • Inter-UAV collision                 │
@@ -733,7 +733,7 @@ enum class SetpointType {
 ```cpp
 // safety_monitor/include/safety_monitor/geofence.hpp
 
-namespace aerion::safety {
+namespace peregrine::safety {
 
 struct GeofenceConfig {
     // Cylindrical geofence (simple)
@@ -773,7 +773,7 @@ private:
     Eigen::Vector3d home_position_;
 };
 
-}  // namespace aerion::safety
+}  // namespace peregrine::safety
 ```
 
 ### 9.4 Heartbeat Monitoring
@@ -781,7 +781,7 @@ private:
 ```cpp
 // safety_monitor/include/safety_monitor/heartbeat_monitor.hpp
 
-namespace aerion::safety {
+namespace peregrine::safety {
 
 struct HeartbeatSource {
     std::string name;
@@ -812,7 +812,7 @@ private:
     std::map<std::string, rclcpp::Time> last_heartbeat_;
 };
 
-}  // namespace aerion::safety
+}  // namespace peregrine::safety
 ```
 
 ### 9.5 Graceful Degradation
@@ -855,11 +855,11 @@ Timeline: T-300s to T-60s
 GCS Terminal                           UAV Onboard Computers
 ─────────────────                      ────────────────────────────────
 
-$ ros2 launch aerion_bringup           For each UAV (1-4):
+$ ros2 launch peregrine_bringup           For each UAV (1-4):
     multi_uav.launch.py                
     num_uavs:=4                        ┌─────────────────────────────┐
     environment:=outdoor               │ 1. Start uXRCE-DDS Agent    │
-    config:=inspection_mission.yaml    │ 2. Launch aerion stack      │
+    config:=inspection_mission.yaml    │ 2. Launch peregrine stack      │
                                        │ 3. Wait for PX4 connection  │
                                        │ 4. Load plugins             │
                                        │ 5. Initialize safety monitor│
@@ -879,7 +879,7 @@ Preflight Checks (automatic):
 
 TUI Display (each UAV):
 ┌──────────────────────────────────────────────────────────────┐
-│ AERION Flight Stack - UAV 1                    [PREFLIGHT]   │
+│ PEREGRINE Flight Stack - UAV 1                    [PREFLIGHT]   │
 ├──────────────────────────────────────────────────────────────┤
 │ State: IDLE          Mode: MANUAL         Armed: NO          │
 │ Position: 47.3978°N, 8.5456°E, 0.0m       Heading: 045°     │
@@ -900,7 +900,7 @@ Timeline: T-60s to T+30s
 ══════════════════════════════════════════════════════════════════════
 
 GCS Command:
-$ ros2 service call /fleet/sequential_arm aerion_interfaces/srv/FleetCommand
+$ ros2 service call /fleet/sequential_arm peregrine_interfaces/srv/FleetCommand
 
 Service Implementation (pseudo-code):
 ─────────────────────────────────────
@@ -917,7 +917,7 @@ for uav_id in [1, 2, 3, 4]:
 
 GCS Command:
 $ ros2 action send_goal /fleet/sequential_takeoff \
-    aerion_interfaces/action/FleetTakeoff \
+    peregrine_interfaces/action/FleetTakeoff \
     "{target_altitude: 10.0, spacing_seconds: 5.0}"
 
 Action Implementation:
@@ -965,7 +965,7 @@ Formation: Diamond pattern, 15m separation
 
 GCS Command:
 $ ros2 action send_goal /fleet/formation_goto \
-    aerion_interfaces/action/FormationGoto \
+    peregrine_interfaces/action/FormationGoto \
     "{target: {x: 100.0, y: 50.0, z: 15.0}, formation: diamond, separation: 15.0}"
 
 Multi-Agent Coordinator (each UAV):
@@ -1037,7 +1037,7 @@ Online Replan Sequence:
 
 GCS/Planner Command:
 $ ros2 action send_goal /uav2/trajectory_manager/set_trajectory \
-    aerion_interfaces/action/SetTrajectory \
+    peregrine_interfaces/action/SetTrajectory \
     "{trajectory: <recomputed_trajectory>, replace: true}"
 
 Other UAVs:
@@ -1056,7 +1056,7 @@ Timeline: T+300s to T+420s
 
 GCS Command:
 $ ros2 action send_goal /fleet/return_to_home \
-    aerion_interfaces/action/FleetRTH \
+    peregrine_interfaces/action/FleetRTH \
     "{sequential: true, spacing_seconds: 10.0}"
 
 Return Sequence:
@@ -1089,7 +1089,7 @@ All UAVs: IDLE, DISARMED, position verified at home
 
 TUI Display (final):
 ┌──────────────────────────────────────────────────────────────┐
-│ AERION Flight Stack - UAV 1                    [MISSION END] │
+│ PEREGRINE Flight Stack - UAV 1                    [MISSION END] │
 ├──────────────────────────────────────────────────────────────┤
 │ State: IDLE          Mode: MANUAL         Armed: NO          │
 │ Position: 47.3978°N, 8.5456°E, 0.1m       Heading: 045°     │
@@ -1108,13 +1108,13 @@ TUI Display (final):
 ## 11. Package Dependency Graph
 
 ```
-                              aerion_interfaces
+                              peregrine_interfaces
                                      │
                                      │ (all packages depend on interfaces)
                  ┌───────────────────┼───────────────────┐
                  │                   │                   │
                  ▼                   ▼                   ▼
-          frame_transforms    aerion_bringup      tui_status
+          frame_transforms    peregrine_bringup      tui_status
                  │                   │                   │
                  │                   │                   │
                  ▼                   │                   │
@@ -1139,14 +1139,14 @@ estimator_   controller_  trajectory_   safety_       │
 
 Build Order (colcon packages-select):
 ─────────────────────────────────────
-1. aerion_interfaces
+1. peregrine_interfaces
 2. frame_transforms
 3. hardware_abstraction
 4. estimator_manager, controller_manager, trajectory_manager, safety_monitor (parallel)
 5. uav_manager
 6. multi_agent_coordinator
 7. tui_status
-8. aerion_bringup
+8. peregrine_bringup
 ```
 
 ---
@@ -1193,4 +1193,4 @@ Build Order (colcon packages-select):
 
 ---
 
-*This document serves as the primary architectural reference for the AERION flight stack. Individual package READMEs provide implementation-level details.*
+*This document serves as the primary architectural reference for the PEREGRINE flight stack. Individual package READMEs provide implementation-level details.*
