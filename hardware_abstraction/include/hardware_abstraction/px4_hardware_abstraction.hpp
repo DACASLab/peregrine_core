@@ -1,124 +1,179 @@
-#include <geometry_msgs/msg/point_stamped.hpp>
-#include <geometry_msgs/msg/quaternion_stamped.hpp>
-#include <geometry_msgs/msg/vector3_stamped.hpp>
+/**
+ * @file px4_hardware_abstraction.hpp
+ * @brief PX4 boundary node for state conversion and command routing.
+ */
+
+#pragma once
 
 #include <nav_msgs/msg/odometry.hpp>
-
-#include <peregrine_interfaces/msg/px4_actuator_cmd.hpp>
-#include <peregrine_interfaces/msg/px4_trajectory_setpoint.hpp>
-
+#include <peregrine_interfaces/msg/control_output.hpp>
+#include <peregrine_interfaces/msg/px4_status.hpp>
+#include <peregrine_interfaces/msg/state.hpp>
+#include <peregrine_interfaces/srv/arm.hpp>
+#include <peregrine_interfaces/srv/set_mode.hpp>
 #include <px4_msgs/msg/actuator_motors.hpp>
 #include <px4_msgs/msg/battery_status.hpp>
+#include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/sensor_gps.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
-#include <px4_msgs/msg/vehicle_global_position.hpp>
+#include <px4_msgs/msg/vehicle_attitude_setpoint.hpp>
+#include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
+#include <px4_msgs/msg/vehicle_rates_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
-
 #include <rclcpp/rclcpp.hpp>
-
 #include <sensor_msgs/msg/battery_state.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <hardware_abstraction/msg_version.hpp>
 
-#include <std_srvs/srv/set_bool.hpp>
-#include <std_srvs/srv/trigger.hpp>
+#include <atomic>
+#include <cstdint>
+#include <cmath>
+#include <string>
 
-namespace px4_hardware_abstraction
+namespace hardware_abstraction
 {
 
-class PX4APIManager : public rclcpp::Node
+/**
+ * @class PX4HardwareAbstraction
+ * @brief Bridges manager-facing interfaces and PX4 uXRCE-DDS topics.
+ *
+ * Responsibilities:
+ * - Convert PX4 NED/FRD telemetry to ROS ENU/FLU interfaces.
+ * - Convert manager control outputs to PX4-compatible setpoints.
+ * - Publish PX4 command messages for arm/disarm and mode transitions.
+ * - Periodically publish offboard control mode heartbeat.
+ */
+class PX4HardwareAbstraction : public rclcpp::Node
 {
 public:
-  PX4APIManager(rclcpp::NodeOptions options);
+  /**
+   * @brief Constructs the bridge node and initializes pubs/subs/services.
+   */
+  explicit PX4HardwareAbstraction(const rclcpp::NodeOptions& options);
 
 private:
-  rclcpp::Node::SharedPtr node_;
-  rclcpp::Clock::SharedPtr clock_;
-  std::atomic<bool> initialized_;
+  /**
+   * @brief Handles PX4 odometry and publishes manager-facing state.
+   */
+  void onVehicleOdometry(const px4_msgs::msg::VehicleOdometry::SharedPtr msg);
+  /**
+   * @brief Converts battery telemetry into ROS battery status.
+   */
+  void onBatteryStatus(const px4_msgs::msg::BatteryStatus::SharedPtr msg);
+  /**
+   * @brief Converts PX4 GPS telemetry into NavSatFix.
+   */
+  void onSensorGps(const px4_msgs::msg::SensorGps::SharedPtr msg);
+  /**
+   * @brief Updates arming/mode/failsafe state from PX4 vehicle status.
+   */
+  void onVehicleStatus(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
 
-  // Callback groups
-  rclcpp::CallbackGroup::SharedPtr cbkgrps_timers_;
-  rclcpp::CallbackGroup::SharedPtr cbkgrps_subs_;
-  rclcpp::CallbackGroup::SharedPtr cbkgrps_services_;
+  /**
+   * @brief Routes manager command envelope into the selected PX4 input topic.
+   */
+  void onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg);
 
-  // Timers and initialization
-  rclcpp::TimerBase::SharedPtr timer_init;
-  void timerInit();
-  void shutdown();
+  /**
+   * @brief Service callback to arm or disarm the vehicle.
+   */
+  void onArmService(const std::shared_ptr<peregrine_interfaces::srv::Arm::Request> request,
+                    std::shared_ptr<peregrine_interfaces::srv::Arm::Response> response);
+  /**
+   * @brief Service callback to request PX4 mode changes.
+   */
+  void onSetModeService(const std::shared_ptr<peregrine_interfaces::srv::SetMode::Request> request,
+                        std::shared_ptr<peregrine_interfaces::srv::SetMode::Response> response);
 
-  std::string _uav_name_;
-  std::string _uav_namespace_;
+  /**
+   * @brief Publishes OffboardControlMode at a fixed periodic rate.
+   */
+  void publishOffboardControlMode();
+  /**
+   * @brief Publishes consolidated PX4 status for manager/state-machine logic.
+   */
+  void publishStatus();
 
-  // Options
-  rclcpp::SubscriptionOptions sub_opts;
-  rclcpp::PublisherOptions pub_opts;
+  /**
+   * @brief Creates a fully-populated VehicleCommand packet.
+   */
+  px4_msgs::msg::VehicleCommand makeVehicleCommand(uint32_t command, float param1 = 0.0f, float param2 = 0.0f) const;
+  /**
+   * @brief Maps a string mode request into PX4 nav-state enum.
+   */
+  uint8_t navStateFromModeString(const std::string& mode, bool* valid) const;
+  /**
+   * @brief Returns current node time in microseconds for PX4 timestamp fields.
+   */
+  uint64_t nowMicros() const;
+  /**
+   * @brief Checks whether PX4 telemetry has been received recently.
+   */
+  bool isConnected() const;
+  /**
+   * @brief Prefixes PX4 topic suffixes with configured namespace.
+   */
+  std::string px4Topic(const std::string& suffix) const;
 
-  // --------------- Data out to ROS2 ---------------
+  /// PX4 ROS namespace prefix (e.g. "/uav1"), empty for global topics.
+  std::string px4Namespace_;
+  /// Frame used for published odometry parent.
+  std::string odomFrame_;
+  /// Frame used for published odometry child.
+  std::string baseLinkFrame_;
+  /// PX4 SensorGps topic suffix under px4_namespace.
+  std::string sensorGpsTopicSuffix_;
+  /// Periodic offboard mode publication rate.
+  double offboardRateHz_;
+  /// Periodic status publication rate.
+  double statusRateHz_;
+  /// Maximum allowed telemetry silence before marking disconnected.
+  double connectionTimeoutS_;
 
-  // Odometry
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odometry_;
-  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr pub_position_;
-  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_velocity_;
-  rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_orientation_;
-  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angulate_velocity_;
-  rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr _px4_sub_odometry_;
-  void callback_px4_odometry(const px4_msgs::msg::VehicleOdometry::SharedPtr msg);
+  /// Target system ID for PX4 command messages.
+  int targetSystemId_;
+  /// Target component ID for PX4 command messages.
+  int targetComponentId_;
+  /// Source system ID for PX4 command messages.
+  int sourceSystemId_;
+  /// Source component ID for PX4 command messages.
+  int sourceComponentId_;
 
-  // GPS
-  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr pub_gps_;
-  rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr _px4_sub_gps_;
-  void callback_px4_gps(const px4_msgs::msg::SensorGps::SharedPtr msg);
+  std::atomic<int64_t> lastPx4RxTimeNs_{0};
+  std::atomic<uint8_t> navState_{0};
+  std::atomic<uint8_t> armingState_{0};
+  std::atomic<uint16_t> failureDetectorStatus_{0};
+  std::atomic<bool> failsafe_{false};
+  std::atomic<float> batteryRemaining_{NAN};
+  std::atomic<float> batteryVoltage_{NAN};
+  /// Packed snapshot of control mode + trajectory flags for coherent offboard heartbeat publication.
+  std::atomic<uint32_t> offboardModeFlags_{0};
 
-  // Battery
-  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_;
-  rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr _px4_sub_battery_;
-  void callback_px4_battery(const px4_msgs::msg::BatteryStatus::SharedPtr msg);
+  rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr statePub_;
+  rclcpp::Publisher<peregrine_interfaces::msg::PX4Status>::SharedPtr statusPub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometryPub_;
+  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr batteryPub_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gpsPub_;
 
-  // --------------- Data in from ROS2 ---------------
+  rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicleOdometrySub_;
+  rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr batteryStatusSub_;
+  rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr sensorGpsSub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicleStatusSub_;
 
-  // Trajectory setpoint
-  rclcpp::Subscription<peregrine_interfaces::msg::PX4TrajectorySetpoint>::SharedPtr sub_trajectory_setpoint_;
-  rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr _px4_pub_trajectory_setpoint_;
-  void callback_trajectory_setpoint(const peregrine_interfaces::msg::PX4TrajectorySetpoint::SharedPtr msg);
+  rclcpp::Subscription<peregrine_interfaces::msg::ControlOutput>::SharedPtr controlOutputSub_;
 
-  // Direct actuator control
-  rclcpp::Subscription<peregrine_interfaces::msg::PX4ActuatorCmd>::SharedPtr sub_actuator_cmd_;
-  rclcpp::Publisher<px4_msgs::msg::ActuatorMotors>::SharedPtr _px4_pub_actuator_motors_;
-  void callback_actuator_cmd(const peregrine_interfaces::msg::PX4ActuatorCmd::SharedPtr msg);
+  rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboardControlModePub_;
+  rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr trajectorySetpointPub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleRatesSetpoint>::SharedPtr vehicleRatesSetpointPub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleAttitudeSetpoint>::SharedPtr vehicleAttitudeSetpointPub_;
+  rclcpp::Publisher<px4_msgs::msg::ActuatorMotors>::SharedPtr actuatorMotorsPub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicleCommandPub_;
 
-  // Srvs
-  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_arm_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_takeoff_;
+  rclcpp::Service<peregrine_interfaces::srv::Arm>::SharedPtr armService_;
+  rclcpp::Service<peregrine_interfaces::srv::SetMode>::SharedPtr setModeService_;
 
-  // Topics names
-  // The topics that are going to and from ROS2 will be namespaced under the UAV
-  // namespace
-  std::string battery_tpc_ = _uav_namespace_ + "/battery";
-  std::string trajectory_setpoint_tpc_ = _uav_namespace_ + "/trajectory_setpoint";
-  std::string actuator_cmd_tpc_ = _uav_namespace_ + "/actuator_cmd";
-  std::string odometry_tpc_ = _uav_namespace_ + "/odometry";
-  std::string gps_tpc_ = _uav_namespace_ + "/gnss";
-  std::string mocap_tpc_ = _uav_namespace_ + "/mocap";
-  std::string position_tpc_ = _uav_namespace_ + "/position";
-  std::string velocity_tpc_ = _uav_namespace_ + "/velocity";
-  std::string orientation_tpc_ = _uav_namespace_ + "/orientation";
-  std::string angulate_velocity_tpc_ = _uav_namespace_ + "/angulate_velocity";
-  std::string arm_srv_ = _uav_namespace_ + "/arm";
-  std::string takeoff_srv_ = _uav_namespace_ + "/takeoff";
-  std::string offboard_mode_srv_ = _uav_namespace_ + "/offboard_mode";
-
-  // The topics that are going to and from PX4 will be namespaced under the
-  // _uav_namespace_/fmu etc.
-  std::string _px4_odometry_tpc_ =
-      _uav_namespace_ + "/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>();
-  std::string _px4_battery_tpc_ =
-      _uav_namespace_ + "/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>();
-  std::string _px4_trajectory_setpoint_tpc_ =
-      _uav_namespace_ + "/fmu/in/trajectory_setpoint" + getMessageNameVersion<px4_msgs::msg::TrajectorySetpoint>();
-  std::string _px4_actuator_motors_tpc_ =
-      _uav_namespace_ + "/fmu/in/actuator_motors" + getMessageNameVersion<px4_msgs::msg::ActuatorMotors>();
-  std::string _px4_gps_tpc_ =
-      _uav_namespace_ + "/fmu/out/vehicle_gps_position" + getMessageNameVersion<px4_msgs::msg::SensorGps>();
+  rclcpp::TimerBase::SharedPtr offboardModeTimer_;
+  rclcpp::TimerBase::SharedPtr statusTimer_;
 };
-}  // namespace px4_hardware_abstraction
+
+}  // namespace hardware_abstraction
