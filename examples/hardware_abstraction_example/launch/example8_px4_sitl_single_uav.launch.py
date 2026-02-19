@@ -17,6 +17,7 @@ def generate_launch_description() -> LaunchDescription:
     offboard_rate_hz = LaunchConfiguration("offboard_rate_hz")
     status_rate_hz = LaunchConfiguration("status_rate_hz")
     tf_publish_rate_hz = LaunchConfiguration("tf_publish_rate_hz")
+    ros_localhost_only = LaunchConfiguration("ros_localhost_only")
     ros_domain_id = LaunchConfiguration("ros_domain_id")
 
     return LaunchDescription(
@@ -67,10 +68,16 @@ def generate_launch_description() -> LaunchDescription:
                 description="Dynamic TF publication rate.",
             ),
             DeclareLaunchArgument(
+                "ros_localhost_only",
+                default_value="1",
+                description="Set ROS_LOCALHOST_ONLY (use 1 with PX4 UXRCE_DDS_PTCFG=1).",
+            ),
+            DeclareLaunchArgument(
                 "ros_domain_id",
                 default_value="0",
                 description="ROS domain used by this launch (must match PX4 uXRCE-DDS domain).",
             ),
+            SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
             ExecuteProcess(
                 condition=IfCondition(start_microxrce_agent),

@@ -11,8 +11,14 @@
 
   <exec_depend>frame_transforms</exec_depend>
   <exec_depend>hardware_abstraction</exec_depend>
+  <exec_depend>control_manager</exec_depend>
+  <exec_depend>estimation_manager</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>peregrine_interfaces</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>trajectory_manager</exec_depend>
+  <exec_depend>uav_manager</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
