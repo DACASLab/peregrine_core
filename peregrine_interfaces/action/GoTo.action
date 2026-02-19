@@ -1,0 +1,10 @@
+geometry_msgs/Point target_position
+float64 target_yaw
+float64 velocity_mps
+float64 acceptance_radius_m
+---
+bool success
+string message
+geometry_msgs/Point final_position
+---
+float64 distance_remaining_m

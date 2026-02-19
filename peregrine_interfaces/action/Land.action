@@ -1,0 +1,7 @@
+float64 descent_velocity_mps
+---
+bool success
+string message
+---
+float64 current_altitude_m
+float32 progress

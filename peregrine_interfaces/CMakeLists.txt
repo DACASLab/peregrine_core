@@ -5,14 +5,14 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
-# Generate (or refresh) interface file list cmake include
+# Keep the interface list deterministic whenever message/service files are added.
 execute_process(
   COMMAND bash -c "QUIET=1 ${CMAKE_CURRENT_SOURCE_DIR}/generate_interface_lists.bash"
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -24,22 +24,17 @@ endif()
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/interface_files.cmake OPTIONAL)
 
-set(_all_interface_files ${MSG_FILES} ${SRV_FILES})
+set(_all_interface_files ${MSG_FILES} ${SRV_FILES} ${ACTION_FILES})
 if(_all_interface_files)
   rosidl_generate_interfaces(${PROJECT_NAME}
     ${_all_interface_files}
-    DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
+    DEPENDENCIES std_msgs geometry_msgs action_msgs builtin_interfaces
   )
 endif()
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()

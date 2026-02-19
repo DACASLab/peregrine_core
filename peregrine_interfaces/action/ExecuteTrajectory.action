@@ -1,0 +1,7 @@
+string trajectory_type
+float64[] params
+---
+bool success
+string message
+---
+float32 progress
