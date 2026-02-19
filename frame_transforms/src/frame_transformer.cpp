@@ -1,203 +1,231 @@
+#include <frame_transforms/conversions.hpp>
 #include <frame_transforms/frame_transformer.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <tf2/LinearMath/Quaternion.h>
+
+#include <rclcpp_components/register_node_macro.hpp>
+#include <tf2_eigen/tf2_eigen.hpp>
+
+#include <chrono>
+#include <cmath>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace frame_transforms
 {
-FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options) : Node("frame_transformer", options)
+namespace
 {
-  RCLCPP_INFO(this->get_logger(), "Initializing FrameTransformer node...");
 
-  // Parameters
-  uav_name_ = this->declare_parameter<std::string>("uav_name", "peregrine_1");
-  uav_namespace_ = this->declare_parameter<std::string>("uav_namespace", "peregrine_1/");
-  localization_mode_ = this->declare_parameter<std::string>("localization_mode", "gps");
-
-  // Frame namespace
-  base_link_frame_ = uav_namespace_ + "/base_link";
-  aircraft_frame_ = uav_namespace_ + "/aircraft_frame";
-  odom_frame_ = uav_namespace_ + "/odom";
-  odom_ned_frame_ = uav_namespace_ + "/odom_ned";
-  map_frame_ = uav_namespace_ + "/map";
-  world_origin_frame_ = uav_namespace_ + "/world_origin";
-
-  // TF broadcasters
-  tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
-  static_tf_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(this);
-
-  // Subscriptions
-  odometry_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      uav_name_ + "/odometry", rclcpp::QoS(10),
-      std::bind(&FrameTransformer::odometry_callback, this, std::placeholders::_1));
-
-  if (localization_mode_ == "gps")
+// Removes leading/trailing slashes so frame IDs remain stable when concatenated.
+std::string normalizePrefix(const std::string& prefix)
+{
+  if (prefix.empty())
   {
-    double lat = this->declare_parameter<double>("gps_origin_latitude", 0.0);
-    double lon = this->declare_parameter<double>("gps_origin_longitude", 0.0);
-    double alt = this->declare_parameter<double>("gps_origin_altitude", 0.0);
-    geodetic_converter_.initialiseReference(lat, lon, alt);
-
-    gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-        uav_name_ + "/gnss", rclcpp::QoS(10), std::bind(&FrameTransformer::gps_callback, this, std::placeholders::_1));
+    return "";
   }
-  else if (localization_mode_ == "mocap")
+
+  std::string out = prefix;
+  if (out.front() == '/')
   {
-    mocap_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        uav_name_ + "/mocap", rclcpp::QoS(10),
-        std::bind(&FrameTransformer::mocap_callback, this, std::placeholders::_1));
+    out.erase(out.begin());
+  }
+  while (!out.empty() && out.back() == '/')
+  {
+    out.pop_back();
+  }
+  return out;
+}
+
+// Composes "<prefix>/<frame>" when a prefix is provided.
+std::string composeFrame(const std::string& prefix, const std::string& frame)
+{
+  if (prefix.empty())
+  {
+    return frame;
+  }
+  return prefix + "/" + frame;
+}
+
+// Canonicalizes frame IDs for tolerant comparison (e.g. optional leading slash).
+std::string canonicalFrameId(std::string frameId)
+{
+  while (!frameId.empty() && frameId.front() == '/')
+  {
+    frameId.erase(frameId.begin());
+  }
+  while (!frameId.empty() && frameId.back() == '/')
+  {
+    frameId.pop_back();
+  }
+  return frameId;
+}
+
+bool sameFrameId(const std::string& lhs, const std::string& rhs)
+{
+  return canonicalFrameId(lhs) == canonicalFrameId(rhs);
+}
+
+// Shared utility for identity static transforms.
+geometry_msgs::msg::Transform identityTransform()
+{
+  geometry_msgs::msg::Transform transform;
+  transform.translation.x = 0.0;
+  transform.translation.y = 0.0;
+  transform.translation.z = 0.0;
+  transform.rotation.w = 1.0;
+  transform.rotation.x = 0.0;
+  transform.rotation.y = 0.0;
+  transform.rotation.z = 0.0;
+  return transform;
+}
+
+}  // namespace
+
+FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
+: Node("frame_transformer", options)
+{
+  // Parameters define topic and the local frame naming convention for one UAV.
+  framePrefix_ = normalizePrefix(this->declare_parameter<std::string>("frame_prefix", ""));
+  odometryTopic_ = this->declare_parameter<std::string>("odometry_topic", "odometry");
+  worldFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("world_frame", "world"));
+  mapFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("map_frame", "map"));
+  odomFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("odom_frame", "odom"));
+  baseLinkFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("base_link_frame", "base_link"));
+  baseLinkFrdFrame_ =
+      composeFrame(framePrefix_, this->declare_parameter<std::string>("base_link_frd_frame", "base_link_frd"));
+  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 100.0);
+
+  if (publishRateHz_ <= 0.0)
+  {
+    throw std::runtime_error("publish_rate_hz must be > 0");
+  }
+
+  // One dynamic and one static broadcaster keeps TF ownership clear in this node.
+  tfBroadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+  staticTfBroadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
+
+  odometrySub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+      odometryTopic_, rclcpp::SensorDataQoS(),
+      std::bind(&FrameTransformer::odometryCallback, this, std::placeholders::_1));
+
+  publishStaticTransforms();
+
+  // Timer periodically emits the latest odom->base_link transform.
+  const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
+  dynamicTfTimer_ = this->create_wall_timer(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(period),
+      std::bind(&FrameTransformer::publishDynamicTransforms, this));
+
+  RCLCPP_INFO(this->get_logger(), "frame_transformer started: odometry_topic=%s", odometryTopic_.c_str());
+  RCLCPP_INFO(this->get_logger(), "frames: world=%s map=%s odom=%s base_link=%s base_link_frd=%s",
+              worldFrame_.c_str(), mapFrame_.c_str(), odomFrame_.c_str(), baseLinkFrame_.c_str(),
+              baseLinkFrdFrame_.c_str());
+}
+
+void FrameTransformer::odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+  std::scoped_lock lock(odometryMutex_);
+  latestOdometry_ = *msg;
+}
+
+void FrameTransformer::publishStaticTransforms()
+{
+  std::vector<geometry_msgs::msg::TransformStamped> transforms;
+  transforms.reserve(3);
+
+  const auto now = this->get_clock()->now();
+
+  // Keep world->map identity in this package; global fleet/world alignment belongs elsewhere.
+  geometry_msgs::msg::TransformStamped worldToMap;
+  worldToMap.header.stamp = now;
+  worldToMap.header.frame_id = worldFrame_;
+  worldToMap.child_frame_id = mapFrame_;
+  worldToMap.transform = identityTransform();
+  transforms.push_back(worldToMap);
+
+  // map->odom starts as identity; higher-level localization can own this later if needed.
+  geometry_msgs::msg::TransformStamped mapToOdom;
+  mapToOdom.header.stamp = now;
+  mapToOdom.header.frame_id = mapFrame_;
+  mapToOdom.child_frame_id = odomFrame_;
+  mapToOdom.transform = identityTransform();
+  transforms.push_back(mapToOdom);
+
+  // Explicitly publish FLU->FRD relationship for packages that consume PX4-body conventions.
+  geometry_msgs::msg::TransformStamped baseLinkToFrd;
+  baseLinkToFrd.header.stamp = now;
+  baseLinkToFrd.header.frame_id = baseLinkFrame_;
+  baseLinkToFrd.child_frame_id = baseLinkFrdFrame_;
+  baseLinkToFrd.transform.translation.x = 0.0;
+  baseLinkToFrd.transform.translation.y = 0.0;
+  baseLinkToFrd.transform.translation.z = 0.0;
+  baseLinkToFrd.transform.rotation = toRosQuaternion(Eigen::Quaterniond(fluToFrdMatrix()));
+  transforms.push_back(baseLinkToFrd);
+
+  staticTfBroadcaster_->sendTransform(transforms);
+}
+
+void FrameTransformer::publishDynamicTransforms()
+{
+  std::optional<nav_msgs::msg::Odometry> odometry;
+  {
+    std::scoped_lock lock(odometryMutex_);
+    odometry = latestOdometry_;
+  }
+
+  if (!odometry.has_value())
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "No odometry received yet.");
+    return;
+  }
+
+  geometry_msgs::msg::TransformStamped odomToBase;
+  odomToBase.header.stamp = odometry->header.stamp;
+  // If the incoming odometry timestamp is unset, use local clock to keep TF valid.
+  if (odomToBase.header.stamp.nanosec == 0 && odomToBase.header.stamp.sec == 0)
+  {
+    odomToBase.header.stamp = this->get_clock()->now();
+  }
+
+  // Static transforms use configured names, so dynamic TF enforces the same names.
+  if (!odometry->header.frame_id.empty() && !sameFrameId(odometry->header.frame_id, odomFrame_))
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                         "Odometry parent frame_id '%s' does not match configured odom frame '%s'; using configured "
+                         "frame for TF.",
+                         odometry->header.frame_id.c_str(), odomFrame_.c_str());
+  }
+  if (!odometry->child_frame_id.empty() && !sameFrameId(odometry->child_frame_id, baseLinkFrame_))
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                         "Odometry child frame_id '%s' does not match configured base_link frame '%s'; using "
+                         "configured frame for TF.",
+                         odometry->child_frame_id.c_str(), baseLinkFrame_.c_str());
+  }
+  odomToBase.header.frame_id = odomFrame_;
+  odomToBase.child_frame_id = baseLinkFrame_;
+  odomToBase.transform.translation.x = odometry->pose.pose.position.x;
+  odomToBase.transform.translation.y = odometry->pose.pose.position.y;
+  odomToBase.transform.translation.z = odometry->pose.pose.position.z;
+
+  // Normalize incoming orientation before TF publish; invalid quaternions fall back to identity.
+  Eigen::Quaterniond orientation = toEigenQuaternion(odometry->pose.pose.orientation);
+  if (!std::isfinite(orientation.w()) || !std::isfinite(orientation.x()) || !std::isfinite(orientation.y()) ||
+      !std::isfinite(orientation.z()) || orientation.norm() < 1e-6)
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                         "Invalid odometry orientation received; publishing identity quaternion.");
+    orientation = Eigen::Quaterniond::Identity();
   }
   else
   {
-    RCLCPP_ERROR(this->get_logger(), "Invalid localization_mode parameter. Use 'gps' or 'mocap'.");
-    throw std::runtime_error("Invalid localization_mode parameter");
+    orientation.normalize();
   }
+  odomToBase.transform.rotation = toRosQuaternion(orientation);
 
-  // static transform publisher
-  this->publish_static_transforms();
-
-  // dynamic transform publisher
-  tf_timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / tf_publish_rate_)),
-                                      std::bind(&FrameTransformer::publish_dynamic_transforms, this));
+  tfBroadcaster_->sendTransform(odomToBase);
 }
 
-void FrameTransformer::publish_static_transforms()
-{
-  RCLCPP_INFO(this->get_logger(), "Publishing static transforms for UAV: %s", uav_name_.c_str());
-  std::vector<geometry_msgs::msg::TransformStamped> static_transforms;
+}  // namespace frame_transforms
 
-  auto now = this->get_clock()->now();
-
-  // base_link -> aircraft_frame i.e. ENU to NED conversion
-  geometry_msgs::msg::TransformStamped base_to_aircraft;
-  base_to_aircraft.header.stamp = now;
-  base_to_aircraft.header.frame_id = base_link_frame_;
-  base_to_aircraft.child_frame_id = aircraft_frame_;
-  base_to_aircraft.transform.translation.x = 0.0;
-  base_to_aircraft.transform.translation.y = 0.0;
-  base_to_aircraft.transform.translation.z = 0.0;
-
-  tf2::Quaternion q;
-  q.setRPY(M_PI / 2, 0.0, M_PI / 2);  // ENU to NED
-  base_to_aircraft.transform.rotation = tf2::toMsg(q);
-  static_transforms.push_back(base_to_aircraft);
-
-  // odom_ned -> odom i.e. NED to ENU conversion
-  geometry_msgs::msg::TransformStamped odom_ned_to_odom;
-  odom_ned_to_odom.header.stamp = now;
-  odom_ned_to_odom.header.frame_id = odom_ned_frame_;
-  odom_ned_to_odom.child_frame_id = odom_frame_;
-  odom_ned_to_odom.transform.translation.x = 0.0;
-  odom_ned_to_odom.transform.translation.y = 0.0;
-  odom_ned_to_odom.transform.translation.z = 0.0;
-
-  tf2::Quaternion q;
-  q.setRPY(M_PI, 0.0, M_PI / 2);
-  odom_ned_to_odom.transform.rotation = tf2::toMsg(q);
-  static_transforms.push_back(odom_ned_to_odom);
-}
-void FrameTransformer::odometry_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
-{
-  std::scoped_lock lock(data_mutex_);
-  latest_odom_ = *msg;
-}
-void FrameTransformer::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
-{
-  std::scoped_lock lock(data_mutex_);
-  latest_gps_ = *msg;
-}
-void FrameTransformer::mocap_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
-{
-  std::scoped_lock lock(data_mutex_);
-  latest_mocap_ = *msg;
-}
-
-void FrameTransformer::publish_dynamic_transforms()
-{
-  std::scoped_lock lock(data_mutex_);
-
-  if (!latest_odom_)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "No odometry data received yet.");
-    return;
-  }
-  if (localization_mode_ == "gps" && !latest_gps_)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "No GPS data received yet.");
-    return;
-  }
-  if (localization_mode_ == "mocap" && !latest_mocap_)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "No motion capture data received yet.");
-    return;
-  }
-  std::vector<geometry_msgs::msg::TransformStamped> dynamic_transforms;
-  auto now = this->get_clock()->now();
-
-  // Transform: odom -> base_link
-  // The data that we get from the PX4 odometry is the position of the drone, i.e aircraft in the
-  // odom frame.
-
-  geometry_msgs::msg::TransformStamped odom_to_base;
-  odom_to_base.header.stamp = now;
-  odom_to_base.header.frame_id = odom_ned_frame_;
-  odom_to_base.child_frame_id = aircraft_frame_;
-  odom_to_base.transform.translation.x = latest_odom_->pose.pose.position.x;
-  odom_to_base.transform.translation.y = latest_odom_->pose.pose.position.y;
-  odom_to_base.transform.translation.z = latest_odom_->pose.pose.position.z;
-  odom_to_base.transform.rotation = latest_odom_->pose.pose.orientation;
-
-  dynamic_transforms.push_back(odom_to_base);
-
-  // Transform: map -> odom
-  // Currently Identity. This can be updated later if we implement SLAM pipeline.
-
-  tf2::Transform map_to_odom_tf;
-  map_to_odom_tf.setIdentity();
-  geometry_msgs::msg::TransformStamped map_to_odom;
-  map_to_odom.header.stamp = now;
-  map_to_odom.header.frame_id = map_frame_;
-  map_to_odom.child_frame_id = odom_frame_;
-  map_to_odom.transform = tf2::toMsg(map_to_odom_tf);
-  dynamic_transforms.push_back(map_to_odom);
-
-  // Transform: world_origin -> map
-  if (localization_mode_ == "gps" && latest_gps_)
-  {
-    if (!gps_origin_set_)
-    {
-      geodetic_converter_.initialiseReference(latest_gps_->latitude, latest_gps_->longitude, latest_gps_->altitude);
-      gps_origin_set_ = true;
-      RCLCPP_INFO(this->get_logger(), "GPS origin set to lat: %.6f, lon: %.6f, alt: %.2f", latest_gps_->latitude,
-                  latest_gps_->longitude, latest_gps_->altitude);
-    }
-
-    double x, y, z;
-    geodetic_converter_.geodetic2Enu(latest_gps_->latitude, latest_gps_->longitude, latest_gps_->altitude, &x, &y, &z);
-
-    tf2::Transform world_to_map_tf;
-    world_to_map_tf.setOrigin(tf2::Vector3(x, y, z));
-    world_to_map_tf.setRotation(tf2::Quaternion::getIdentity());
-
-    geometry_msgs::msg::TransformStamped world_to_map;
-    world_to_map.header.stamp = now;
-    world_to_map.header.frame_id = world_origin_frame_;
-    world_to_map.child_frame_id = map_frame_;
-    world_to_map.transform = tf2::toMsg(world_to_map_tf);
-    dynamic_transforms.push_back(world_to_map);
-  }
-  else if (localization_mode_ == "mocap" && latest_mocap_)
-  {
-    tf2::Transform world_to_map_tf;
-    world_to_map_tf.setOrigin(
-        tf2::Vector3(latest_mocap_->pose.position.x, latest_mocap_->pose.position.y, latest_mocap_->pose.position.z));
-    tf2::Quaternion q;
-    tf2::fromMsg(latest_mocap_->pose.orientation, q);
-    world_to_map_tf.setRotation(q);
-
-    geometry_msgs::msg::TransformStamped world_to_map;
-    world_to_map.header.stamp = now;
-    world_to_map.header.frame_id = world_origin_frame_;
-    world_to_map.child_frame_id = map_frame_;
-    world_to_map.transform = tf2::toMsg(world_to_map_tf);
-    dynamic_transforms.push_back(world_to_map);
-  }  // namespace frame_transforms
+RCLCPP_COMPONENTS_REGISTER_NODE(frame_transforms::FrameTransformer)
