@@ -429,9 +429,21 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
 
 void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg)
 {
+  // Track the latest requested control mode flags so OffboardControlMode heartbeat stays valid
+  // during mode transitions, even when commands are intentionally gated below.
   offboardModeFlags_.store(
       packOffboardModeFlags(msg->control_mode, msg->use_position, msg->use_velocity, msg->use_acceleration),
       std::memory_order_release);
+
+  const uint8_t navState = navState_.load(std::memory_order_acquire);
+  if (navState != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
+  {
+    RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "Ignoring control_output while nav_state=%u (only forwarded in OFFBOARD mode).",
+        static_cast<unsigned int>(navState));
+    return;
+  }
 
   // The control mode determines which PX4 input topic is actively driven.
   switch (msg->control_mode)
