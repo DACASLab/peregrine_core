@@ -10,6 +10,7 @@ find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 
 add_library(trajectory_manager_component SHARED
   src/trajectory_manager_node.cpp
@@ -29,6 +30,7 @@ ament_target_dependencies(trajectory_manager_component
   rclcpp
   rclcpp_action
   rclcpp_components
+  rclcpp_lifecycle
 )
 
 rclcpp_components_register_node(trajectory_manager_component
@@ -54,6 +56,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_action rclcpp_components)
+ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_action rclcpp_components rclcpp_lifecycle)
 
 ament_package()

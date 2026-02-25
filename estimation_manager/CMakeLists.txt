@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 
 add_library(estimation_manager_component SHARED
   src/estimation_manager_node.cpp
@@ -27,6 +28,7 @@ ament_target_dependencies(estimation_manager_component
   peregrine_interfaces
   rclcpp
   rclcpp_components
+  rclcpp_lifecycle
 )
 
 rclcpp_components_register_node(estimation_manager_component
@@ -45,13 +47,25 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_estimation_lifecycle_integration
+    test/test_estimation_lifecycle_integration.cpp
+  )
+  target_include_directories(test_estimation_lifecycle_integration PRIVATE include)
+  target_link_libraries(test_estimation_lifecycle_integration estimation_manager_component)
+  ament_target_dependencies(test_estimation_lifecycle_integration
+    peregrine_interfaces
+    rclcpp
+    rclcpp_lifecycle
+  )
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components)
+ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle)
 
 ament_package()

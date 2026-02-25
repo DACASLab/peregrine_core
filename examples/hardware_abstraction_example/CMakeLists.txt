@@ -13,6 +13,8 @@ install(DIRECTORY launch
 
 install(PROGRAMS
   scripts/circle_figure8_demo.py
+  scripts/multi_cycle_demo.py
+  scripts/lifecycle_bringup_orchestrator.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

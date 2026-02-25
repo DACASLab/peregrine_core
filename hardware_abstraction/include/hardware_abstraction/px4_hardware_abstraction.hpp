@@ -1,6 +1,40 @@
 /**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
+/**
  * @file px4_hardware_abstraction.hpp
  * @brief PX4 boundary node for state conversion and command routing.
+ *
+ * Pipeline position: PX4 (uXRCE-DDS) <-> [hardware_abstraction] <-> peregrine managers
+ *
+ * This node is the ONLY component in the stack that directly interacts with PX4 topics.
+ * It serves as a protocol boundary, translating between:
+ *   - PX4 NED/FRD conventions  <->  ROS ENU/FLU conventions
+ *   - px4_msgs message types    <->  peregrine_interfaces message types
+ *   - PX4 best_effort QoS       <->  manager reliable QoS
+ *
+ * Data flow (PX4 -> managers):
+ *   VehicleOdometry (NED/FRD) -> State + Odometry (ENU/FLU)
+ *   BatteryStatus             -> BatteryState (ROS standard)
+ *   SensorGps                 -> NavSatFix (ROS standard)
+ *   VehicleStatus             -> PX4Status (arming/mode/failsafe)
+ *
+ * Data flow (managers -> PX4):
+ *   ControlOutput (ENU)       -> TrajectorySetpoint / RatesSetpoint / etc. (NED)
+ *   Arm service               -> VehicleCommand (arm/disarm)
+ *   SetMode service           -> VehicleCommand (nav state change)
+ *   OffboardControlMode       -> periodic heartbeat (required for offboard mode)
+ *
+ * This intentionally inherits from rclcpp::Node (not a lifecycle node) because the
+ * hardware bridge must remain reachable for safety-critical operations (e.g., disarm,
+ * offboard heartbeat) regardless of the lifecycle state of the manager pipeline.
  */
 
 #pragma once
@@ -42,6 +76,11 @@ namespace hardware_abstraction
  * - Convert manager control outputs to PX4-compatible setpoints.
  * - Publish PX4 command messages for arm/disarm and mode transitions.
  * - Periodically publish offboard control mode heartbeat.
+ *
+ * This intentionally inherits from rclcpp::Node rather than a lifecycle node.
+ * Hardware abstraction must always be reachable for safety-critical operations
+ * (offboard heartbeat, arm/disarm services). If this were a lifecycle node,
+ * the vehicle could not be disarmed while the node was in an inactive state.
  */
 class PX4HardwareAbstraction : public rclcpp::Node
 {
@@ -139,6 +178,11 @@ private:
   /// Source component ID for PX4 command messages.
   int sourceComponentId_;
 
+  // These members are std::atomic because they are written from PX4 subscription callbacks
+  // and read from timer callbacks (offboard heartbeat, status publication) and service
+  // callbacks (arm, set_mode), all of which may execute on different threads in a
+  // multi-threaded executor. Atomics avoid mutex lock contention on the high-frequency
+  // telemetry path (~100-250 Hz odometry updates).
   std::atomic<int64_t> lastPx4RxTimeNs_{0};
   std::atomic<uint8_t> navState_{0};
   std::atomic<uint8_t> armingState_{0};
@@ -147,6 +191,7 @@ private:
   std::atomic<float> batteryRemaining_{NAN};
   std::atomic<float> batteryVoltage_{NAN};
   /// Packed snapshot of control mode + trajectory flags for coherent offboard heartbeat publication.
+  /// See packOffboardModeFlags() in the .cpp for the bit layout.
   std::atomic<uint32_t> offboardModeFlags_{0};
 
   rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr statePub_;

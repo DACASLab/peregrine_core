@@ -1,3 +1,13 @@
+/**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
 #include <hardware_abstraction/msg_version.hpp>
 #include <hardware_abstraction/px4_hardware_abstraction.hpp>
 
@@ -54,6 +64,16 @@ std::string normalizeTopicSuffix(std::string suffix)
 }
 
 // Lowercase helper for case-insensitive mode string handling.
+//
+// Note that `input` is passed by VALUE (no `&`), meaning C++ copies the entire
+// string into this function. This is intentional - we modify the copy in-place
+// and return it. In Python, strings are immutable so `input.lower()` always
+// creates a new string; here we achieve the same result by modifying the copy.
+//
+// `std::transform` applies a function to each element of a range, similar to
+// Python's `map()`. `.begin()` and `.end()` are iterators - pointers to the
+// first element and one-past-the-last element. Iterators are the C++ equivalent
+// of Python iterables, used with algorithms from the `<algorithm>` header.
 std::string toLower(std::string input)
 {
   std::transform(input.begin(), input.end(), input.begin(),
@@ -61,6 +81,28 @@ std::string toLower(std::string input)
   return input;
 }
 
+// Offboard mode flags are bit-packed into a single uint32_t so the offboard heartbeat timer
+// can atomically load the latest control mode without a mutex. The heartbeat timer and the
+// control_output subscription callback may run concurrently on the same executor, and a
+// lock-free atomic store/load keeps the heartbeat in sync with the most recent control mode.
+//
+// Bit layout:
+//   [0:7]  = control mode enum (e.g. MODE_TRAJECTORY, MODE_BODY_RATE, etc.)
+//   bit 8  = use position (trajectory mode only)
+//   bit 9  = use velocity (trajectory mode only)
+//   bit 10 = use acceleration (trajectory mode only)
+// Bitwise constants for packing multiple boolean flags into a single integer.
+// This is a common C/C++ pattern for lock-free atomic data exchange; Python
+// rarely uses bit manipulation directly, preferring named fields or dictionaries.
+//
+// `0xFFu` is a hexadecimal literal (255 in decimal); the `u` suffix marks it
+// as unsigned. `1u << 8` shifts the bit pattern 1 left by 8 positions,
+// producing 256 (binary: 100000000). The `|=` operator below ORs these flags
+// together, and `& mask` extracts them.
+//
+// `std::array<double, 36>` (used below) is a fixed-size array, equivalent to
+// a Python tuple of exactly 36 doubles. Unlike Python lists, the size is known
+// at compile time and cannot change.
 constexpr uint32_t kModeMask = 0xFFu;
 constexpr uint32_t kTrajectoryPositionBit = 1u << 8;
 constexpr uint32_t kTrajectoryVelocityBit = 1u << 9;
@@ -143,7 +185,11 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
     throw std::runtime_error("offboard_rate_hz, status_rate_hz and connection_timeout_s must all be > 0");
   }
 
-  // PX4 links generally prefer best-effort QoS, while manager APIs use reliable QoS.
+  // QoS split: PX4 topics use best_effort because the PX4 uXRCE-DDS bridge defaults to
+  // best_effort, and a QoS mismatch (e.g. reliable subscriber vs best_effort publisher)
+  // causes silent topic discovery failure -- no error, just no data. Manager-facing topics
+  // use reliable QoS because data loss there would cause stale health reports or missed
+  // state updates in the estimation/control pipeline.
   const auto rosOutputQos = rclcpp::QoS(10).reliable();
   const auto rosInputQos = rclcpp::QoS(20).reliable();
   const auto px4OutputQos = rclcpp::QoS(1).best_effort();
@@ -157,6 +203,9 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   gpsPub_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("gnss", rosOutputQos);
 
   // PX4 telemetry subscriptions.
+  // getMessageNameVersion<> resolves a version suffix (e.g. "_v2") that PX4 appends to its
+  // uXRCE-DDS topic names. The suffix changes between PX4 releases; this template resolves
+  // the correct one at compile time based on the px4_msgs package version being built against.
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
       std::bind(&PX4HardwareAbstraction::onVehicleOdometry, this, std::placeholders::_1));
@@ -215,6 +264,14 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
               px4Namespace_.c_str(), px4Topic(sensorGpsTopicSuffix_).c_str());
 }
 
+// Core frame conversion callback. PX4 publishes odometry in NED (North-East-Down) world frame
+// and FRD (Forward-Right-Down) body frame. ROS convention is ENU (East-North-Up) world frame
+// and FLU (Forward-Left-Up) body frame. All position, orientation, and velocity conversions
+// below use the frame_transforms library to perform these NED<->ENU and FRD<->FLU mappings.
+//
+// Two outputs are produced from each PX4 odometry message:
+//   - nav_msgs::Odometry: standard ROS message consumed by TF broadcasters and visualization
+//   - peregrine_interfaces::State: enriched message consumed by the estimation_manager pipeline
 void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdometry::SharedPtr msg)
 {
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
@@ -240,7 +297,14 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
       Eigen::Vector3d(msg->position[0], msg->position[1], msg->position[2]));
   const Eigen::Quaterniond qEnuFlu = frame_transforms::orientationNedFrdToEnuFlu(qNedFrd);
 
-  // VehicleOdometry velocity can be in multiple frames; normalize all supported cases into body FLU.
+  // PX4 VehicleOdometry can report velocity in different reference frames depending on
+  // EKF2 configuration. We normalize all supported cases into body-frame FLU for ROS output.
+  //   BODY_FRD: most common for EKF2 output -- velocity already in body frame, just needs
+  //             FRD->FLU rotation.
+  //   NED: world-frame velocity that must be rotated into body frame using the attitude
+  //        quaternion (q_NED_FRD^T * v_NED = v_FRD), then FRD->FLU.
+  //   FRD (world-fixed forward-right-down): unsupported because it requires an external
+  //        heading reference that we don't have here.
   Eigen::Vector3d velocityBodyFrd = Eigen::Vector3d::Zero();
   Eigen::Matrix3d velocityCovarianceFlu = Eigen::Matrix3d::Zero();
   const Eigen::Matrix3d rotationFluFrd = frame_transforms::frdToFluMatrix();
@@ -306,6 +370,11 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   odometry.pose.covariance.fill(0.0);
   odometry.twist.covariance.fill(0.0);
 
+  // Position covariance index swap: PX4 position_variance is ordered [North, East, Down]
+  // while ROS pose.covariance diagonal is [x(East), y(North), z(Up)] in ENU. So:
+  //   position_variance[0] (North) -> covariance[7]  (y in ENU)
+  //   position_variance[1] (East)  -> covariance[0]  (x in ENU)
+  //   position_variance[2] (Down)  -> covariance[14] (z in ENU, sign irrelevant for variance)
   odometry.pose.covariance[0] = msg->position_variance[1];
   odometry.pose.covariance[7] = msg->position_variance[0];
   odometry.pose.covariance[14] = msg->position_variance[2];
@@ -419,18 +488,29 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
 {
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
 
+  // Cache latest PX4 mode/arming/failsafe state for services, gating, and status output.
   navState_.store(msg->nav_state);
   armingState_.store(msg->arming_state);
   failureDetectorStatus_.store(msg->failure_detector_status);
   failsafe_.store(msg->failsafe);
 
+  // Push an immediate status update instead of waiting for periodic timer tick.
   publishStatus();
 }
 
+// Control commands are ONLY forwarded to PX4 when the vehicle is in OFFBOARD nav_state.
+// In other flight modes (MANUAL, POSCTL, etc.), PX4 runs its own internal controllers and
+// would ignore external setpoints anyway. The throttled warning below helps diagnose
+// situations where the control pipeline is producing outputs but the vehicle hasn't yet
+// entered offboard mode (e.g. the operator forgot to switch modes, or the offboard
+// heartbeat hasn't been accepted yet).
 void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg)
 {
   // Track the latest requested control mode flags so OffboardControlMode heartbeat stays valid
   // during mode transitions, even when commands are intentionally gated below.
+  // Memory ordering:
+  // - `release` on store here pairs with `acquire` loads in heartbeat/publication paths.
+  // - This guarantees readers observe a fully-written flag value.
   offboardModeFlags_.store(
       packOffboardModeFlags(msg->control_mode, msg->use_position, msg->use_velocity, msg->use_acceleration),
       std::memory_order_release);
@@ -450,7 +530,10 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
   {
     case peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY:
     {
-      // NaN means "do not control this axis/field" for PX4 setpoints.
+      // PX4 trajectory setpoints use NaN to mean "do not control this axis". All fields
+      // are initialized to NaN, then only the actively controlled channels are filled in
+      // based on the use_position / use_velocity / use_acceleration / use_yaw flags.
+      // This enables mixed-mode control, e.g. position hold in XY with velocity in Z.
       const float nan = std::numeric_limits<float>::quiet_NaN();
       px4_msgs::msg::TrajectorySetpoint setpoint;
       setpoint.timestamp = nowMicros();
@@ -495,6 +578,7 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
 
       if (msg->use_yaw)
       {
+        // Yaw/yaw-rate are converted with convention-specific helpers.
         setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg->yaw));
       }
       if (msg->use_yaw_rate)
@@ -517,7 +601,9 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
       rates.pitch = static_cast<float>(ratesFrd.y());
       rates.yaw = static_cast<float>(ratesFrd.z());
 
-      // PX4 thrust convention for multicopters is negative Z in FRD.
+      // PX4 multicopter thrust is a normalized [0,1] value on the negative Z body axis
+      // (FRD frame). The manager provides thrust as a positive [0,1] "push up" value, so
+      // we negate it into thrust_body[2] to match PX4's "negative-Z = upward" convention.
       const float thrust = std::clamp(msg->thrust, 0.0f, 1.0f);
       rates.thrust_body[0] = 0.0f;
       rates.thrust_body[1] = 0.0f;
@@ -633,11 +719,17 @@ void PX4HardwareAbstraction::onSetModeService(const std::shared_ptr<peregrine_in
   response->message = "Mode command sent: " + request->mode;
 }
 
+// This is the REQUIRED periodic heartbeat for PX4 offboard mode. PX4 will reject entry
+// into offboard mode -- or revert to its configured failsafe -- if this OffboardControlMode
+// message stops arriving (default timeout ~500ms). The heartbeat flags must match the
+// control mode of the setpoints being sent, so we unpack them from the atomic snapshot
+// that was stored by the most recent onControlOutput callback.
 void PX4HardwareAbstraction::publishOffboardControlMode()
 {
   px4_msgs::msg::OffboardControlMode mode;
   mode.timestamp = nowMicros();
 
+  // Acquire pairs with release-store in onControlOutput() to read a coherent snapshot.
   const uint32_t flags = offboardModeFlags_.load(std::memory_order_acquire);
   const auto activeMode = unpackControlMode(flags);
   const bool trajectoryMode = activeMode == peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY;
@@ -654,9 +746,11 @@ void PX4HardwareAbstraction::publishOffboardControlMode()
   offboardControlModePub_->publish(mode);
 }
 
+// Primary readiness contract consumed by uav_manager's HealthAggregator. This single message
+// consolidates all PX4 telemetry state -- arming, nav mode, failsafe, and battery -- so that
+// downstream health checks and state-machine transitions have one authoritative source.
 void PX4HardwareAbstraction::publishStatus()
 {
-  // Consolidated status topic supports manager FSM decisions and watchdogs.
   peregrine_interfaces::msg::PX4Status status;
   status.header.stamp = this->now();
   status.connected = isConnected();
@@ -669,6 +763,7 @@ void PX4HardwareAbstraction::publishStatus()
   status.battery_remaining = batteryRemaining_.load();
   status.battery_voltage = batteryVoltage_.load();
 
+  // This message is the single readiness contract consumed by uav_manager.
   statusPub_->publish(status);
 }
 

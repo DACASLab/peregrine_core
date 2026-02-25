@@ -1,6 +1,40 @@
 /**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
+/**
  * @file conversions.hpp
  * @brief Frame conversion utilities between ROS (ENU/FLU) and PX4 (NED/FRD).
+ *
+ * PX4 and ROS use different coordinate frame conventions:
+ *
+ *   World frame:
+ *     ROS:  ENU (East-North-Up)    -- x=East, y=North, z=Up
+ *     PX4:  NED (North-East-Down)  -- x=North, y=East, z=Down
+ *
+ *   Body frame:
+ *     ROS:  FLU (Forward-Left-Up)  -- x=Forward, y=Left, z=Up
+ *     PX4:  FRD (Forward-Right-Down) -- x=Forward, y=Right, z=Down
+ *
+ * All functions in this header are designed to be used at the hardware_abstraction
+ * boundary: incoming PX4 telemetry is converted from NED/FRD to ENU/FLU, and outgoing
+ * commands are converted from ENU/FLU to NED/FRD. Internal peregrine managers always
+ * work in ENU/FLU.
+ *
+ * Key property: both the ENU<->NED and FLU<->FRD conversion matrices are self-inverse
+ * (M * M = I), meaning the same matrix works for both directions. This is why nedToEnu()
+ * delegates to enuToNedMatrix() -- they are numerically identical operations.
+ *
+ * Yaw conventions:
+ *   ROS ENU: 0 = East, increasing CCW (pi/2 = North)
+ *   PX4 NED: 0 = North, increasing CW (pi/2 = East)
+ *   Conversion: yaw_ned = pi/2 - yaw_enu (and vice versa, also self-inverse)
  */
 
 #pragma once
@@ -28,8 +62,26 @@ namespace frame_transforms
  * This matrix is self-inverse (`M * M = I`), so ENU->NED and NED->ENU use
  * the same numeric matrix.
  */
+// `inline` on a function defined in a header allows it to appear in multiple .cpp
+// files without causing "duplicate definition" linker errors. In Python, functions
+// defined in a module are naturally shared; in C++, the linker sees definitions from
+// all .cpp files and complains about duplicates unless the function is marked inline.
+//
+// `const Eigen::Matrix3d&` returns a reference to a 3x3 matrix, avoiding a copy.
+// The `&` means the caller gets a direct reference to the actual matrix in memory,
+// not a duplicate. This is safe because the matrix is `static` (created once, lives
+// forever).
 inline const Eigen::Matrix3d& enuToNedMatrix()
 {
+  // `static const` inside a function creates a variable that is initialized once
+  // (on first call) and persists for the lifetime of the program. Subsequent calls
+  // return the same object. This is the C++ equivalent of a module-level constant
+  // in Python — but with lazy initialization (created on first use, not at import
+  // time). The `static` keyword inside a function is unrelated to the `static`
+  // keyword on class methods.
+  //
+  // The `<<` operator here is Eigen's "comma initializer" for filling matrix
+  // values row by row. The `.finished()` call signals the end of initialization.
   static const Eigen::Matrix3d matrix =
       (Eigen::Matrix3d() << 0.0, 1.0, 0.0,
        1.0, 0.0, 0.0,

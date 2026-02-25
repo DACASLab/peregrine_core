@@ -1,31 +1,19 @@
 """@file
-@brief Example 10 launch: manager-chain demo with circle/figure-eight trajectories.
+@brief Example 11 launch: repeated takeoff/trajectory/land multi-cycle demo.
 
-Launches the full peregrine stack for one UAV plus an automated demo mission:
+Similar to example10 but uses multi_cycle_demo.py instead of circle_figure8_demo.py.
+The key difference is that this demo exercises repeated flight cycles: each segment
+in the comma-separated multi_cycle_sequence triggers a full takeoff -> trajectory ->
+land cycle, with a preflight readiness re-check between cycles.
 
-  Layer 1 (base_launch = example8):
-    MicroXRCEAgent + PX4HardwareAbstraction + FrameTransformer
+This validates the FSM's ability to return to Idle after landing and successfully
+re-arm/re-takeoff for subsequent missions -- a critical path for autonomous multi-
+sortie operations.
 
-  Layer 2 (manager_container):
-    EstimationManagerNode, ControlManagerNode, TrajectoryManagerNode, UavManagerNode
-    All four are lifecycle nodes loaded into a single component_container_mt.
-    They start in UNCONFIGURED state and remain inactive until orchestrated.
+Default sequence: "circle,figure8,circle,figure8" (4 cycles).
 
-  Layer 3 (lifecycle orchestrator):
-    lifecycle_bringup_orchestrator.py configures/activates managers in two phases:
-      Phase 1: estimation_manager, control_manager, trajectory_manager (parallel-safe)
-      Phase 2: uav_manager (depends on Phase 1 managers being active)
-
-  Layer 4 (demo mission):
-    circle_figure8_demo.py waits for preflight readiness, then sends action goals
-    to uav_manager: takeoff -> circle/figure8 trajectory -> land.
-
-The two-container architecture (bridge_container + manager_container) keeps the
-non-lifecycle bridge nodes separate from the lifecycle-managed manager nodes.
-
-Usage:
-  ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py
-  ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle
+Architecture is identical to example10:
+  bridge_container (example8 base) + manager_container + orchestrator + demo node
 """
 
 from launch import LaunchDescription
@@ -39,7 +27,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    """@brief Starts composed manager stack plus optional orchestrator and demo node."""
+    """@brief Starts composed manager stack plus optional orchestrator and multi-cycle demo."""
     uav_namespace = LaunchConfiguration("uav_namespace")
     px4_namespace = LaunchConfiguration("px4_namespace")
     frame_prefix = LaunchConfiguration("frame_prefix")
@@ -55,7 +43,7 @@ def generate_launch_description() -> LaunchDescription:
     lifecycle_service_timeout_s = LaunchConfiguration("lifecycle_service_timeout_s")
     lifecycle_state_timeout_s = LaunchConfiguration("lifecycle_state_timeout_s")
 
-    mission_type = LaunchConfiguration("mission_type")
+    multi_cycle_sequence = LaunchConfiguration("multi_cycle_sequence")
     takeoff_altitude_m = LaunchConfiguration("takeoff_altitude_m")
     climb_velocity_mps = LaunchConfiguration("climb_velocity_mps")
     landing_descent_velocity_mps = LaunchConfiguration("landing_descent_velocity_mps")
@@ -121,11 +109,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("lifecycle_service_timeout_s", default_value="10.0"),
             DeclareLaunchArgument("lifecycle_state_timeout_s", default_value="15.0"),
             DeclareLaunchArgument(
-                "mission_type",
-                default_value="circle_figure8",
+                "multi_cycle_sequence",
+                default_value="circle,figure8,circle,figure8",
                 description=(
-                    "Mission sequence: circle, figure8, circle_figure8, or "
-                    "circle_land_figure8."
+                    "Comma-separated cycle list. Allowed segments: circle, figure8, circle_figure8."
                 ),
             ),
             DeclareLaunchArgument("takeoff_altitude_m", default_value="5.0"),
@@ -141,11 +128,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("server_wait_s", default_value="20.0"),
             DeclareLaunchArgument("action_timeout_s", default_value="240.0"),
             base_launch,
-            # All four managers are loaded into one container so they share a process and
-            # can use intra-process communication. component_container_mt (MultiThreadedExecutor)
-            # is required by uav_manager, which uses multiple callback groups for concurrent
-            # action handling and timer callbacks. The managers start in UNCONFIGURED state;
-            # the lifecycle orchestrator (below) transitions them through configure -> activate.
+            # Same manager container as example10. The dependency_startup_timeout_s
+            # parameter on uav_manager controls how long on_configure() waits for
+            # upstream manager status topics to appear before failing the transition.
             ComposableNodeContainer(
                 name="manager_container",
                 namespace="",
@@ -171,19 +156,15 @@ def generate_launch_description() -> LaunchDescription:
                         name="trajectory_manager",
                         namespace=uav_namespace,
                     ),
-                    # uav_manager requires MultiThreadedExecutor (component_container_mt).
                     ComposableNode(
                         package="uav_manager",
                         plugin="uav_manager::UavManagerNode",
                         name="uav_manager",
                         namespace=uav_namespace,
+                        parameters=[{"dependency_startup_timeout_s": 10.0}],
                     ),
                 ],
             ),
-            # The lifecycle orchestrator is a standalone Python node that calls
-            # change_state/get_state services to drive the lifecycle transitions.
-            # It's conditional (use_lifecycle_orchestrator) so users can manually
-            # orchestrate via `ros2 lifecycle set` CLI commands if preferred.
             Node(
                 condition=IfCondition(use_lifecycle_orchestrator),
                 package="hardware_abstraction_example",
@@ -203,18 +184,14 @@ def generate_launch_description() -> LaunchDescription:
                     }
                 ],
             ),
-            # The demo mission node runs unconditionally. It waits for preflight
-            # readiness (PX4 connected, all managers healthy) before sending any
-            # action goals, so it tolerates the delay while the orchestrator
-            # completes lifecycle transitions.
             Node(
                 package="hardware_abstraction_example",
-                executable="circle_figure8_demo.py",
+                executable="multi_cycle_demo.py",
                 namespace=uav_namespace,
                 output="screen",
                 parameters=[
                     {
-                        "mission_type": mission_type,
+                        "multi_cycle_sequence": multi_cycle_sequence,
                         "takeoff_altitude_m": takeoff_altitude_m,
                         "climb_velocity_mps": climb_velocity_mps,
                         "landing_descent_velocity_mps": landing_descent_velocity_mps,

@@ -11,15 +11,22 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py`
 
+## Multi-Cycle Demo Launch
+
+`ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py`
+
 This launch starts:
 
-- `hardware_abstraction_node`
-- `frame_transformer_node`
-- `estimation_manager_node`
-- `control_manager_node`
-- `trajectory_manager_node`
-- `uav_manager_node`
+- `bridge_container` (composed nodes)
+  - `px4_hardware_abstraction`
+  - `frame_transformer`
+- `manager_container` (composed lifecycle nodes)
+  - `estimation_manager`
+  - `control_manager`
+  - `trajectory_manager`
+  - `uav_manager`
 - `circle_figure8_demo.py` mission runner
+- optional `lifecycle_bringup_orchestrator.py` (enabled by default)
 
 Mission selection:
 
@@ -30,8 +37,9 @@ Mission selection:
 
 ## What it starts
 
-- `hardware_abstraction_node`
-- `frame_transformer_node`
+- `bridge_container` (executable: `component_container_mt`)
+  - `px4_hardware_abstraction`
+  - `frame_transformer`
 - Optional `MicroXRCEAgent` process (enabled by default)
 
 ## Suggested usage
@@ -52,6 +60,10 @@ For the autonomous trajectory demo, replace step 2 with:
 For the FSM cycle validation requested here:
 
 `cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle_land_figure8 ros_localhost_only:=1 ros_domain_id:=42`
+
+For repeated takeoff/land cycles in a dedicated example:
+
+`cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py multi_cycle_sequence:=circle,figure8,circle,figure8 ros_localhost_only:=1 ros_domain_id:=42`
 
 ## PX4 uXRCE-DDS Notes
 

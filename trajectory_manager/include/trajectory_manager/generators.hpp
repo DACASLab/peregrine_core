@@ -1,6 +1,32 @@
 /**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
+/**
  * @file generators.hpp
  * @brief Built-in trajectory generators for trajectory_manager.
+ *
+ * All generators follow a common pattern:
+ *  1. Constructor captures the start state (position, yaw) and trajectory parameters
+ *  2. sample() is called at the publication rate and returns the reference setpoint
+ *     for the current time, plus progress/completion metadata
+ *  3. Completion is based on MEASURED state (from currentState), not just planned
+ *     progress, to account for tracking error and disturbances
+ *
+ * Generators produce setpoints in ENU/FLU coordinates. The conversion to PX4's NED/FRD
+ * happens downstream in hardware_abstraction.
+ *
+ * Velocity feedforward: CircleGenerator and FigureEightGenerator enable use_velocity
+ * in their setpoints and provide analytical velocity derivatives. This helps PX4's
+ * position controller track the curved path without lag (pure position control would
+ * always lag behind a moving reference). For straight-line or vertical trajectories,
+ * position-only control is sufficient.
  */
 
 #pragma once
@@ -17,7 +43,7 @@ namespace trajectory_manager
 /**
  * @brief Extracts ENU yaw from a quaternion.
  */
-double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q);
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q);
 
 /**
  * @class HoldPositionGenerator
@@ -29,15 +55,17 @@ public:
   /**
    * @brief Constructs hold setpoint from a reference state.
    */
-  explicit HoldPositionGenerator(const peregrine_interfaces::msg::State& referenceState);
+  explicit HoldPositionGenerator(const peregrine_interfaces::msg::State & referenceState);
 
   /**
    * @brief Constructs hold setpoint from explicit position and yaw.
    */
-  HoldPositionGenerator(const geometry_msgs::msg::Point& position, double yaw);
+  HoldPositionGenerator(const geometry_msgs::msg::Point & position, double yaw);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point holdPosition_;
@@ -54,11 +82,15 @@ public:
   /**
    * @brief Constructs a takeoff generator.
    */
-  TakeoffGenerator(const peregrine_interfaces::msg::State& startState, double targetAltitudeM, double climbVelocityMps,
-                   const rclcpp::Time& startTime);
+  TakeoffGenerator(
+    const peregrine_interfaces::msg::State & startState, double targetAltitudeM,
+    double climbVelocityMps,
+    const rclcpp::Time & startTime);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
@@ -79,11 +111,15 @@ public:
   /**
    * @brief Constructs a go-to generator.
    */
-  LinearGoToGenerator(const peregrine_interfaces::msg::State& startState, const geometry_msgs::msg::Point& targetPosition,
-                      double targetYaw, double velocityMps, double acceptanceRadiusM, const rclcpp::Time& startTime);
+  LinearGoToGenerator(
+    const peregrine_interfaces::msg::State & startState,
+    const geometry_msgs::msg::Point & targetPosition,
+    double targetYaw, double velocityMps, double acceptanceRadiusM, const rclcpp::Time & startTime);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
@@ -106,11 +142,15 @@ public:
   /**
    * @brief Constructs a circle generator.
    */
-  CircleGenerator(const peregrine_interfaces::msg::State& startState, double radiusM, double angularVelocityRadps,
-                  double numLoops, const rclcpp::Time& startTime);
+  CircleGenerator(
+    const peregrine_interfaces::msg::State & startState, double radiusM,
+    double angularVelocityRadps,
+    double numLoops, const rclcpp::Time & startTime);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point center_;
@@ -131,11 +171,15 @@ public:
   /**
    * @brief Constructs a figure-eight generator.
    */
-  FigureEightGenerator(const peregrine_interfaces::msg::State& startState, double radiusM, double angularVelocityRadps,
-                       double numLoops, const rclcpp::Time& startTime);
+  FigureEightGenerator(
+    const peregrine_interfaces::msg::State & startState, double radiusM,
+    double angularVelocityRadps,
+    double numLoops, const rclcpp::Time & startTime);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point center_;
@@ -156,10 +200,14 @@ public:
   /**
    * @brief Constructs a landing generator.
    */
-  LandGenerator(const peregrine_interfaces::msg::State& startState, double descentVelocityMps, const rclcpp::Time& startTime);
+  LandGenerator(
+    const peregrine_interfaces::msg::State & startState, double descentVelocityMps,
+    const rclcpp::Time & startTime);
 
   std::string name() const override;
-  TrajectorySample sample(const peregrine_interfaces::msg::State& currentState, const rclcpp::Time& now) override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;

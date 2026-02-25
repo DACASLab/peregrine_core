@@ -1,3 +1,13 @@
+/**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
 #include <frame_transforms/conversions.hpp>
 #include <frame_transforms/frame_transformer.hpp>
 
@@ -15,6 +25,11 @@ namespace frame_transforms
 {
 namespace
 {
+
+// C++ linkage note:
+// Symbols inside an unnamed namespace have "internal linkage", meaning they are visible
+// only in this translation unit (.cpp file). This is similar to module-private helper
+// functions in Python (by convention, `_helper`), but enforced by the linker.
 
 // Removes leading/trailing slashes so frame IDs remain stable when concatenated.
 std::string normalizePrefix(const std::string& prefix)
@@ -84,6 +99,9 @@ geometry_msgs::msg::Transform identityTransform()
 FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 : Node("frame_transformer", options)
 {
+  // `declare_parameter<T>()` is a function template. The `<std::string>` and `<double>`
+  // arguments are compile-time type parameters, similar to Python type hints but enforced
+  // by the compiler and used to select concrete function instantiations.
   // Parameters define topic and the local frame naming convention for one UAV.
   framePrefix_ = normalizePrefix(this->declare_parameter<std::string>("frame_prefix", ""));
   odometryTopic_ = this->declare_parameter<std::string>("odometry_topic", "odometry");
@@ -101,6 +119,9 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   }
 
   // One dynamic and one static broadcaster keeps TF ownership clear in this node.
+  // `std::make_unique<T>(...)` returns a `std::unique_ptr<T>`, which gives single-owner
+  // semantics for heap objects. Ownership cannot be copied (only moved), making lifetime
+  // deterministic and preventing accidental shared ownership.
   tfBroadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
   staticTfBroadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
 
@@ -124,12 +145,18 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 
 void FrameTransformer::odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
+  // `std::scoped_lock` is RAII-based locking: lock acquired at construction, released
+  // automatically at scope exit. Equivalent Python mental model is `with lock: ...`.
   std::scoped_lock lock(odometryMutex_);
+  // Keep only latest sample; timer publishes at configured TF rate.
+  // `latestOdometry_` is std::optional<Odometry>, so assignment engages the optional.
   latestOdometry_ = *msg;
 }
 
 void FrameTransformer::publishStaticTransforms()
 {
+  // `std::vector` is C++'s dynamic contiguous array (closest to Python list). `reserve(3)`
+  // pre-allocates capacity for exactly three pushes to avoid reallocations.
   std::vector<geometry_msgs::msg::TransformStamped> transforms;
   transforms.reserve(3);
 
@@ -167,6 +194,12 @@ void FrameTransformer::publishStaticTransforms()
 
 void FrameTransformer::publishDynamicTransforms()
 {
+  // Copy-under-lock pattern:
+  // 1) acquire lock and copy shared data to a local variable
+  // 2) release lock quickly
+  // 3) do heavier work without holding the mutex
+  //
+  // This minimizes contention between callback and timer threads.
   std::optional<nav_msgs::msg::Odometry> odometry;
   {
     std::scoped_lock lock(odometryMutex_);
@@ -180,6 +213,8 @@ void FrameTransformer::publishDynamicTransforms()
   }
 
   geometry_msgs::msg::TransformStamped odomToBase;
+  // `odometry->...` uses pointer-like access on std::optional (`operator->`), equivalent
+  // to writing `(*odometry).header.stamp`.
   odomToBase.header.stamp = odometry->header.stamp;
   // If the incoming odometry timestamp is unset, use local clock to keep TF valid.
   if (odomToBase.header.stamp.nanosec == 0 && odomToBase.header.stamp.sec == 0)

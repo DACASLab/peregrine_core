@@ -1,10 +1,55 @@
 /**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
+/**
  * @file uav_manager_node.hpp
- * @brief UAV manager ROS2 component.
+ * @brief UAV manager ROS2 lifecycle component.
+ *
+ * Pipeline position: Top-level supervisor node, above all other managers.
+ *   Consumes status from: hardware_abstraction, estimation_manager, control_manager,
+ *                          trajectory_manager
+ *   Commands:              hardware_abstraction (arm/set_mode services)
+ *   Delegates to:          trajectory_manager (go_to, execute_trajectory action servers)
+ *
+ * This node is the user-facing entry point for high-level flight operations. External
+ * clients (Python demo scripts, ground stations, mission planners) interact with the
+ * peregrine stack exclusively through this node's action interfaces:
+ *   - takeoff:  arm -> offboard -> execute takeoff trajectory -> hover
+ *   - land:     switch PX4 to land mode -> wait for auto-disarm
+ *   - go_to:    forward to trajectory_manager -> wait for completion
+ *   - execute_trajectory: forward to trajectory_manager -> wait for completion
+ *
+ * Internally, the node is composed of several subsystems:
+ *   - SupervisorStateMachine: table-driven FSM tracking high-level flight phase
+ *   - HealthAggregator: freshness-based readiness monitoring of all dependencies
+ *   - TransitionGuard: policy checks evaluated before each FSM transition
+ *   - ActionOrchestrator: preemption-aware wait/step execution utilities
+ *
+ * Threading model (requires MultiThreadedExecutor / component_container_mt):
+ *   - Default group (MutuallyExclusive): subscriptions + status timer (fast, non-blocking)
+ *   - actionCbGroup_ (Reentrant): action server accepted callbacks (may block for minutes)
+ *   - serviceCbGroup_ (MutuallyExclusive): service/action client responses (prevents deadlock
+ *     when a service response arrives while an accepted callback is blocked)
+ *
+ * Single-flight policy: only one high-level action runs at a time. The action slot mutex
+ * prevents concurrent takeoff + land, or two go_to goals running simultaneously.
  */
 
 #pragma once
 
+#include <uav_manager/action_orchestrator.hpp>
+#include <uav_manager/health_aggregator.hpp>
+#include <uav_manager/supervisor_state_machine.hpp>
+#include <uav_manager/transition_guard.hpp>
+
+#include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/action/execute_trajectory.hpp>
 #include <peregrine_interfaces/action/go_to.hpp>
 #include <peregrine_interfaces/action/land.hpp>
@@ -17,7 +62,10 @@
 #include <peregrine_interfaces/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
+#include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -32,9 +80,15 @@ namespace uav_manager
  * @class UavManagerNode
  * @brief Coordinates arm/offboard/trajectory/land operations via service and action APIs.
  */
-class UavManagerNode : public rclcpp::Node
+class UavManagerNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
+  // `using` type aliases are the C++ equivalent of Python's type aliases:
+  //   Takeoff = peregrine_interfaces.action.Takeoff
+  // They shorten deeply nested template types that appear throughout action
+  // server/client code. Without these, signatures like
+  // rclcpp_action::ServerGoalHandle<peregrine_interfaces::action::Takeoff> would
+  // repeat in every goal/cancel/accepted callback declaration.
   using Takeoff = peregrine_interfaces::action::Takeoff;
   using Land = peregrine_interfaces::action::Land;
   using GoTo = peregrine_interfaces::action::GoTo;
@@ -45,256 +99,266 @@ public:
   using GoalHandleExecuteTrajectory = rclcpp_action::ServerGoalHandle<ExecuteTrajectory>;
 
   /**
-   * @brief Constructs the UAV manager component.
+   * @brief Constructs the UAV manager lifecycle component.
    */
-  explicit UavManagerNode(const rclcpp::NodeOptions& options);
+  explicit UavManagerNode(const rclcpp::NodeOptions & options);
 
 private:
-  enum class FsmState : uint8_t
-  {
-    Idle,
-    Armed,
-    TakingOff,
-    Hovering,
-    Flying,
-    Landing,
-    Landed,
-    Emergency
-  };
+  using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+  // Lifecycle state machine callbacks. The managed lifecycle transitions are:
+  //   UNCONFIGURED --on_configure--> INACTIVE --on_activate--> ACTIVE
+  //   ACTIVE --on_deactivate--> INACTIVE --on_cleanup--> UNCONFIGURED
+  // on_shutdown can be called from any primary state; on_error handles faults.
+  // Each callback returns SUCCESS to proceed or FAILURE to stay/transition to error.
 
   /**
-   * @brief Stores latest estimated state for status reporting.
+   * @brief Allocates ROS interfaces and resets supervisor/runtime state.
    */
+  CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
+
+  /**
+   * @brief Activates status publication after dependency readiness check.
+   */
+  CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override;
+
+  /**
+   * @brief Stops status publication while keeping subscriptions alive.
+   */
+  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override;
+
+  /**
+   * @brief Releases all ROS resources and clears cached health/state.
+   */
+  CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
+
+  /**
+   * @brief Reuses cleanup path during final shutdown.
+   */
+  CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
+
+  /**
+   * @brief Best-effort error callback that stops periodic status publishing.
+   */
+  CallbackReturn on_error(const rclcpp_lifecycle::State & state) override;
+
+  /// Caches latest estimated_state and updates readiness freshness.
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
-
-  /**
-   * @brief Stores latest PX4 status and updates emergency state on failsafe.
-   */
+  /// Caches PX4 status, updates readiness snapshot, and injects failsafe event.
   void onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg);
-
-  /**
-   * @brief Stores latest estimation manager status.
-   */
+  /// Caches estimation manager status and updates readiness snapshot.
   void onEstimationStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
-
-  /**
-   * @brief Stores latest control manager status.
-   */
+  /// Caches control manager status and updates readiness snapshot.
   void onControlStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
-
-  /**
-   * @brief Stores latest trajectory manager status.
-   */
+  /// Caches trajectory manager status and updates readiness snapshot.
   void onTrajectoryStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
 
-  /**
-   * @brief Publishes UAV FSM state and status at fixed rate.
-   */
+  /// Publishes externally-consumed supervisor state/status.
   void publishUavState();
 
-  /**
-   * @brief Handles new takeoff goals.
-   */
-  rclcpp_action::GoalResponse onTakeoffGoal(const rclcpp_action::GoalUUID& uuid,
-                                            std::shared_ptr<const Takeoff::Goal> goal);
-
-  /**
-   * @brief Handles takeoff cancel requests.
-   */
-  rclcpp_action::CancelResponse onTakeoffCancel(const std::shared_ptr<GoalHandleTakeoff> goalHandle);
-
-  /**
-   * @brief Starts takeoff execution thread.
-   */
+  /// Validates and accepts/rejects incoming takeoff goals.
+  rclcpp_action::GoalResponse onTakeoffGoal(
+    const rclcpp_action::GoalUUID & uuid,
+    std::shared_ptr<const Takeoff::Goal> goal);
+  /// Accepts cancel requests for active takeoff goals.
+  rclcpp_action::CancelResponse onTakeoffCancel(
+    const std::shared_ptr<GoalHandleTakeoff> goalHandle);
+  /// Executes the full takeoff orchestration flow.
   void onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> goalHandle);
 
-  /**
-   * @brief Handles new land goals.
-   */
-  rclcpp_action::GoalResponse onLandGoal(const rclcpp_action::GoalUUID& uuid, std::shared_ptr<const Land::Goal> goal);
-
-  /**
-   * @brief Handles land cancel requests.
-   */
+  /// Validates and accepts/rejects incoming land goals.
+  rclcpp_action::GoalResponse onLandGoal(
+    const rclcpp_action::GoalUUID & uuid,
+    std::shared_ptr<const Land::Goal> goal);
+  /// Accepts cancel requests for active land goals.
   rclcpp_action::CancelResponse onLandCancel(const std::shared_ptr<GoalHandleLand> goalHandle);
-
-  /**
-   * @brief Starts land execution thread.
-   */
+  /// Executes the full landing orchestration flow.
   void onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHandle);
 
-  /**
-   * @brief Handles new go-to goals.
-   */
-  rclcpp_action::GoalResponse onGoToGoal(const rclcpp_action::GoalUUID& uuid, std::shared_ptr<const GoTo::Goal> goal);
-
-  /**
-   * @brief Handles go-to cancel requests.
-   */
+  /// Validates and accepts/rejects incoming go-to goals.
+  rclcpp_action::GoalResponse onGoToGoal(
+    const rclcpp_action::GoalUUID & uuid,
+    std::shared_ptr<const GoTo::Goal> goal);
+  /// Accepts cancel requests for active go-to goals.
   rclcpp_action::CancelResponse onGoToCancel(const std::shared_ptr<GoalHandleGoTo> goalHandle);
-
-  /**
-   * @brief Starts go-to forwarding thread.
-   */
+  /// Forwards go-to execution to trajectory_manager with preemption control.
   void onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHandle);
 
-  /**
-   * @brief Handles new execute-trajectory goals.
-   */
-  rclcpp_action::GoalResponse onExecuteGoal(const rclcpp_action::GoalUUID& uuid,
-                                            std::shared_ptr<const ExecuteTrajectory::Goal> goal);
-
-  /**
-   * @brief Handles execute-trajectory cancel requests.
-   */
-  rclcpp_action::CancelResponse onExecuteCancel(const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle);
-
-  /**
-   * @brief Starts execute-trajectory forwarding thread.
-   */
+  /// Validates and accepts/rejects execute-trajectory goals.
+  rclcpp_action::GoalResponse onExecuteGoal(
+    const rclcpp_action::GoalUUID & uuid,
+    std::shared_ptr<const ExecuteTrajectory::Goal> goal);
+  /// Accepts cancel requests for active execute-trajectory goals.
+  rclcpp_action::CancelResponse onExecuteCancel(
+    const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle);
+  /// Forwards execute-trajectory to trajectory_manager with preemption control.
   void onExecuteAccepted(const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle);
 
-  /**
-   * @brief Reserves action execution slot for one in-flight UAV manager action.
-   */
+  /// Single-flight guard: only one high-level action may run at a time.
   bool reserveActionSlot();
-
-  /**
-   * @brief Releases action execution slot.
-   */
+  /// Releases single-flight action guard.
   void releaseActionSlot();
 
   /**
-   * @brief Attempts a guarded FSM transition and updates detail text.
-   * @return True when the transition is allowed and applied.
+   * @brief Applies one explicit supervisor event with guard evaluation.
+   *
+   * Transition result is logged and `lastTransitionReason_` is updated.
    */
-  bool setFsmState(FsmState state, const std::string& detail = "");
+  TransitionOutcome applyEvent(SupervisorEvent event);
+  /// Returns true when supervisor is in Emergency state.
+  bool isEmergency() const;
+
+  /// Ensures PX4 nav state is armable before arming.
+  StepResult ensureArmableMode();
+  /// Calls `arm` service with explicit timeout/error mapping.
+  StepResult callArmService(bool arm);
+  /// Calls `set_mode` service with explicit timeout/error mapping.
+  StepResult callSetModeService(const std::string & mode);
+
+  /// Waits until PX4 armed state matches expected value.
+  StepResult waitForArmed(bool armed, std::chrono::milliseconds timeout) const;
+  /// Waits until PX4 offboard state matches expected value.
+  StepResult waitForOffboard(bool offboard, std::chrono::milliseconds timeout) const;
+  /// Waits until PX4 nav_state matches expected value.
+  StepResult waitForNavState(uint8_t navState, std::chrono::milliseconds timeout) const;
+  /// Waits for healthy control output flow before requesting offboard.
+  StepResult waitForControlSetpointFlow(std::chrono::milliseconds timeout) const;
 
   /**
-   * @brief Returns true when takeoff is allowed from the current FSM state.
+   * @brief Forwards ExecuteTrajectory to trajectory_manager with bounded waits.
+   *
+   * All waits are preemption-aware and return machine-readable reason codes.
    */
-  bool takeoffStateAllowed(std::string* reasonOut) const;
+  StepResult forwardExecuteTrajectory(
+    const ExecuteTrajectory::Goal & goal,
+    std::function<void(const ExecuteTrajectory::Feedback &)> feedbackCallback,
+    const std::function<bool()> & preempted,
+    const std::function<bool()> & emergency,
+    ExecuteTrajectory::Result * resultOut) const;
 
   /**
-   * @brief Returns true when land is allowed from the current FSM state.
+   * @brief Forwards GoTo to trajectory_manager with bounded waits.
+   *
+   * All waits are preemption-aware and return machine-readable reason codes.
    */
-  bool landStateAllowed(std::string* reasonOut) const;
+  StepResult forwardGoTo(
+    const GoTo::Goal & goal, std::function<void(const GoTo::Feedback &)> feedbackCallback,
+    const std::function<bool()> & preempted,
+    const std::function<bool()> & emergency,
+    GoTo::Result * resultOut) const;
 
-  /**
-   * @brief Returns true when go-to or execute-trajectory is allowed from current FSM state.
-   */
-  bool flightActionStateAllowed(std::string* reasonOut) const;
-
-  /**
-   * @brief Returns true when PX4 and manager statuses indicate takeoff preflight readiness.
-   */
-  bool preflightReady(std::string* reasonOut) const;
-
-  /**
-   * @brief Ensures PX4 is in an armable mode before issuing arm command.
-   */
-  bool ensureArmableMode(std::string* errorOut);
-
-  /**
-   * @brief Returns true when current control manager status indicates active healthy output.
-   */
-  bool controlSetpointFlowing() const;
-
-  /**
-   * @brief Calls arm/disarm service and validates response.
-   */
-  bool callArmService(bool arm, std::string* errorOut);
-
-  /**
-   * @brief Calls mode service and validates response.
-   */
-  bool callSetModeService(const std::string& mode, std::string* errorOut);
-
-  /**
-   * @brief Waits for PX4 armed state to match expected value.
-   */
-  bool waitForArmed(bool armed, double timeoutS) const;
-
-  /**
-   * @brief Waits for PX4 offboard state to become true.
-   */
-  bool waitForOffboard(bool offboard, double timeoutS) const;
-
-  /**
-   * @brief Waits for PX4 nav_state to match expected value.
-   */
-  bool waitForNavState(uint8_t navState, double timeoutS) const;
-
-  /**
-   * @brief Waits until condition returns true or timeout expires.
-   */
-  bool waitForCondition(const std::function<bool()>& condition, double timeoutS) const;
-
-  /**
-   * @brief Forwards ExecuteTrajectory goal to trajectory_manager with feedback callback.
-   */
-  bool forwardExecuteTrajectory(
-      const ExecuteTrajectory::Goal& goal, std::function<void(const ExecuteTrajectory::Feedback&)> feedbackCallback,
-      ExecuteTrajectory::Result* resultOut, std::string* errorOut);
-
-  /**
-   * @brief Forwards GoTo goal to trajectory_manager with feedback callback.
-   */
-  bool forwardGoTo(const GoTo::Goal& goal, std::function<void(const GoTo::Feedback&)> feedbackCallback, GoTo::Result* resultOut,
-                   std::string* errorOut);
-
-  /**
-   * @brief Returns altitude (ENU z) from latest estimated state.
-   */
+  /// Returns latest altitude from estimated_state, or 0.0 when unavailable.
   double latestAltitudeM() const;
-
-  /**
-   * @brief Returns latest estimated position or origin when unavailable.
-   */
+  /// Returns latest position from estimated_state, or origin when unavailable.
   geometry_msgs::msg::Point latestPosition() const;
 
-  /**
-   * @brief Converts a positive frequency in Hz to timer period.
-   */
+  /// Utility to convert frequency in Hz into timer period.
   static std::chrono::nanoseconds periodFromHz(double hz);
+  /// Maps supervisor state enum to UAVState numeric code.
+  static uint8_t toUavStateCode(SupervisorState state);
 
-  /**
-   * @brief Returns string name for current FSM state.
-   */
-  static std::string stateName(FsmState state);
+  /// Steady-clock "now" used for freshness tracking.
+  std::chrono::steady_clock::time_point nowSteady() const;
 
+  /// Protects cached state/status and supervisor updates.
   mutable std::mutex mutex_;
+  /// Latest estimated_state message.
   std::optional<peregrine_interfaces::msg::State> latestState_;
+  /// Latest PX4 bridge status message.
   std::optional<peregrine_interfaces::msg::PX4Status> latestPx4Status_;
+  /// Latest estimation manager status message.
   std::optional<peregrine_interfaces::msg::ManagerStatus> latestEstimationStatus_;
+  /// Latest control manager status message.
   std::optional<peregrine_interfaces::msg::ManagerStatus> latestControlStatus_;
+  /// Latest trajectory manager status message.
   std::optional<peregrine_interfaces::msg::ManagerStatus> latestTrajectoryStatus_;
 
-  FsmState fsmState_{FsmState::Idle};
-  std::string fsmDetail_;
+  /// Pure table-driven supervisor FSM.
+  SupervisorStateMachine supervisor_;
+  /// Last transition reason exported in UAVState.detail.
+  std::string lastTransitionReason_{"BOOT"};
 
+  /// Protects the single-flight action slot.
   mutable std::mutex actionSlotMutex_;
+  /// True when any high-level action is currently executing.
   bool actionSlotReserved_{false};
 
+  /// Freshness thresholds for dependency/readiness evaluation.
+  FreshnessConfig freshnessConfig_;
+  /// Aggregates subsystem health into one snapshot for guard checks.
+  std::unique_ptr<HealthAggregator> healthAggregator_;
+  /// Deterministic guard evaluator for FSM transitions.
+  TransitionGuard transitionGuard_;
+  /// Orchestrates wait/timeout/preemption handling for action steps.
+  std::unique_ptr<ActionOrchestrator> orchestrator_;
+
+  /// True once lifecycle configure succeeded.
+  bool configured_{false};
+  // `std::atomic<bool>` is a thread-safe boolean that can be read/written from
+  // multiple threads without a mutex. Normal booleans are NOT safe to share between
+  // threads in C++ (unlike Python, where the GIL serializes access). std::atomic
+  // provides lock-free, hardware-level synchronization for simple types. This is
+  // used for `active_` because it is read from many different callback threads
+  // (subscription callbacks, timer callbacks, action callbacks) and written
+  // during lifecycle transitions.
+  /// True while lifecycle state is active.
+  std::atomic<bool> active_{false};
+
+  /// UAV state publication frequency.
   double statusRateHz_{10.0};
+  /// Activation-time wait bound for dependency readiness.
+  double dependencyStartupTimeoutS_{2.0};
+  /// Service availability wait timeout.
+  double serviceWaitS_{3.0};
+  /// Service response wait timeout.
+  double serviceResponseWaitS_{5.0};
+  /// Downstream action server availability timeout.
+  double actionServerWaitS_{3.0};
+  /// Downstream action result wait timeout.
+  double actionResultWaitS_{180.0};
+  /// PX4 offboard transition timeout.
+  double offboardWaitS_{6.0};
+  /// PX4 armed confirmation timeout.
+  double armedWaitS_{6.0};
 
+  /// Reentrant group for long-running action server callbacks.
+  rclcpp::CallbackGroup::SharedPtr actionCbGroup_;
+  /// Separate group for service/action clients and their responses.
+  rclcpp::CallbackGroup::SharedPtr serviceCbGroup_;
+
+  /// Estimated state subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr estimatedStateSub_;
+  /// PX4 bridge status subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::PX4Status>::SharedPtr px4StatusSub_;
+  /// Estimation manager status subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr estimationStatusSub_;
+  /// Control manager status subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr controlStatusSub_;
+  /// Trajectory manager status subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr trajectoryStatusSub_;
-  rclcpp::Publisher<peregrine_interfaces::msg::UAVState>::SharedPtr uavStatePub_;
 
+  /// Lifecycle-gated UAV supervisor status publisher.
+  rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::UAVState>::SharedPtr uavStatePub_;
+
+  /// Client for arm/disarm requests.
   rclcpp::Client<peregrine_interfaces::srv::Arm>::SharedPtr armClient_;
+  /// Client for PX4 mode changes.
   rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient_;
+  /// Client for go-to forwarding into trajectory_manager.
   rclcpp_action::Client<GoTo>::SharedPtr trajectoryGoToClient_;
+  /// Client for execute-trajectory forwarding into trajectory_manager.
   rclcpp_action::Client<ExecuteTrajectory>::SharedPtr trajectoryExecuteClient_;
 
+  /// High-level takeoff action server exposed by uav_manager.
   rclcpp_action::Server<Takeoff>::SharedPtr takeoffServer_;
+  /// High-level land action server exposed by uav_manager.
   rclcpp_action::Server<Land>::SharedPtr landServer_;
+  /// High-level go-to action server exposed by uav_manager.
   rclcpp_action::Server<GoTo>::SharedPtr goToServer_;
+  /// High-level execute-trajectory action server exposed by uav_manager.
   rclcpp_action::Server<ExecuteTrajectory>::SharedPtr executeServer_;
 
+  /// Periodic UAVState publisher timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
 };
 

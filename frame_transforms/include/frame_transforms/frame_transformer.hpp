@@ -1,6 +1,42 @@
 /**
+ * @note C++ Primer for Python ROS2 readers
+ *
+ * This file follows a few recurring C++ patterns:
+ * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
+ * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
+ * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
+ * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
+ * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
+ */
+/**
  * @file frame_transformer.hpp
  * @brief TF broadcaster component for a single UAV TF subtree.
+ *
+ * This component bridges the gap between hardware_abstraction's odometry output and
+ * the ROS2 TF tree that visualization tools (RViz) and other consumers rely on.
+ *
+ * Unlike the lifecycle managers, this is a plain rclcpp::Node because TF frames should
+ * be available as long as hardware_abstraction is publishing odometry, regardless of
+ * the lifecycle state of the manager pipeline.
+ *
+ * TF tree structure published by this node:
+ *
+ *   world ─(static identity)─> map ─(static identity)─> odom ─(dynamic)─> base_link
+ *                                                                             │
+ *                                                                    (static FLU->FRD)
+ *                                                                             │
+ *                                                                       base_link_frd
+ *
+ * The world->map and map->odom transforms are identity by default. They exist as
+ * placeholders so that higher-level localization packages (e.g., SLAM, GPS-based
+ * global alignment) can later take ownership of these transforms without restructuring
+ * the TF tree.
+ *
+ * The base_link->base_link_frd static transform allows nodes that need PX4's FRD body
+ * frame (e.g., for sensor data expressed in FRD) to look it up via TF.
+ *
+ * All frame names are parameterized and support an optional prefix for multi-UAV
+ * deployments (e.g., "uav1/base_link").
  */
 
 #pragma once
@@ -20,13 +56,13 @@ namespace frame_transforms
  * @class FrameTransformer
  * @brief Publishes a local TF tree for one UAV from odometry input.
  *
- * Static transforms:
- * - world -> map
- * - map -> odom
- * - base_link -> base_link_frd
+ * Static transforms (published once at startup via latched topic):
+ * - world -> map       (identity; placeholder for global localization)
+ * - map -> odom        (identity; placeholder for drift correction)
+ * - base_link -> base_link_frd  (180-degree rotation about X axis: FLU to FRD)
  *
- * Dynamic transform:
- * - odom -> base_link (from latest odometry sample, with configured frame IDs)
+ * Dynamic transform (published at configurable rate):
+ * - odom -> base_link  (from latest odometry sample)
  */
 class FrameTransformer : public rclcpp::Node
 {
