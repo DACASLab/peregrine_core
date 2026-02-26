@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    publish_rate_hz: 250.0
+    status_rate_hz: 5.0
+    state_timeout_s: 0.5
+    dependency_startup_timeout_s: 2.0
+    auto_start: true

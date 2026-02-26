@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <thread>
 #include <utility>
 
 namespace uav_manager
@@ -81,8 +82,66 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
   OrchestratorConfig orchestratorConfig;
   orchestratorConfig.pollPeriod = std::chrono::milliseconds(std::max<int64_t>(10, pollMs));
 
+  autoStart_ = this->declare_parameter<bool>("auto_start", true);
+  dataReadinessTimeoutS_ = this->declare_parameter<double>("data_readiness_timeout_s", 30.0);
+  dataReadinessPollMs_ = this->declare_parameter<int>("data_readiness_poll_ms", 200);
+
   healthAggregator_ = std::make_unique<HealthAggregator>(freshnessConfig_);
   orchestrator_ = std::make_unique<ActionOrchestrator>(orchestratorConfig);
+
+  if (autoStart_) {
+    startupTimer_ = this->create_wall_timer(
+      std::chrono::milliseconds(200),
+      [this]() {
+        startupTimer_->cancel();  // one-shot
+
+        RCLCPP_INFO(get_logger(), "Auto-start: triggering configure");
+        auto configResult = this->trigger_transition(
+          lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+        if (configResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+          RCLCPP_ERROR(get_logger(), "Auto-configure failed (state=%s)", configResult.label().c_str());
+          return;
+        }
+
+        // Data readiness gate: wait for HealthAggregator to report all dependencies ready
+        // before activating. This replaces the orchestrator's _wait_for_data_readiness().
+        RCLCPP_INFO(get_logger(), "Auto-start: waiting for data readiness (timeout=%.1fs)", dataReadinessTimeoutS_);
+        auto deadline = std::chrono::steady_clock::now()
+          + std::chrono::duration<double>(dataReadinessTimeoutS_);
+        while (std::chrono::steady_clock::now() < deadline) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(dataReadinessPollMs_));
+          auto snap = healthAggregator_->snapshot(nowSteady());
+          if (snap.dependenciesReady()) {
+            RCLCPP_INFO(get_logger(), "Auto-start: data readiness satisfied");
+            break;
+          }
+        }
+
+        {
+          auto snap = healthAggregator_->snapshot(nowSteady());
+          if (!snap.dependenciesReady()) {
+            RCLCPP_WARN(get_logger(),
+              "Auto-start: data readiness timeout; activating anyway "
+              "(px4=%s est_state=%s est_mgr=%s ctrl_mgr=%s traj_mgr=%s)",
+              snap.px4.reasonCode.c_str(),
+              snap.estimatedState.reasonCode.c_str(),
+              snap.estimationManager.reasonCode.c_str(),
+              snap.controlManager.reasonCode.c_str(),
+              snap.trajectoryManager.reasonCode.c_str());
+          }
+        }
+
+        RCLCPP_INFO(get_logger(), "Auto-start: triggering activate");
+        auto activateResult = this->trigger_transition(
+          lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+        if (activateResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+          RCLCPP_ERROR(get_logger(), "Auto-activate failed (state=%s)", activateResult.label().c_str());
+          return;
+        }
+
+        RCLCPP_INFO(get_logger(), "Auto-start complete: ACTIVE");
+      });
+  }
 }
 
 UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecycle::State &)
@@ -480,6 +539,23 @@ void UavManagerNode::publishUavState()
       output.connected = false;
       output.failsafe = false;
     }
+  }
+
+  // Populate readiness fields from HealthAggregator
+  if (healthAggregator_) {
+    auto snap = healthAggregator_->snapshot(nowSteady());
+    output.dependencies_ready = snap.dependenciesReady();
+    output.px4_ready = snap.px4.ready();
+    output.estimation_ready = snap.estimationManager.ready();
+    output.control_ready = snap.controlManager.ready();
+    output.trajectory_ready = snap.trajectoryManager.ready();
+    output.estimated_state_ready = snap.estimatedState.ready();
+    output.readiness_detail =
+      "px4=" + snap.px4.reasonCode +
+      " est_state=" + snap.estimatedState.reasonCode +
+      " est_mgr=" + snap.estimationManager.reasonCode +
+      " ctrl_mgr=" + snap.controlManager.reasonCode +
+      " traj_mgr=" + snap.trajectoryManager.reasonCode;
   }
 
   uavStatePub_->publish(output);

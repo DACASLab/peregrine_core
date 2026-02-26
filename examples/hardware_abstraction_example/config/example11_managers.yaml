@@ -1,0 +1,8 @@
+/**:
+  ros__parameters:
+    # Example 11 overrides for manager nodes.
+    # Multi-cycle demo needs more generous startup timeout since the full
+    # stack must re-stabilize between flight cycles.
+    status_rate_hz: 10.0
+    dependency_startup_timeout_s: 10.0
+    data_readiness_timeout_s: 40.0

@@ -37,6 +37,33 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 10.0);
   stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
   dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
+  autoStart_ = this->declare_parameter<bool>("auto_start", true);
+
+  if (autoStart_) {
+    startupTimer_ = this->create_wall_timer(
+      std::chrono::milliseconds(200),
+      [this]() {
+        startupTimer_->cancel();  // one-shot
+
+        RCLCPP_INFO(get_logger(), "Auto-start: triggering configure");
+        auto configResult = this->trigger_transition(
+          lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+        if (configResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+          RCLCPP_ERROR(get_logger(), "Auto-configure failed (state=%s)", configResult.label().c_str());
+          return;
+        }
+
+        RCLCPP_INFO(get_logger(), "Auto-start: triggering activate");
+        auto activateResult = this->trigger_transition(
+          lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+        if (activateResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+          RCLCPP_ERROR(get_logger(), "Auto-activate failed (state=%s)", activateResult.label().c_str());
+          return;
+        }
+
+        RCLCPP_INFO(get_logger(), "Auto-start complete: ACTIVE");
+      });
+  }
 }
 
 ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp_lifecycle::State &)

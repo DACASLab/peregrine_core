@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    status_rate_hz: 5.0
+    dependency_startup_timeout_s: 2.0
+    px4_status_timeout_s: 1.0
+    manager_status_timeout_s: 1.0
+    estimated_state_timeout_s: 1.0
+    service_wait_s: 3.0
+    service_response_wait_s: 5.0
+    action_server_wait_s: 3.0
+    action_result_wait_s: 180.0
+    offboard_wait_s: 6.0
+    armed_wait_s: 6.0
+    orchestrator_poll_ms: 50
+    auto_start: true
+    data_readiness_timeout_s: 30.0
+    data_readiness_poll_ms: 200

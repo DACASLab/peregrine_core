@@ -17,3 +17,12 @@ bool failsafe
 
 string mode
 string detail
+
+# Aggregated readiness from HealthAggregator
+bool dependencies_ready
+bool px4_ready
+bool estimation_ready
+bool control_ready
+bool trajectory_ready
+bool estimated_state_ready
+string readiness_detail

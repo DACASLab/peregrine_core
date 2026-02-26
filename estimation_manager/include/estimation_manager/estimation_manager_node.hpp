@@ -44,6 +44,7 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 
 namespace estimation_manager
 {
@@ -146,6 +147,11 @@ private:
   rclcpp::TimerBase::SharedPtr publishTimer_;
   /// Periodic status publication timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
+
+  /// When true, node self-transitions through configure -> activate on startup.
+  bool autoStart_{true};
+  /// One-shot timer that drives the auto-start sequence.
+  rclcpp::TimerBase::SharedPtr startupTimer_;
 };
 
 }  // namespace estimation_manager

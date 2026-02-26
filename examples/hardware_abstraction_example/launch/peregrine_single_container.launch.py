@@ -1,18 +1,27 @@
 """@file
-@brief Example 8 launch: single-UAV PX4 SITL end-to-end validation.
+@brief Single-container launch: all peregrine nodes in one process.
 
-Launches the minimal "data-plane" layer for one UAV:
-  1. MicroXRCEAgent  -- UDP bridge between PX4 and the ROS2 DDS domain
-  2. PX4HardwareAbstraction  -- translates PX4 uORB messages to peregrine
-                                ROS2 interfaces (NED->ENU, FRD->FLU, etc.)
-  3. FrameTransformer  -- publishes TF frames (map->odom->base_link) from
-                          the ENU odometry output of hardware_abstraction
+Merges the bridge_container and manager_container into a single
+component_container_mt process. All composable nodes share one process and
+can leverage intra-process zero-copy communication.
 
-Both composable nodes are loaded into a single component_container_mt.
-Parameters are loaded from YAML defaults; only structural/deployment args remain.
+Benefits over the two-container approach:
+  - One fewer process (lower memory, simpler process tree)
+  - Intra-process transport between hardware_abstraction and managers
+  - Ideal for resource-constrained SBCs (Jetson, RPi, etc.)
 
-Usage (standalone, without managers):
-  ros2 launch hardware_abstraction_example example8_px4_sitl_single_uav.launch.py
+All nodes load parameters from their package YAML defaults. Managers use
+auto_start=true to self-transition through configure -> activate.
+
+Usage:
+  ros2 launch hardware_abstraction_example peregrine_single_container.launch.py
+
+Override auto_start for manual lifecycle control:
+  ros2 launch hardware_abstraction_example peregrine_single_container.launch.py \\
+    -p estimation_manager:auto_start:=false \\
+    -p control_manager:auto_start:=false \\
+    -p trajectory_manager:auto_start:=false \\
+    -p uav_manager:auto_start:=false
 """
 
 from launch import LaunchDescription
@@ -25,7 +34,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    """@brief Brings up MicroXRCE agent and a composed bridge/TF container for one UAV."""
+    """@brief Launches entire peregrine stack in a single component container."""
     uav_namespace = LaunchConfiguration("uav_namespace")
     start_microxrce_agent = LaunchConfiguration("start_microxrce_agent")
     microxrce_port = LaunchConfiguration("microxrce_port")
@@ -35,13 +44,25 @@ def generate_launch_description() -> LaunchDescription:
     hardware_abstraction_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
     )
+    estimation_yaml = PathJoinSubstitution(
+        [FindPackageShare("estimation_manager"), "config", "defaults.yaml"]
+    )
+    control_yaml = PathJoinSubstitution(
+        [FindPackageShare("control_manager"), "config", "defaults.yaml"]
+    )
+    trajectory_yaml = PathJoinSubstitution(
+        [FindPackageShare("trajectory_manager"), "config", "defaults.yaml"]
+    )
+    uav_yaml = PathJoinSubstitution(
+        [FindPackageShare("uav_manager"), "config", "defaults.yaml"]
+    )
 
     return LaunchDescription(
         [
             DeclareLaunchArgument(
                 "uav_namespace",
                 default_value="",
-                description="ROS namespace for the UAV stack (empty for single-UAV global topics).",
+                description="ROS namespace for the UAV stack.",
             ),
             DeclareLaunchArgument(
                 "start_microxrce_agent",
@@ -61,7 +82,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "ros_domain_id",
                 default_value="42",
-                description="ROS domain used by this launch (must match PX4 uXRCE-DDS domain).",
+                description="ROS domain used by this launch.",
             ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
@@ -72,7 +93,7 @@ def generate_launch_description() -> LaunchDescription:
                 name="microxrce_agent",
             ),
             ComposableNodeContainer(
-                name="bridge_container",
+                name="peregrine_container",
                 namespace="",
                 package="rclcpp_components",
                 executable="component_container_mt",
@@ -97,6 +118,34 @@ def generate_launch_description() -> LaunchDescription:
                                 "publish_rate_hz": 100.0,
                             }
                         ],
+                    ),
+                    ComposableNode(
+                        package="estimation_manager",
+                        plugin="estimation_manager::EstimationManagerNode",
+                        name="estimation_manager",
+                        namespace=uav_namespace,
+                        parameters=[estimation_yaml],
+                    ),
+                    ComposableNode(
+                        package="control_manager",
+                        plugin="control_manager::ControlManagerNode",
+                        name="control_manager",
+                        namespace=uav_namespace,
+                        parameters=[control_yaml],
+                    ),
+                    ComposableNode(
+                        package="trajectory_manager",
+                        plugin="trajectory_manager::TrajectoryManagerNode",
+                        name="trajectory_manager",
+                        namespace=uav_namespace,
+                        parameters=[trajectory_yaml],
+                    ),
+                    ComposableNode(
+                        package="uav_manager",
+                        plugin="uav_manager::UavManagerNode",
+                        name="uav_manager",
+                        namespace=uav_namespace,
+                        parameters=[uav_yaml],
                     ),
                 ],
             ),

@@ -369,6 +369,15 @@ private:
 
   /// Periodic UAVState publisher timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
+
+  /// When true, node self-transitions through configure -> activate on startup.
+  bool autoStart_{true};
+  /// Timeout for data readiness polling between configure and activate.
+  double dataReadinessTimeoutS_{30.0};
+  /// Poll interval for data readiness check.
+  int dataReadinessPollMs_{200};
+  /// One-shot timer that drives the auto-start sequence.
+  rclcpp::TimerBase::SharedPtr startupTimer_;
 };
 
 }  // namespace uav_manager

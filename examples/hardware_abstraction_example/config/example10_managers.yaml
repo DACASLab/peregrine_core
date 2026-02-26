@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    # Example 10 overrides for manager nodes.
+    # These are loaded AFTER each package's defaults.yaml, so only values
+    # listed here take effect — everything else inherits the package default.
+    status_rate_hz: 10.0
+    dependency_startup_timeout_s: 5.0

@@ -20,8 +20,7 @@ Example sequences:
 
 The preflight re-check between cycles is essential because PX4 auto-disarms after
 landing, and the manager stack needs to confirm all dependencies are healthy before
-re-arming. Without this check, the second takeoff goal would be rejected by the
-TakeoffReady guard (vehicle not connected/armed).
+re-arming.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 
 from peregrine_interfaces.action import ExecuteTrajectory, Land, Takeoff
-from peregrine_interfaces.msg import ManagerStatus, PX4Status, State
+from peregrine_interfaces.msg import UAVState
 
 
 class MultiCycleDemo(Node):
@@ -58,21 +57,11 @@ class MultiCycleDemo(Node):
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 240.0).value)
 
-        self.latest_status: PX4Status | None = None
-        self.latest_estimated_state: State | None = None
-        self.latest_estimation_status: ManagerStatus | None = None
-        self.latest_control_status: ManagerStatus | None = None
-        self.latest_trajectory_status: ManagerStatus | None = None
-
-        self.status_sub = self.create_subscription(PX4Status, "status", self._on_status, 10)
-        self.estimated_state_sub = self.create_subscription(State, "estimated_state", self._on_estimated_state, 10)
-        self.estimation_status_sub = self.create_subscription(
-            ManagerStatus, "estimation_status", self._on_estimation_status, 10
-        )
-        self.control_status_sub = self.create_subscription(ManagerStatus, "control_status", self._on_control_status, 10)
-        self.trajectory_status_sub = self.create_subscription(
-            ManagerStatus, "trajectory_status", self._on_trajectory_status, 10
-        )
+        # Single subscription to UAVState replaces 5 individual status subscriptions.
+        # UAVState.dependencies_ready aggregates PX4 + all manager readiness from the
+        # C++ HealthAggregator — no need to duplicate that logic here.
+        self.latest_uav_state: UAVState | None = None
+        self.create_subscription(UAVState, "uav_state", self._on_uav_state, 10)
 
         self.takeoff_client = ActionClient(self, Takeoff, "uav_manager/takeoff")
         self.execute_client = ActionClient(self, ExecuteTrajectory, "uav_manager/execute_trajectory")
@@ -133,46 +122,21 @@ class MultiCycleDemo(Node):
         return True
 
     def _wait_for_preflight_ready(self) -> bool:
-        """@brief Waits for PX4 and manager stack readiness before each cycle."""
+        """@brief Waits for UAVState.dependencies_ready before each cycle."""
         self.get_logger().info(f"Waiting up to {self.preflight_wait_s:.1f}s for preflight readiness")
         deadline = time.monotonic() + self.preflight_wait_s
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.2)
-            status = self.latest_status
-            if status is None:
-                continue
-            if (
-                status.connected
-                and not status.failsafe
-                and status.nav_state != 0
-                and self.latest_estimated_state is not None
-                and self._manager_status_ready(self.latest_estimation_status)
-                and self._manager_status_ready(self.latest_control_status)
-                and self._manager_status_ready(self.latest_trajectory_status)
-            ):
-                self.get_logger().info(
-                    f"Preflight ready: connected={status.connected}, nav_state={status.nav_state}, "
-                    f"arming_state={status.arming_state}"
-                )
+            s = self.latest_uav_state
+            if s is not None and s.dependencies_ready:
+                self.get_logger().info(f"Preflight ready: {s.readiness_detail}")
                 return True
 
-        if self.latest_status is None:
-            self.get_logger().error("Preflight readiness timeout: no status received")
+        if self.latest_uav_state is None:
+            self.get_logger().error("Preflight readiness timeout: no uav_state received")
         else:
-            status = self.latest_status
             self.get_logger().error(
-                "Preflight readiness timeout: connected=%s nav_state=%s arming_state=%s failsafe=%s "
-                "estimated_state=%s estimation_status=%s control_status=%s trajectory_status=%s"
-                % (
-                    status.connected,
-                    status.nav_state,
-                    status.arming_state,
-                    status.failsafe,
-                    self.latest_estimated_state is not None,
-                    self._manager_status_ready(self.latest_estimation_status),
-                    self._manager_status_ready(self.latest_control_status),
-                    self._manager_status_ready(self.latest_trajectory_status),
-                )
+                "Preflight readiness timeout: %s" % self.latest_uav_state.readiness_detail
             )
         return False
 
@@ -227,12 +191,7 @@ class MultiCycleDemo(Node):
         return self._send_goal(self.execute_client, goal, label)
 
     def _send_goal(self, client: ActionClient, goal_msg, label: str) -> bool:
-        """@brief Sends one action goal and waits for terminal result.
-
-        Two-phase ROS2 action handshake: send_goal_async (acceptance) followed by
-        get_result_async (terminal outcome). See circle_figure8_demo.py for detailed
-        protocol documentation.
-        """
+        """@brief Sends one action goal and waits for terminal result."""
         self.get_logger().info(f"Sending {label} goal")
 
         goal_future = client.send_goal_async(goal_msg)
@@ -266,30 +225,9 @@ class MultiCycleDemo(Node):
             self.get_logger().error(f"{label} failed: {message}")
         return success
 
-    def _on_status(self, msg: PX4Status) -> None:
-        """@brief Stores latest PX4 status snapshot."""
-        self.latest_status = msg
-
-    def _on_estimated_state(self, msg: State) -> None:
-        """@brief Stores latest estimated state snapshot."""
-        self.latest_estimated_state = msg
-
-    def _on_estimation_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest estimation manager status."""
-        self.latest_estimation_status = msg
-
-    def _on_control_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest control manager status."""
-        self.latest_control_status = msg
-
-    def _on_trajectory_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest trajectory manager status."""
-        self.latest_trajectory_status = msg
-
-    @staticmethod
-    def _manager_status_ready(status: ManagerStatus | None) -> bool:
-        """@brief Returns true when a manager status indicates active healthy output."""
-        return status is not None and status.active and status.healthy
+    def _on_uav_state(self, msg: UAVState) -> None:
+        """@brief Stores latest UAVState snapshot."""
+        self.latest_uav_state = msg
 
 
 def main() -> int:

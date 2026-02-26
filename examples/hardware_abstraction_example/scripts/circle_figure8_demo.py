@@ -10,13 +10,9 @@ ROS2 action clients. It follows the standard action client lifecycle:
 
 The mission sequence is:
   - Wait for all three action servers (takeoff, execute_trajectory, land)
-  - Wait for preflight readiness (PX4 connected, managers active+healthy)
+  - Wait for preflight readiness via UAVState.dependencies_ready
   - Execute the configured mission type (circle, figure8, or both)
   - Each mission type runs as: takeoff -> trajectory(s) -> land
-
-The 1-second sleep between takeoff completion and trajectory start allows the
-vehicle to stabilize at the hold position before beginning the trajectory.
-Similarly, the sleep before landing allows the trajectory's final hold to settle.
 
 Action goals target uav_manager (not trajectory_manager directly) because
 uav_manager handles the full orchestration: arm -> offboard mode -> trajectory
@@ -32,7 +28,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 
 from peregrine_interfaces.action import ExecuteTrajectory, Land, Takeoff
-from peregrine_interfaces.msg import ManagerStatus, PX4Status, State
+from peregrine_interfaces.msg import UAVState
 
 
 class CircleFigure8Demo(Node):
@@ -55,37 +51,18 @@ class CircleFigure8Demo(Node):
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 240.0).value)
 
-        # Data-plane subscriptions used for the preflight readiness check.
-        # These confirm PX4 connectivity and that all managers are active/healthy
-        # before we attempt to send any action goals.
-        self.latest_status: PX4Status | None = None
-        self.latest_estimated_state: State | None = None
-        self.latest_estimation_status: ManagerStatus | None = None
-        self.latest_control_status: ManagerStatus | None = None
-        self.latest_trajectory_status: ManagerStatus | None = None
-        self.status_sub = self.create_subscription(PX4Status, "status", self._on_status, 10)
-        self.estimated_state_sub = self.create_subscription(State, "estimated_state", self._on_estimated_state, 10)
-        self.estimation_status_sub = self.create_subscription(
-            ManagerStatus, "estimation_status", self._on_estimation_status, 10
-        )
-        self.control_status_sub = self.create_subscription(ManagerStatus, "control_status", self._on_control_status, 10)
-        self.trajectory_status_sub = self.create_subscription(
-            ManagerStatus, "trajectory_status", self._on_trajectory_status, 10
-        )
+        # Single subscription to UAVState replaces 5 individual status subscriptions.
+        # UAVState.dependencies_ready aggregates PX4 + all manager readiness from the
+        # C++ HealthAggregator — no need to duplicate that logic here.
+        self.latest_uav_state: UAVState | None = None
+        self.create_subscription(UAVState, "uav_state", self._on_uav_state, 10)
 
-        # Action clients target uav_manager (not trajectory_manager) because
-        # uav_manager orchestrates the full arm -> offboard -> trajectory -> disarm
-        # sequence, including PX4 mode transitions and safety checks.
         self.takeoff_client = ActionClient(self, Takeoff, "uav_manager/takeoff")
         self.execute_client = ActionClient(self, ExecuteTrajectory, "uav_manager/execute_trajectory")
         self.land_client = ActionClient(self, Land, "uav_manager/land")
 
     def run(self) -> int:
         """@brief Executes the selected mission sequence."""
-        # mission_type drives the flight sequence. "circle_land_figure8" is the
-        # multi-cycle test that exercises the full land -> re-arm -> re-takeoff
-        # path by splitting circle and figure8 into separate flight cycles with
-        # an intermediate landing and a second preflight readiness check.
         if self.mission_type not in {"circle", "figure8", "circle_figure8", "circle_land_figure8"}:
             self.get_logger().error(
                 "Invalid mission_type='%s'. Valid values: circle, figure8, circle_figure8, circle_land_figure8"
@@ -119,11 +96,6 @@ class CircleFigure8Demo(Node):
 
     def _wait_for_servers(self) -> bool:
         """@brief Waits for required uav_manager action servers."""
-        # wait_for_server() blocks until the action server is discovered via
-        # ROS2 service introspection. If uav_manager has not been activated yet,
-        # the servers may already exist (created during on_configure) but goals
-        # will be rejected by uav_manager's internal !active_ gate. The
-        # subsequent preflight readiness check handles that race.
         clients = [
             (self.takeoff_client, "uav_manager/takeoff"),
             (self.execute_client, "uav_manager/execute_trajectory"),
@@ -137,80 +109,27 @@ class CircleFigure8Demo(Node):
         return True
 
     def _wait_for_preflight_ready(self) -> bool:
-        """@brief Waits for PX4 status to become ready before sending takeoff."""
-        # Data-plane readiness check independent of lifecycle state. Ensures:
-        #   - PX4 is connected and not in failsafe
-        #   - estimated_state messages are flowing (estimation pipeline alive)
-        #   - all managers report active + healthy
-        # This prevents sending takeoff goals before the full pipeline is
-        # operational. spin_once() is needed to process incoming subscription
-        # messages during the polling wait.
+        """@brief Waits for UAVState.dependencies_ready before sending goals."""
         self.get_logger().info(f"Waiting up to {self.preflight_wait_s:.1f}s for preflight readiness")
         deadline = time.monotonic() + self.preflight_wait_s
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.2)
-            status = self.latest_status
-            if status is None:
-                continue
-            if (
-                status.connected
-                and not status.failsafe
-                and status.nav_state != 0
-                and self.latest_estimated_state is not None
-                and self._manager_status_ready(self.latest_estimation_status)
-                and self._manager_status_ready(self.latest_control_status)
-                and self._manager_status_ready(self.latest_trajectory_status)
-            ):
-                self.get_logger().info(
-                    f"Preflight ready: connected={status.connected}, nav_state={status.nav_state}, "
-                    f"arming_state={status.arming_state}"
-                )
+            s = self.latest_uav_state
+            if s is not None and s.dependencies_ready:
+                self.get_logger().info(f"Preflight ready: {s.readiness_detail}")
                 return True
 
-        if self.latest_status is None:
-            self.get_logger().error("Preflight readiness timeout: no status received")
+        if self.latest_uav_state is None:
+            self.get_logger().error("Preflight readiness timeout: no uav_state received")
         else:
-            status = self.latest_status
             self.get_logger().error(
-                "Preflight readiness timeout: connected=%s nav_state=%s arming_state=%s failsafe=%s "
-                "estimated_state=%s estimation_status=%s control_status=%s trajectory_status=%s"
-                % (
-                    status.connected,
-                    status.nav_state,
-                    status.arming_state,
-                    status.failsafe,
-                    self.latest_estimated_state is not None,
-                    self._manager_status_ready(self.latest_estimation_status),
-                    self._manager_status_ready(self.latest_control_status),
-                    self._manager_status_ready(self.latest_trajectory_status),
-                )
+                "Preflight readiness timeout: %s" % self.latest_uav_state.readiness_detail
             )
         return False
 
-    def _on_status(self, msg: PX4Status) -> None:
-        """@brief Stores latest PX4 status snapshot."""
-        self.latest_status = msg
-
-    def _on_estimated_state(self, msg: State) -> None:
-        """@brief Stores latest estimated state snapshot."""
-        self.latest_estimated_state = msg
-
-    def _on_estimation_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest estimation manager status."""
-        self.latest_estimation_status = msg
-
-    def _on_control_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest control manager status."""
-        self.latest_control_status = msg
-
-    def _on_trajectory_status(self, msg: ManagerStatus) -> None:
-        """@brief Stores latest trajectory manager status."""
-        self.latest_trajectory_status = msg
-
-    @staticmethod
-    def _manager_status_ready(status: ManagerStatus | None) -> bool:
-        """@brief Returns true when a manager status indicates active healthy output."""
-        return status is not None and status.active and status.healthy
+    def _on_uav_state(self, msg: UAVState) -> None:
+        """@brief Stores latest UAVState snapshot."""
+        self.latest_uav_state = msg
 
     def _run_flight_cycle(self, run_circle: bool, run_figure8: bool, cycle_label: str) -> bool:
         """@brief Runs one takeoff/trajectory/land cycle for FSM validation."""
@@ -255,22 +174,9 @@ class CircleFigure8Demo(Node):
         return self._send_goal(self.execute_client, goal, label)
 
     def _send_goal(self, client: ActionClient, goal_msg, label: str) -> bool:
-        """@brief Sends one action goal and waits for the terminal result.
-
-        ROS2 action client protocol is a two-phase handshake:
-          Phase 1: send_goal_async() -> server accepts or rejects the goal
-          Phase 2: get_result_async() -> server reports terminal outcome
-
-        Between phases, the server may publish feedback messages (progress, distance),
-        but this demo only checks the terminal result for simplicity.
-
-        spin_until_future_complete() is used instead of spinning in a separate thread
-        because this is a sequential mission runner -- we intentionally block until
-        each action completes before starting the next one.
-        """
+        """@brief Sends one action goal and waits for the terminal result."""
         self.get_logger().info(f"Sending {label} goal")
 
-        # Phase 1: submit goal and wait for acceptance/rejection.
         goal_future = client.send_goal_async(goal_msg)
         rclpy.spin_until_future_complete(self, goal_future, timeout_sec=self.action_timeout_s)
         if not goal_future.done():
@@ -279,19 +185,15 @@ class CircleFigure8Demo(Node):
 
         goal_handle = goal_future.result()
         if goal_handle is None or not goal_handle.accepted:
-            # Goal rejection means the FSM guard failed (e.g., not armed for takeoff,
-            # not hovering for trajectory, or another action is already in progress).
             self.get_logger().error(f"{label} goal rejected")
             return False
 
-        # Phase 2: wait for the action to complete (may take minutes for trajectories).
         result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=self.action_timeout_s)
         if not result_future.done():
             self.get_logger().error(f"{label} result timeout")
             return False
 
-        # The result is wrapped in a GoalStatus + Result pair by the action client.
         wrapped_result = result_future.result()
         if wrapped_result is None:
             self.get_logger().error(f"{label} result is empty")

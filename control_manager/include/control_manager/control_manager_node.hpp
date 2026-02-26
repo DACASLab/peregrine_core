@@ -203,6 +203,11 @@ private:
   rclcpp::TimerBase::SharedPtr publishTimer_;
   /// Periodic status publication timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
+
+  /// When true, node self-transitions through configure -> activate on startup.
+  bool autoStart_{true};
+  /// One-shot timer that drives the auto-start sequence.
+  rclcpp::TimerBase::SharedPtr startupTimer_;
 };
 
 }  // namespace control_manager
