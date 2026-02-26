@@ -169,7 +169,8 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   odomFrame_ = this->declare_parameter<std::string>("odom_frame", "odom");
   baseLinkFrame_ = this->declare_parameter<std::string>("base_link_frame", "base_link");
   sensorGpsTopicSuffix_ =
-      normalizeTopicSuffix(this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/sensor_gps"));
+      normalizeTopicSuffix(
+          this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/vehicle_gps_position"));
 
   offboardRateHz_ = this->declare_parameter<double>("offboard_rate_hz", 20.0);
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
@@ -201,6 +202,7 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   odometryPub_ = this->create_publisher<nav_msgs::msg::Odometry>("odometry", rosOutputQos);
   batteryPub_ = this->create_publisher<sensor_msgs::msg::BatteryState>("battery", rosOutputQos);
   gpsPub_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("gnss", rosOutputQos);
+  gpsStatusPub_ = this->create_publisher<peregrine_interfaces::msg::GpsStatus>("gps_status", rosOutputQos);
 
   // PX4 telemetry subscriptions.
   // getMessageNameVersion<> resolves a version suffix (e.g. "_v2") that PX4 appends to its
@@ -482,6 +484,17 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
   gps.position_covariance_type = sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_APPROXIMATED;
 
   gpsPub_->publish(gps);
+
+  peregrine_interfaces::msg::GpsStatus gpsStatus;
+  gpsStatus.header.stamp = gps.header.stamp;
+  gpsStatus.header.frame_id = "gps";
+  gpsStatus.fix_type = msg->fix_type;
+  gpsStatus.hdop = msg->hdop;
+  gpsStatus.vdop = msg->vdop;
+  gpsStatus.eph = msg->eph;
+  gpsStatus.epv = msg->epv;
+  gpsStatus.satellites_used = msg->satellites_used;
+  gpsStatusPub_->publish(gpsStatus);
 }
 
 void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus::SharedPtr msg)

@@ -15,25 +15,61 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py`
 
+## Safety Validation Launch
+
+`ros2 launch hardware_abstraction_example example12_safety_validation.launch.py`
+
+Default behavior:
+
+- full single-container stack (`peregrine_single_container.launch.py`)
+- `safety_regression_demo.py` (multi-case sequence)
+- safety monitor + regression node wired to isolated `safety_test/*` topics for deterministic evaluation
+- `safety_params_file:=.../safety_regression.yaml`
+- `uav_params_file:=.../uav_require_external_safety.yaml`
+
+Regression sequence:
+
+- battery critical after takeoff -> expect safety-triggered land/disarm
+- GPS critical before takeoff -> expect takeoff blocked/rejected
+- GPS critical after takeoff -> expect safety-triggered land/disarm
+- geofence critical after takeoff -> expect safety-triggered land/disarm
+
+Useful overrides:
+
+- diagnostics only (no auto-land command from safety monitor):
+  - `safety_params_file:=/ros2_ws/src/peregrine_core/examples/hardware_abstraction_example/config/safety_diag_only.yaml`
+- disable regression runner:
+  - `start_safety_regression_demo:=false`
+- keep old manual helpers disabled by default:
+  - `start_takeoff_hold_demo:=false`
+  - `start_fault_injector:=false`
+- override synthetic input topics (must match safety monitor profile):
+  - `fault_battery_topic:=safety_test/battery`
+  - `fault_gps_status_topic:=safety_test/gps_status`
+  - `fault_estimated_state_topic:=safety_test/estimated_state`
+- geofence breach distance used by regression:
+  - `regression_geofence_breach_x_m:=80.0`
+
+Fault scenarios (`safety_fault_injector.py`, optional helper):
+
+- `none`
+- `gps_fix_critical`, `gps_sats_critical`, `gps_hdop_warning`, `gps_vdop_warning`, `gps_missing_warning`
+- `battery_warning`, `battery_critical`, `battery_emergency`, `battery_low_voltage_emergency`, `battery_missing_warning`
+- `geofence_radius_critical`, `geofence_alt_high_critical`, `geofence_alt_low_warning`
+- `envelope_speed_critical`, `envelope_tilt_warning`
+
 This launch starts:
 
-- `bridge_container` (composed nodes)
+- `peregrine_container` (single `component_container_mt` process)
   - `px4_hardware_abstraction`
   - `frame_transformer`
-- `manager_container` (composed lifecycle nodes)
   - `estimation_manager`
   - `control_manager`
   - `trajectory_manager`
+  - `safety_monitor`
   - `uav_manager`
-- `circle_figure8_demo.py` mission runner
-- optional `lifecycle_bringup_orchestrator.py` (enabled by default)
-
-Mission selection:
-
-- `mission_type:=circle`
-- `mission_type:=figure8`
-- `mission_type:=circle_figure8` (default)
-- `mission_type:=circle_land_figure8` (two full FSM cycles: takeoff/circle/land, then takeoff/figure8/land)
+- `safety_regression_demo.py` (enabled by default)
+- optional `safety_takeoff_hold_demo.py` and `safety_fault_injector.py` manual helpers
 
 ## What it starts
 
@@ -104,11 +140,25 @@ ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
   > /tmp/example11_redo2.log 2>&1
 ```
 
-### 6) Quick result checks
+### 6) Launch Example 12 (multi-safety regression)
+
+```bash
+cd /ros2_ws
+source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+mkdir -p /tmp/ros_logs
+export ROS_LOG_DIR=/tmp/ros_logs
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
+  timeout 1200s ros2 launch hardware_abstraction_example example12_safety_validation.launch.py \
+  > /tmp/example12_safety.log 2>&1
+```
+
+### 7) Quick result checks
 
 ```bash
 rg -n "Data readiness satisfied|Lifecycle bringup completed successfully|Demo mission completed successfully" /tmp/example10_redo.log
 rg -n "Data readiness satisfied|Lifecycle bringup completed successfully|Multi-cycle mission completed successfully|cycle4_figure8_land completed" /tmp/example11_redo2.log
+rg -n "CASE PASS|CASE FAIL|Safety regression summary|battery_post_takeoff_auto_land|gps_pre_takeoff_gate|gps_post_takeoff_auto_land|geofence_post_takeoff_auto_land" /tmp/example12_safety.log
 ```
 
 ## PX4 uXRCE-DDS Notes

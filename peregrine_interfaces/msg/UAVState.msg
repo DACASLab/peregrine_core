@@ -25,4 +25,5 @@ bool estimation_ready
 bool control_ready
 bool trajectory_ready
 bool estimated_state_ready
+bool safety_ready
 string readiness_detail

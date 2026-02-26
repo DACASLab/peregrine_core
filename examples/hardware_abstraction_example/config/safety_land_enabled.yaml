@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    command_land_enabled: true
+    battery_topic: safety_test/battery
+    gps_status_topic: safety_test/gps_status
+    estimated_state_topic: safety_test/estimated_state

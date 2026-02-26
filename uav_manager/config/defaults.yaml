@@ -13,5 +13,7 @@
     armed_wait_s: 6.0
     orchestrator_poll_ms: 50
     auto_start: true
+    safety_status_timeout_s: 2.0
+    require_external_safety: false
     data_readiness_timeout_s: 30.0
     data_readiness_poll_ms: 200

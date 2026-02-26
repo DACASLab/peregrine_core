@@ -56,6 +56,7 @@
 #include <peregrine_interfaces/action/takeoff.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
+#include <peregrine_interfaces/msg/safety_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/uav_state.hpp>
 #include <peregrine_interfaces/srv/arm.hpp>
@@ -156,6 +157,8 @@ private:
   void onControlStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
   /// Caches trajectory manager status and updates readiness snapshot.
   void onTrajectoryStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
+  /// Caches safety status, updates readiness, and injects emergency event if needed.
+  void onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::SharedPtr msg);
 
   /// Publishes externally-consumed supervisor state/status.
   void publishUavState();
@@ -345,6 +348,8 @@ private:
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr controlStatusSub_;
   /// Trajectory manager status subscription.
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr trajectoryStatusSub_;
+  /// Safety monitor status subscription.
+  rclcpp::Subscription<peregrine_interfaces::msg::SafetyStatus>::SharedPtr safetyStatusSub_;
 
   /// Lifecycle-gated UAV supervisor status publisher.
   rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::UAVState>::SharedPtr uavStatePub_;
@@ -370,14 +375,21 @@ private:
   /// Periodic UAVState publisher timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
+  /// Whether safety monitor must be healthy for dependenciesReady().
+  bool requireExternalSafety_{false};
+
   /// When true, node self-transitions through configure -> activate on startup.
   bool autoStart_{true};
   /// Timeout for data readiness polling between configure and activate.
   double dataReadinessTimeoutS_{30.0};
   /// Poll interval for data readiness check.
   int dataReadinessPollMs_{200};
-  /// One-shot timer that drives the auto-start sequence.
+  /// One-shot timer that drives the auto-start sequence (phase 1: configure).
   rclcpp::TimerBase::SharedPtr startupTimer_;
+  /// Recurring timer that polls data readiness before activating (phase 2).
+  rclcpp::TimerBase::SharedPtr readinessTimer_;
+  /// Deadline for data readiness polling before activating anyway.
+  std::chrono::steady_clock::time_point readinessDeadline_;
 };
 
 }  // namespace uav_manager

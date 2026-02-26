@@ -73,6 +73,9 @@ class MultiCycleDemo(Node):
         if not sequence:
             return 1
 
+        if not self._wait_for_preflight_ready():
+            return 1
+
         if not self._wait_for_servers():
             return 1
 

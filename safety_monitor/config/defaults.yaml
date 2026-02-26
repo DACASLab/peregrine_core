@@ -1,0 +1,40 @@
+/**:
+  ros__parameters:
+    evaluate_rate_hz: 2.0
+    command_land_enabled: false       # Phase 1: diagnostics only
+    auto_start: true
+
+    rules.battery.enabled: true
+    rules.battery.warn_pct: 0.25
+    rules.battery.critical_pct: 0.15
+    rules.battery.emergency_pct: 0.10
+    rules.battery.min_voltage: 10.0
+    rules.battery.warn_grace_s: 5.0
+    rules.battery.critical_grace_s: 2.0
+
+    rules.gps.enabled: true
+    rules.gps.min_fix_type: 3
+    rules.gps.max_hdop: 5.0
+    rules.gps.max_vdop: 5.0
+    rules.gps.min_satellites: 6
+    rules.gps.freshness_timeout_s: 2.0
+    rules.gps.warn_grace_s: 5.0
+    rules.gps.critical_grace_s: 3.0
+
+    rules.geofence.enabled: true
+    rules.geofence.max_radius_m: 500.0
+    rules.geofence.max_altitude_m: 120.0
+    rules.geofence.min_altitude_m: -5.0
+    rules.geofence.warn_grace_s: 3.0
+    rules.geofence.critical_grace_s: 1.0
+
+    rules.envelope.enabled: true
+    rules.envelope.max_velocity_ms: 15.0
+    rules.envelope.max_altitude_m: 120.0
+    rules.envelope.max_tilt_rad: 0.7
+    rules.envelope.warn_grace_s: 3.0
+    rules.envelope.critical_grace_s: 1.0
+
+    global.healthy_auto_clear_s: 3.0
+    global.land_command_timeout_s: 5.0
+    global.land_command_retry_count: 3

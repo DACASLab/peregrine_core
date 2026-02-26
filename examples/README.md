@@ -6,6 +6,8 @@ Top-level container for standalone example packages.
 
 - `hardware_abstraction_example`: single-UAV PX4 SITL validation flow for
   `hardware_abstraction` + `frame_transforms`.
+- `safety_validation_example`: dedicated fresh-start safety regression launcher
+  (clean stale processes, start fresh PX4 SITL/GZ, run safety regression pipeline).
 
 ## Usage
 
@@ -17,3 +19,7 @@ For the hardware abstraction flow:
 For autonomous circle/figure-eight demo on the manager chain:
 
 `ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle_figure8`
+
+For a fresh SITL safety-regression run:
+
+`ros2 launch safety_validation_example safety_fresh_sitl_regression.launch.py`

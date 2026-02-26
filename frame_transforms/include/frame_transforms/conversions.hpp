@@ -347,4 +347,23 @@ inline double yawRateNedToEnu(double yaw_rate_ned)
   return -yaw_rate_ned;
 }
 
+/**
+ * @brief Converts geodetic coordinates to ENU relative to a reference point.
+ *
+ * Uses a simple equirectangular approximation suitable for offsets up to a few km.
+ * Reference and target positions are in decimal degrees (lat/lon) and meters (alt).
+ * Returns East-North-Up displacement in meters.
+ */
+inline Eigen::Vector3d geodeticToEnu(
+    double ref_lat, double ref_lon, double ref_alt,
+    double target_lat, double target_lon, double target_alt)
+{
+  constexpr double kDegToRad = M_PI / 180.0;
+  constexpr double kMetersPerDegLat = 111319.5;
+  const double east = (target_lon - ref_lon) * std::cos(ref_lat * kDegToRad) * kMetersPerDegLat;
+  const double north = (target_lat - ref_lat) * kMetersPerDegLat;
+  const double up = target_alt - ref_alt;
+  return Eigen::Vector3d(east, north, up);
+}
+
 }  // namespace frame_transforms

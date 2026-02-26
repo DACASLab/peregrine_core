@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
     px4_namespace: ""
-    sensor_gps_topic_suffix: "/fmu/out/sensor_gps"
+    sensor_gps_topic_suffix: "/fmu/out/vehicle_gps_position"
     offboard_rate_hz: 20.0
     status_rate_hz: 5.0

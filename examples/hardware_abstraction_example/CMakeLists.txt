@@ -18,6 +18,9 @@ install(DIRECTORY config
 install(PROGRAMS
   scripts/circle_figure8_demo.py
   scripts/multi_cycle_demo.py
+  scripts/safety_fault_injector.py
+  scripts/safety_regression_demo.py
+  scripts/safety_takeoff_hold_demo.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

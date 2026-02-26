@@ -61,6 +61,9 @@ GuardResult TransitionGuard::evaluate(const GuardId guard, const HealthSnapshot 
       if (!health.trajectoryManager.ready()) {
         return fail(health.trajectoryManager.reasonCode);
       }
+      if (health.requireExternalSafety && !health.safetyMonitor.ready()) {
+        return fail(health.safetyMonitor.reasonCode);
+      }
       return pass();
 
     case GuardId::FlightReady:
@@ -79,6 +82,9 @@ GuardResult TransitionGuard::evaluate(const GuardId guard, const HealthSnapshot 
       }
       if (!health.trajectoryManager.ready()) {
         return fail(health.trajectoryManager.reasonCode);
+      }
+      if (health.requireExternalSafety && !health.safetyMonitor.ready()) {
+        return fail(health.safetyMonitor.reasonCode);
       }
       return pass();
 

@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
-#include <thread>
 #include <utility>
 
 namespace uav_manager
@@ -70,6 +69,9 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
     secondsToMillis(this->declare_parameter<double>("manager_status_timeout_s", 1.0));
   freshnessConfig_.estimatedStateTimeout =
     secondsToMillis(this->declare_parameter<double>("estimated_state_timeout_s", 1.0));
+  freshnessConfig_.safetyStatusTimeout =
+    secondsToMillis(this->declare_parameter<double>("safety_status_timeout_s", 2.0));
+  requireExternalSafety_ = this->declare_parameter<bool>("require_external_safety", false);
 
   serviceWaitS_ = this->declare_parameter<double>("service_wait_s", 3.0);
   serviceResponseWaitS_ = this->declare_parameter<double>("service_response_wait_s", 5.0);
@@ -87,59 +89,66 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
   dataReadinessPollMs_ = this->declare_parameter<int>("data_readiness_poll_ms", 200);
 
   healthAggregator_ = std::make_unique<HealthAggregator>(freshnessConfig_);
+  healthAggregator_->setRequireExternalSafety(requireExternalSafety_);
   orchestrator_ = std::make_unique<ActionOrchestrator>(orchestratorConfig);
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
       std::chrono::milliseconds(200),
       [this]() {
-        startupTimer_->cancel();  // one-shot
+        startupTimer_->cancel();
 
         RCLCPP_INFO(get_logger(), "Auto-start: triggering configure");
         auto configResult = this->trigger_transition(
           lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
         if (configResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
-          RCLCPP_ERROR(get_logger(), "Auto-configure failed (state=%s)", configResult.label().c_str());
+          RCLCPP_ERROR(get_logger(), "Auto-configure failed (state=%s)",
+            configResult.label().c_str());
           return;
         }
 
-        // Data readiness gate: wait for HealthAggregator to report all dependencies ready
-        // before activating. This replaces the orchestrator's _wait_for_data_readiness().
-        RCLCPP_INFO(get_logger(), "Auto-start: waiting for data readiness (timeout=%.1fs)", dataReadinessTimeoutS_);
-        auto deadline = std::chrono::steady_clock::now()
-          + std::chrono::duration<double>(dataReadinessTimeoutS_);
-        while (std::chrono::steady_clock::now() < deadline) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(dataReadinessPollMs_));
-          auto snap = healthAggregator_->snapshot(nowSteady());
-          if (snap.dependenciesReady()) {
-            RCLCPP_INFO(get_logger(), "Auto-start: data readiness satisfied");
-            break;
-          }
-        }
+        // Phase 2: non-blocking readiness polling via recurring timer.
+        // Between ticks the executor is free to dispatch subscription callbacks,
+        // so the HealthAggregator receives fresh data and readiness resolves naturally.
+        readinessDeadline_ = std::chrono::steady_clock::now()
+          + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(dataReadinessTimeoutS_));
+        RCLCPP_INFO(get_logger(),
+          "Auto-start: waiting for data readiness (timeout=%.1fs)",
+          dataReadinessTimeoutS_);
 
-        {
-          auto snap = healthAggregator_->snapshot(nowSteady());
-          if (!snap.dependenciesReady()) {
-            RCLCPP_WARN(get_logger(),
-              "Auto-start: data readiness timeout; activating anyway "
-              "(px4=%s est_state=%s est_mgr=%s ctrl_mgr=%s traj_mgr=%s)",
-              snap.px4.reasonCode.c_str(),
-              snap.estimatedState.reasonCode.c_str(),
-              snap.estimationManager.reasonCode.c_str(),
-              snap.controlManager.reasonCode.c_str(),
-              snap.trajectoryManager.reasonCode.c_str());
-          }
-        }
+        readinessTimer_ = this->create_wall_timer(
+          std::chrono::milliseconds(dataReadinessPollMs_),
+          [this]() {
+            auto snap = healthAggregator_->snapshot(nowSteady());
+            bool timedOut = std::chrono::steady_clock::now() >= readinessDeadline_;
 
-        RCLCPP_INFO(get_logger(), "Auto-start: triggering activate");
-        auto activateResult = this->trigger_transition(
-          lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
-        if (activateResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
-          RCLCPP_ERROR(get_logger(), "Auto-activate failed (state=%s)", activateResult.label().c_str());
-          return;
-        }
+            if (snap.dependenciesReady()) {
+              RCLCPP_INFO(get_logger(), "Auto-start: data readiness satisfied");
+            } else if (timedOut) {
+              RCLCPP_WARN(get_logger(),
+                "Auto-start: data readiness timeout; activating anyway "
+                "(px4=%s est_state=%s est_mgr=%s ctrl_mgr=%s traj_mgr=%s)",
+                snap.px4.reasonCode.c_str(),
+                snap.estimatedState.reasonCode.c_str(),
+                snap.estimationManager.reasonCode.c_str(),
+                snap.controlManager.reasonCode.c_str(),
+                snap.trajectoryManager.reasonCode.c_str());
+            } else {
+              return;  // Not ready yet, wait for next tick
+            }
 
-        RCLCPP_INFO(get_logger(), "Auto-start complete: ACTIVE");
+            readinessTimer_->cancel();
+
+            auto activateResult = this->trigger_transition(
+              lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+            if (activateResult.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+              RCLCPP_ERROR(get_logger(), "Auto-activate failed (state=%s)",
+                activateResult.label().c_str());
+              return;
+            }
+            RCLCPP_INFO(get_logger(), "Auto-start complete: ACTIVE");
+          });
       });
   }
 }
@@ -201,6 +210,9 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   trajectoryStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     "trajectory_status", statusQos,
     std::bind(&UavManagerNode::onTrajectoryStatus, this, std::placeholders::_1));
+  safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
+    "safety_status", statusQos,
+    std::bind(&UavManagerNode::onSafetyStatus, this, std::placeholders::_1));
 
   uavStatePub_ =
     this->create_publisher<peregrine_interfaces::msg::UAVState>("uav_state", statusQos);
@@ -378,6 +390,7 @@ UavManagerNode::CallbackReturn UavManagerNode::on_cleanup(const rclcpp_lifecycle
   estimationStatusSub_.reset();
   controlStatusSub_.reset();
   trajectoryStatusSub_.reset();
+  safetyStatusSub_.reset();
 
   uavStatePub_.reset();
 
@@ -512,6 +525,21 @@ void UavManagerNode::onTrajectoryStatus(
   }
 }
 
+void UavManagerNode::onSafetyStatus(
+  const peregrine_interfaces::msg::SafetyStatus::SharedPtr msg)
+{
+  if (healthAggregator_) {
+    SafetyStatusInput input;
+    input.level = msg->level;
+    healthAggregator_->updateSafetyStatus(nowSteady(), input);
+  }
+
+  // EMERGENCY level from safety_monitor triggers failsafe event in FSM
+  if (msg->level >= peregrine_interfaces::msg::SafetyStatus::LEVEL_EMERGENCY) {
+    (void)applyEvent(SupervisorEvent::FailsafeDetected);
+  }
+}
+
 void UavManagerNode::publishUavState()
 {
   if (!active_ || !uavStatePub_ || !uavStatePub_->is_activated()) {
@@ -550,12 +578,14 @@ void UavManagerNode::publishUavState()
     output.control_ready = snap.controlManager.ready();
     output.trajectory_ready = snap.trajectoryManager.ready();
     output.estimated_state_ready = snap.estimatedState.ready();
+    output.safety_ready = snap.safetyMonitor.ready();
     output.readiness_detail =
       "px4=" + snap.px4.reasonCode +
       " est_state=" + snap.estimatedState.reasonCode +
       " est_mgr=" + snap.estimationManager.reasonCode +
       " ctrl_mgr=" + snap.controlManager.reasonCode +
-      " traj_mgr=" + snap.trajectoryManager.reasonCode;
+      " traj_mgr=" + snap.trajectoryManager.reasonCode +
+      " safety=" + snap.safetyMonitor.reasonCode;
   }
 
   uavStatePub_->publish(output);

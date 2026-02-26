@@ -19,6 +19,8 @@
   <exec_depend>peregrine_interfaces</exec_depend>
   <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>safety_monitor</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>trajectory_manager</exec_depend>
   <exec_depend>uav_manager</exec_depend>
 

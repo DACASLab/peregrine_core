@@ -87,6 +87,8 @@ struct FreshnessConfig
   std::chrono::milliseconds managerStatusTimeout{1000};
   /// Maximum age for estimated_state input.
   std::chrono::milliseconds estimatedStateTimeout{1000};
+  /// Maximum age for safety_status input.
+  std::chrono::milliseconds safetyStatusTimeout{2000};
 };
 
 /**
@@ -110,6 +112,15 @@ struct Px4StatusInput
   bool offboard{false};
   bool failsafe{false};
   uint8_t navState{0};
+};
+
+/**
+ * @struct SafetyStatusInput
+ * @brief Safety monitor status subset used by health aggregator.
+ */
+struct SafetyStatusInput
+{
+  uint8_t level{0};  // matches SafetyStatus constants (0=nominal)
 };
 
 /**
@@ -170,15 +181,23 @@ struct HealthSnapshot
   DependencyReadiness estimationManager;
   DependencyReadiness controlManager;
   DependencyReadiness trajectoryManager;
+  DependencyReadiness safetyMonitor;
+
+  /// When true, dependenciesReady() includes safetyMonitor.
+  bool requireExternalSafety{false};
 
   /**
    * @brief Returns whether all dependencies required for normal operations are ready.
    */
   bool dependenciesReady() const
   {
-    return px4.ready() && estimatedState.ready() && estimationManager.ready() &&
+    bool base = px4.ready() && estimatedState.ready() && estimationManager.ready() &&
            controlManager.ready() &&
            trajectoryManager.ready();
+    if (requireExternalSafety) {
+      return base && safetyMonitor.ready();
+    }
+    return base;
   }
 };
 
@@ -210,6 +229,13 @@ public:
   void updateTrajectoryStatus(
     std::chrono::steady_clock::time_point now,
     const ManagerStatusInput & status);
+  /// Records latest safety_status sample and arrival time.
+  void updateSafetyStatus(
+    std::chrono::steady_clock::time_point now,
+    const SafetyStatusInput & status);
+
+  /// Controls whether safety monitor is included in dependenciesReady().
+  void setRequireExternalSafety(bool require);
 
   /**
    * @brief Evaluates all dependencies at the specified time point.
@@ -258,6 +284,20 @@ private:
   std::optional<TimedManagerStatus> controlStatus_;
   /// Last observed trajectory_manager status + arrival time.
   std::optional<TimedManagerStatus> trajectoryStatus_;
+
+  /// Timestamped safety status helper container.
+  struct TimedSafetyStatus
+  {
+    SafetyStatusInput status;
+    std::chrono::steady_clock::time_point receivedAt;
+  };
+
+  /// Last observed safety_status + arrival time.
+  std::optional<TimedSafetyStatus> safetyStatus_;
+  /// Evaluates readiness for safety monitor stream.
+  DependencyReadiness evaluateSafety(std::chrono::steady_clock::time_point now) const;
+  /// Whether safety monitor is required for dependenciesReady().
+  bool requireExternalSafety_{false};
 };
 
 /**

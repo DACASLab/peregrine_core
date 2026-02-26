@@ -70,10 +70,10 @@ class CircleFigure8Demo(Node):
             )
             return 1
 
-        if not self._wait_for_servers():
+        if not self._wait_for_preflight_ready():
             return 1
 
-        if not self._wait_for_preflight_ready():
+        if not self._wait_for_servers():
             return 1
 
         if self.mission_type == "circle_land_figure8":

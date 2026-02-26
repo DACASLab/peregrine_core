@@ -22,6 +22,11 @@ Override auto_start for manual lifecycle control:
     -p control_manager:auto_start:=false \\
     -p trajectory_manager:auto_start:=false \\
     -p uav_manager:auto_start:=false
+
+Override safety/uav parameter profiles:
+  ros2 launch hardware_abstraction_example peregrine_single_container.launch.py \\
+    safety_params_file:=/path/to/safety_profile.yaml \\
+    uav_params_file:=/path/to/uav_profile.yaml
 """
 
 from launch import LaunchDescription
@@ -40,6 +45,8 @@ def generate_launch_description() -> LaunchDescription:
     microxrce_port = LaunchConfiguration("microxrce_port")
     ros_localhost_only = LaunchConfiguration("ros_localhost_only")
     ros_domain_id = LaunchConfiguration("ros_domain_id")
+    safety_params_file = LaunchConfiguration("safety_params_file")
+    uav_params_file = LaunchConfiguration("uav_params_file")
 
     hardware_abstraction_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
@@ -55,6 +62,9 @@ def generate_launch_description() -> LaunchDescription:
     )
     uav_yaml = PathJoinSubstitution(
         [FindPackageShare("uav_manager"), "config", "defaults.yaml"]
+    )
+    safety_yaml = PathJoinSubstitution(
+        [FindPackageShare("safety_monitor"), "config", "defaults.yaml"]
     )
 
     return LaunchDescription(
@@ -83,6 +93,16 @@ def generate_launch_description() -> LaunchDescription:
                 "ros_domain_id",
                 default_value="42",
                 description="ROS domain used by this launch.",
+            ),
+            DeclareLaunchArgument(
+                "safety_params_file",
+                default_value=safety_yaml,
+                description="Safety monitor parameters file path.",
+            ),
+            DeclareLaunchArgument(
+                "uav_params_file",
+                default_value=uav_yaml,
+                description="UAV manager parameters file path.",
             ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
@@ -116,6 +136,14 @@ def generate_launch_description() -> LaunchDescription:
                                 "frame_prefix": "",
                                 "odometry_topic": "odometry",
                                 "publish_rate_hz": 100.0,
+                                "home_lat_deg": 13.018509,
+                                "home_lon_deg": 77.565088,
+                                "gps_min_fix_type": 3,
+                                "gps_min_satellites": 6,
+                                "gps_max_hdop": 5.0,
+                                "gps_max_vdop": 5.0,
+                                "gps_freshness_timeout_s": 2.0,
+                                "home_init_timeout_s": 60.0,
                             }
                         ],
                     ),
@@ -141,11 +169,18 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[trajectory_yaml],
                     ),
                     ComposableNode(
+                        package="safety_monitor",
+                        plugin="safety_monitor::SafetyMonitorNode",
+                        name="safety_monitor",
+                        namespace=uav_namespace,
+                        parameters=[safety_params_file],
+                    ),
+                    ComposableNode(
                         package="uav_manager",
                         plugin="uav_manager::UavManagerNode",
                         name="uav_manager",
                         namespace=uav_namespace,
-                        parameters=[uav_yaml],
+                        parameters=[uav_params_file],
                     ),
                 ],
             ),

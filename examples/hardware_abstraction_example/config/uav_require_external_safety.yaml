@@ -1,0 +1,3 @@
+/**:
+  ros__parameters:
+    require_external_safety: true

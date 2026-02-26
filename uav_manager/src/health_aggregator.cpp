@@ -86,6 +86,20 @@ void HealthAggregator::updateTrajectoryStatus(
   trajectoryStatus_ = TimedManagerStatus{status, now};
 }
 
+void HealthAggregator::updateSafetyStatus(
+  const std::chrono::steady_clock::time_point now,
+  const SafetyStatusInput & status)
+{
+  std::scoped_lock lock(mutex_);
+  safetyStatus_ = TimedSafetyStatus{status, now};
+}
+
+void HealthAggregator::setRequireExternalSafety(bool require)
+{
+  std::scoped_lock lock(mutex_);
+  requireExternalSafety_ = require;
+}
+
 // Evaluates a single manager dependency using a priority ladder:
 //   Missing > Stale > Inactive > Unhealthy > Ok
 // Stale is checked before active/healthy because stale data cannot be trusted --
@@ -211,6 +225,40 @@ Px4Readiness HealthAggregator::evaluatePx4(const std::chrono::steady_clock::time
   return readiness;
 }
 
+// Safety monitor evaluation: Missing > Stale > Unhealthy (level >= CRITICAL) > Ok
+DependencyReadiness HealthAggregator::evaluateSafety(
+  const std::chrono::steady_clock::time_point now) const
+{
+  DependencyReadiness readiness;
+  if (!safetyStatus_.has_value()) {
+    readiness.code = ReadinessCode::Missing;
+    readiness.reasonCode = "SAFETY_MISSING";
+    return readiness;
+  }
+
+  readiness.present = true;
+  readiness.active = true;  // Safety monitor is a data stream, not lifecycle-managed from this view
+  readiness.fresh = (now - safetyStatus_->receivedAt) <= config_.safetyStatusTimeout;
+
+  if (!readiness.fresh) {
+    readiness.code = ReadinessCode::Stale;
+    readiness.reasonCode = "SAFETY_STALE";
+    return readiness;
+  }
+
+  // Safety level >= CRITICAL (2) means unhealthy
+  readiness.healthy = safetyStatus_->status.level < 2;  // LEVEL_CRITICAL = 2
+  if (!readiness.healthy) {
+    readiness.code = ReadinessCode::Unhealthy;
+    readiness.reasonCode = "SAFETY_UNHEALTHY";
+    return readiness;
+  }
+
+  readiness.code = ReadinessCode::Ok;
+  readiness.reasonCode = "SAFETY_OK";
+  return readiness;
+}
+
 HealthSnapshot HealthAggregator::snapshot(const std::chrono::steady_clock::time_point now) const
 {
   // All five dependencies are evaluated under a single mutex acquisition to
@@ -231,6 +279,8 @@ HealthSnapshot HealthAggregator::snapshot(const std::chrono::steady_clock::time_
   snapshot.trajectoryManager = evaluateManager(
     trajectoryStatus_, config_.managerStatusTimeout, now,
     "TRAJECTORY");
+  snapshot.safetyMonitor = evaluateSafety(now);
+  snapshot.requireExternalSafety = requireExternalSafety_;
   // Return-by-value is efficient in modern C++: copy elision typically constructs
   // the object directly in the caller's destination storage.
   return snapshot;

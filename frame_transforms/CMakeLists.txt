@@ -9,7 +9,9 @@ find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -31,8 +33,10 @@ ament_target_dependencies(frame_transformer_component
   Eigen3
   geometry_msgs
   nav_msgs
+  peregrine_interfaces
   rclcpp
   rclcpp_components
+  sensor_msgs
   tf2_eigen
   tf2_geometry_msgs
   tf2_ros
@@ -61,6 +65,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(Eigen3 geometry_msgs nav_msgs rclcpp tf2_ros)
+ament_export_dependencies(Eigen3 geometry_msgs nav_msgs peregrine_interfaces rclcpp sensor_msgs tf2_ros)
 
 ament_package()

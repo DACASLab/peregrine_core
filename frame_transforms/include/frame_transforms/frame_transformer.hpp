@@ -41,8 +41,12 @@
 
 #pragma once
 
+#include <Eigen/Core>
+
 #include <nav_msgs/msg/odometry.hpp>
+#include <peregrine_interfaces/msg/gps_status.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/static_transform_broadcaster.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 
@@ -111,6 +115,30 @@ private:
 
   std::mutex odometryMutex_;
   std::optional<nav_msgs::msg::Odometry> latestOdometry_;
+
+  // Home GPS origin members
+  void onGnss(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+  void onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg);
+  void tryInitHome();
+
+  double homeLatDeg_{0.0};
+  double homeLonDeg_{0.0};
+  int gpsMinFixType_{3};
+  int gpsMinSatellites_{6};
+  double gpsMaxHdop_{5.0};
+  double gpsMaxVdop_{5.0};
+  double gpsFreshnessTimeoutS_{2.0};
+  double homeInitTimeoutS_{60.0};
+
+  bool homeInitialized_{false};
+  Eigen::Vector3d mapToOdomOffset_{0.0, 0.0, 0.0};
+
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gnssSub_;
+  rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
+
+  std::mutex homeMutex_;
+  std::optional<sensor_msgs::msg::NavSatFix> latestGnss_;
+  std::optional<peregrine_interfaces::msg::GpsStatus> latestGpsStatus_;
 };
 
 }  // namespace frame_transforms

@@ -129,7 +129,25 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
       odometryTopic_, rclcpp::SensorDataQoS(),
       std::bind(&FrameTransformer::odometryCallback, this, std::placeholders::_1));
 
+  // Home GPS origin parameters
+  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 13.018509);
+  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 77.565088);
+  gpsMinFixType_ = this->declare_parameter<int>("gps_min_fix_type", 3);
+  gpsMinSatellites_ = this->declare_parameter<int>("gps_min_satellites", 6);
+  gpsMaxHdop_ = this->declare_parameter<double>("gps_max_hdop", 5.0);
+  gpsMaxVdop_ = this->declare_parameter<double>("gps_max_vdop", 5.0);
+  gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps_freshness_timeout_s", 2.0);
+  homeInitTimeoutS_ = this->declare_parameter<double>("home_init_timeout_s", 60.0);
+
   publishStaticTransforms();
+
+  // GNSS and GPS status subscriptions for home origin initialization
+  gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+      "gnss", rclcpp::QoS(10).reliable(),
+      std::bind(&FrameTransformer::onGnss, this, std::placeholders::_1));
+  gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
+      "gps_status", rclcpp::QoS(10).reliable(),
+      std::bind(&FrameTransformer::onGpsStatus, this, std::placeholders::_1));
 
   // Timer periodically emits the latest odom->base_link transform.
   const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
@@ -259,6 +277,81 @@ void FrameTransformer::publishDynamicTransforms()
   odomToBase.transform.rotation = toRosQuaternion(orientation);
 
   tfBroadcaster_->sendTransform(odomToBase);
+}
+
+void FrameTransformer::onGnss(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+{
+  std::scoped_lock lock(homeMutex_);
+  latestGnss_ = *msg;
+  tryInitHome();
+}
+
+void FrameTransformer::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg)
+{
+  std::scoped_lock lock(homeMutex_);
+  latestGpsStatus_ = *msg;
+  tryInitHome();
+}
+
+void FrameTransformer::tryInitHome()
+{
+  // Must be called with homeMutex_ held
+  if (homeInitialized_) {
+    return;
+  }
+
+  // Need both GNSS and GPS status
+  if (!latestGnss_.has_value() || !latestGpsStatus_.has_value()) {
+    return;
+  }
+
+  // Check if home coordinates are configured (non-zero)
+  if (homeLatDeg_ == 0.0 && homeLonDeg_ == 0.0) {
+    return;  // No home configured, map->odom stays identity
+  }
+
+  const auto & gpsStatus = *latestGpsStatus_;
+
+  // GPS quality gate
+  if (gpsStatus.fix_type < gpsMinFixType_) {
+    return;
+  }
+  if (gpsStatus.satellites_used < gpsMinSatellites_) {
+    return;
+  }
+  if (gpsStatus.hdop > gpsMaxHdop_) {
+    return;
+  }
+  if (gpsStatus.vdop > gpsMaxVdop_) {
+    return;
+  }
+
+  const auto & gnss = *latestGnss_;
+
+  // Compute map->odom offset: "PX4's origin is X meters east and Y meters north of home"
+  mapToOdomOffset_ = geodeticToEnu(
+      homeLatDeg_, homeLonDeg_, 0.0,
+      gnss.latitude, gnss.longitude, 0.0);
+
+  // Republish map->odom static TF with the computed offset
+  geometry_msgs::msg::TransformStamped mapToOdom;
+  mapToOdom.header.stamp = this->get_clock()->now();
+  mapToOdom.header.frame_id = mapFrame_;
+  mapToOdom.child_frame_id = odomFrame_;
+  mapToOdom.transform.translation.x = mapToOdomOffset_.x();
+  mapToOdom.transform.translation.y = mapToOdomOffset_.y();
+  mapToOdom.transform.translation.z = mapToOdomOffset_.z();
+  mapToOdom.transform.rotation.w = 1.0;
+  mapToOdom.transform.rotation.x = 0.0;
+  mapToOdom.transform.rotation.y = 0.0;
+  mapToOdom.transform.rotation.z = 0.0;
+  staticTfBroadcaster_->sendTransform(mapToOdom);
+
+  homeInitialized_ = true;
+  RCLCPP_INFO(this->get_logger(),
+      "Home GPS origin initialized: home=(%.6f, %.6f) gnss=(%.6f, %.6f) offset=(%.2f, %.2f, %.2f)m",
+      homeLatDeg_, homeLonDeg_, gnss.latitude, gnss.longitude,
+      mapToOdomOffset_.x(), mapToOdomOffset_.y(), mapToOdomOffset_.z());
 }
 
 }  // namespace frame_transforms

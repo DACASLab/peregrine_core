@@ -57,6 +57,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
+#include <peregrine_interfaces/msg/gps_status.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 
 #include <atomic>
@@ -199,6 +200,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometryPub_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr batteryPub_;
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gpsPub_;
+  rclcpp::Publisher<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusPub_;
 
   rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicleOdometrySub_;
   rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr batteryStatusSub_;
