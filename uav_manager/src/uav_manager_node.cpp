@@ -157,41 +157,6 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
     this,
     "trajectory_manager/execute_trajectory", serviceCbGroup_);
 
-  // rcl_action_server_options_t is needed to pass a callback group to
-  // rclcpp_action::create_server (the rclcpp_action API requires it as a
-  // parameter before the callback group). Using default options here.
-  // The "~/" prefix resolves under the node's namespace, so "~/takeoff"
-  // becomes e.g. /uav_manager/takeoff in the ROS graph.
-  rcl_action_server_options_t actionOpts = rcl_action_server_get_default_options();
-
-  takeoffServer_ = rclcpp_action::create_server<Takeoff>(
-    this, "~/takeoff",
-    std::bind(&UavManagerNode::onTakeoffGoal, this, std::placeholders::_1, std::placeholders::_2),
-    std::bind(&UavManagerNode::onTakeoffCancel, this, std::placeholders::_1),
-    std::bind(&UavManagerNode::onTakeoffAccepted, this, std::placeholders::_1),
-    actionOpts, actionCbGroup_);
-
-  landServer_ = rclcpp_action::create_server<Land>(
-    this, "~/land",
-    std::bind(&UavManagerNode::onLandGoal, this, std::placeholders::_1, std::placeholders::_2),
-    std::bind(&UavManagerNode::onLandCancel, this, std::placeholders::_1),
-    std::bind(&UavManagerNode::onLandAccepted, this, std::placeholders::_1),
-    actionOpts, actionCbGroup_);
-
-  goToServer_ = rclcpp_action::create_server<GoTo>(
-    this, "~/go_to",
-    std::bind(&UavManagerNode::onGoToGoal, this, std::placeholders::_1, std::placeholders::_2),
-    std::bind(&UavManagerNode::onGoToCancel, this, std::placeholders::_1),
-    std::bind(&UavManagerNode::onGoToAccepted, this, std::placeholders::_1),
-    actionOpts, actionCbGroup_);
-
-  executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
-    this, "~/execute_trajectory",
-    std::bind(&UavManagerNode::onExecuteGoal, this, std::placeholders::_1, std::placeholders::_2),
-    std::bind(&UavManagerNode::onExecuteCancel, this, std::placeholders::_1),
-    std::bind(&UavManagerNode::onExecuteAccepted, this, std::placeholders::_1),
-    actionOpts, actionCbGroup_);
-
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
@@ -227,71 +192,98 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   return CallbackReturn::SUCCESS;
 }
 
+bool UavManagerNode::createActionServers()
+{
+  if (takeoffServer_ || landServer_ || goToServer_ || executeServer_) {
+    // Idempotent: servers already exist.
+    return true;
+  }
+  if (!actionCbGroup_) {
+    RCLCPP_ERROR(this->get_logger(), "Action callback group not initialized");
+    return false;
+  }
+
+  try {
+    // rcl_action_server_options_t is needed to pass a callback group to
+    // rclcpp_action::create_server (the rclcpp_action API requires it as a
+    // parameter before the callback group). Using default options here.
+    // The "~/" prefix resolves under the node's namespace, so "~/takeoff"
+    // becomes e.g. /uav_manager/takeoff in the ROS graph.
+    rcl_action_server_options_t actionOpts = rcl_action_server_get_default_options();
+
+    takeoffServer_ = rclcpp_action::create_server<Takeoff>(
+      this, "~/takeoff",
+      std::bind(&UavManagerNode::onTakeoffGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onTakeoffCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onTakeoffAccepted, this, std::placeholders::_1),
+      actionOpts, actionCbGroup_);
+
+    landServer_ = rclcpp_action::create_server<Land>(
+      this, "~/land",
+      std::bind(&UavManagerNode::onLandGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onLandCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onLandAccepted, this, std::placeholders::_1),
+      actionOpts, actionCbGroup_);
+
+    goToServer_ = rclcpp_action::create_server<GoTo>(
+      this, "~/go_to",
+      std::bind(&UavManagerNode::onGoToGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onGoToCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onGoToAccepted, this, std::placeholders::_1),
+      actionOpts, actionCbGroup_);
+
+    executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
+      this, "~/execute_trajectory",
+      std::bind(&UavManagerNode::onExecuteGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onExecuteCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onExecuteAccepted, this, std::placeholders::_1),
+      actionOpts, actionCbGroup_);
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to create action servers: %s", e.what());
+    destroyActionServers();
+    return false;
+  }
+
+  return true;
+}
+
+void UavManagerNode::destroyActionServers()
+{
+  // Resetting the shared_ptr tears down the underlying rcl action server and removes it
+  // from discovery. This makes action-server visibility match lifecycle operational state.
+  takeoffServer_.reset();
+  landServer_.reset();
+  goToServer_.reset();
+  executeServer_.reset();
+}
+
 UavManagerNode::CallbackReturn UavManagerNode::on_activate(const rclcpp_lifecycle::State &)
 {
   if (!configured_ || !uavStatePub_ || !statusTimer_) {
     return CallbackReturn::FAILURE;
   }
 
-  // Activation gate pattern: this node requires ALL downstream managers to be
-  // publishing healthy status before it will accept activation. This prevents
-  // the supervisor FSM from accepting flight goals before the full pipeline
-  // (estimation -> control -> trajectory) is operational. Without this gate,
-  // a takeoff goal could be accepted before control_manager is ready, leading
-  // to a PX4 offboard rejection.
-  const auto startupTimeout = secondsToMillis(dependencyStartupTimeoutS_);
-  // Lambda expressions (the `[...]() { ... }` syntax) are anonymous inline
-  // functions, equivalent to Python's `lambda` but far more powerful:
-  //   - `[this]` is the "capture list" - it specifies which outside variables the
-  //     lambda can access. `[this]` captures the current object's pointer, giving
-  //     the lambda access to member variables/methods (like `self` in Python).
-  //   - `[]()` captures nothing - a pure stateless function.
-  //   - `[&]` would capture all variables by reference.
-  //   - `[=]` would capture all variables by copy.
-  // Unlike Python lambdas (limited to one expression), C++ lambdas can contain
-  // multiple statements, loops, and any other code.
-  const StepResult readiness = orchestrator_->waitForCondition(
-    "DEPENDENCY_READY_TIMEOUT", startupTimeout,
-    [this]()
-    {
-      if (!healthAggregator_) {
-        return false;
-      }
-      const auto snapshot = healthAggregator_->snapshot(nowSteady());
-      return snapshot.dependenciesReady();
-    },
-    []() {return false;}, []() {return false;});
+  // Activation is intentionally not gated on dependency readiness. Readiness is enforced
+  // by explicit checks at goal execution time (and surfaced via UAVState.detail) rather
+  // than causing lifecycle activation to be timing-sensitive.
+  active_ = true;
 
-  if (!readiness.success) {
-    const auto snapshot = healthAggregator_->snapshot(nowSteady());
-    // Preserve the first failing dependency reason for operator-facing diagnostics.
-    // Priority order mirrors the arming/takeoff dependency chain.
-    std::string reason = snapshot.px4.ready() ? "UNKNOWN_DEPENDENCY" : snapshot.px4.reasonCode;
-    if (snapshot.px4.ready() && !snapshot.estimatedState.ready()) {
-      reason = snapshot.estimatedState.reasonCode;
-    } else if (snapshot.px4.ready() && snapshot.estimatedState.ready() &&
-      !snapshot.estimationManager.ready())
-    {
-      reason = snapshot.estimationManager.reasonCode;
-    } else if (snapshot.px4.ready() && snapshot.estimatedState.ready() &&
-      snapshot.estimationManager.ready() &&
-      !snapshot.controlManager.ready())
-    {
-      reason = snapshot.controlManager.reasonCode;
-    } else if (snapshot.px4.ready() && snapshot.estimatedState.ready() &&
-      snapshot.estimationManager.ready() &&
-      snapshot.controlManager.ready() && !snapshot.trajectoryManager.ready())
-    {
-      reason = snapshot.trajectoryManager.reasonCode;
-    }
-
-    RCLCPP_ERROR(this->get_logger(), "uav_manager activation failed: %s", reason.c_str());
+  if (!createActionServers()) {
+    active_ = false;
     return CallbackReturn::FAILURE;
   }
 
   uavStatePub_->on_activate();
   statusTimer_->reset();
-  active_ = true;
+
+  // Optional: log a warning if dependencies are not yet ready at activation time.
+  if (healthAggregator_) {
+    const auto snapshot = healthAggregator_->snapshot(nowSteady());
+    if (!snapshot.dependenciesReady()) {
+      RCLCPP_WARN(this->get_logger(), "Activated uav_manager before dependencies are ready");
+    }
+  }
+
   RCLCPP_INFO(this->get_logger(), "Activated uav_manager");
   return CallbackReturn::SUCCESS;
 }
@@ -299,6 +291,10 @@ UavManagerNode::CallbackReturn UavManagerNode::on_activate(const rclcpp_lifecycl
 UavManagerNode::CallbackReturn UavManagerNode::on_deactivate(const rclcpp_lifecycle::State &)
 {
   active_ = false;
+
+  // Tear down action servers first so external clients do not discover/target this node
+  // while it is inactive.
+  destroyActionServers();
 
   if (statusTimer_) {
     statusTimer_->cancel();
@@ -364,8 +360,12 @@ UavManagerNode::CallbackReturn UavManagerNode::on_shutdown(const rclcpp_lifecycl
 UavManagerNode::CallbackReturn UavManagerNode::on_error(const rclcpp_lifecycle::State &)
 {
   active_ = false;
+  destroyActionServers();
   if (statusTimer_) {
     statusTimer_->cancel();
+  }
+  if (uavStatePub_ && uavStatePub_->is_activated()) {
+    uavStatePub_->on_deactivate();
   }
   RCLCPP_ERROR(this->get_logger(), "Error in uav_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;
@@ -611,7 +611,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
       "ENSURE_ARMABLE_MODE", [this]() {return ensureArmableMode();}, preempted,
       emergency);
     if (!step.success) {
-      failGoal(step.reasonCode);
+        failGoal(step.describe());
       return;
     }
 
@@ -620,7 +620,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
       "ARM_SERVICE",
       [this]() {return callArmService(true);}, preempted, emergency);
     if (!step.success) {
-      failGoal(step.reasonCode);
+      failGoal(step.describe());
       return;
     }
 
@@ -633,14 +633,14 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
       },
       preempted, emergency);
     if (!step.success) {
-      failGoal(step.reasonCode);
+      failGoal(step.describe());
       return;
     }
   }
 
   StepResult step = waitForControlSetpointFlow(std::chrono::seconds(4));
   if (!step.success) {
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -649,7 +649,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
     "SET_MODE_OFFBOARD", [this]() {return callSetModeService("offboard");}, preempted,
     emergency);
   if (!step.success) {
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -662,7 +662,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
     },
     preempted, emergency);
   if (!step.success) {
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -692,7 +692,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
 
   if (!step.success || !executeResult.success) {
     (void)applyEvent(SupervisorEvent::TakeoffFailed);
-    failGoal(step.success ? executeResult.message : step.reasonCode);
+    failGoal(step.success ? executeResult.message : step.describe());
     return;
   }
 
@@ -779,7 +779,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::LandFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -793,7 +793,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::LandFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -807,7 +807,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::LandFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -884,7 +884,7 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -898,7 +898,7 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -916,7 +916,7 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
 
   if (!step.success || !forwardResult.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.success ? forwardResult.message : step.reasonCode);
+    failGoal(step.success ? forwardResult.message : step.describe());
     return;
   }
 
@@ -992,7 +992,7 @@ void UavManagerNode::onExecuteAccepted(
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -1006,7 +1006,7 @@ void UavManagerNode::onExecuteAccepted(
     preempted, emergency);
   if (!step.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.reasonCode);
+    failGoal(step.describe());
     return;
   }
 
@@ -1024,7 +1024,7 @@ void UavManagerNode::onExecuteAccepted(
 
   if (!step.success || !forwardResult.success) {
     (void)applyEvent(SupervisorEvent::FlightActionFailed);
-    failGoal(step.success ? forwardResult.message : step.reasonCode);
+    failGoal(step.success ? forwardResult.message : step.describe());
     return;
   }
 
@@ -1113,10 +1113,10 @@ StepResult UavManagerNode::ensureArmableMode()
   }
 
   if (!status.has_value()) {
-    return StepResult::fail("PX4_STATUS_MISSING");
+    return StepResult::fail(StepCode::Px4StatusMissing);
   }
   if (!status->connected) {
-    return StepResult::fail("PX4_DISCONNECTED");
+    return StepResult::fail(StepCode::Px4Disconnected);
   }
   if (status->armed || !navStatePreventsArming(status->nav_state)) {
     return StepResult::ok();
@@ -1124,12 +1124,12 @@ StepResult UavManagerNode::ensureArmableMode()
 
   StepResult step = callSetModeService("position");
   if (!step.success) {
-    return StepResult::fail("SET_POSITION_FAILED");
+    return StepResult::fail(StepCode::SetPositionFailed, step.describe());
   }
 
   step = waitForNavState(kNavStatePosCtl, std::chrono::seconds(6));
   if (!step.success) {
-    return StepResult::fail("POSITION_MODE_TIMEOUT");
+    return StepResult::fail(StepCode::PositionModeTimeout, step.describe());
   }
 
   return StepResult::ok();
@@ -1144,21 +1144,21 @@ StepResult UavManagerNode::ensureArmableMode()
 StepResult UavManagerNode::callArmService(const bool arm)
 {
   if (!armClient_) {
-    return StepResult::fail("ARM_SERVICE_UNAVAILABLE");
+    return StepResult::fail(StepCode::ArmServiceUnavailable);
   }
 
   {
     const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceWaitS_);
     while (std::chrono::steady_clock::now() < deadline) {
       if (!active_ || isEmergency()) {
-        return StepResult::fail("EMERGENCY_PREEMPT");
+        return StepResult::fail(StepCode::EmergencyPreempt);
       }
       if (armClient_->wait_for_service(std::chrono::milliseconds(200))) {
         break;
       }
     }
     if (!armClient_->service_is_ready()) {
-      return StepResult::fail("ARM_SERVICE_UNAVAILABLE");
+      return StepResult::fail(StepCode::ArmServiceUnavailable);
     }
   }
 
@@ -1172,16 +1172,18 @@ StepResult UavManagerNode::callArmService(const bool arm)
   const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceResponseWaitS_);
   while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= deadline) {
-      return StepResult::fail("ARM_SERVICE_TIMEOUT");
+      return StepResult::fail(StepCode::ArmServiceTimeout);
     }
     if (!active_ || isEmergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
   }
 
   const auto response = future.get();
   if (!response->success) {
-    return StepResult::fail(response->message.empty() ? "ARM_SERVICE_REJECTED" : response->message);
+    return StepResult::fail(
+      StepCode::ArmServiceRejected,
+      response->message.empty() ? std::string{} : response->message);
   }
 
   return StepResult::ok();
@@ -1192,21 +1194,21 @@ StepResult UavManagerNode::callArmService(const bool arm)
 StepResult UavManagerNode::callSetModeService(const std::string & mode)
 {
   if (!setModeClient_) {
-    return StepResult::fail("SET_MODE_SERVICE_UNAVAILABLE");
+    return StepResult::fail(StepCode::SetModeServiceUnavailable);
   }
 
   {
     const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceWaitS_);
     while (std::chrono::steady_clock::now() < deadline) {
       if (!active_ || isEmergency()) {
-        return StepResult::fail("EMERGENCY_PREEMPT");
+        return StepResult::fail(StepCode::EmergencyPreempt);
       }
       if (setModeClient_->wait_for_service(std::chrono::milliseconds(200))) {
         break;
       }
     }
     if (!setModeClient_->service_is_ready()) {
-      return StepResult::fail("SET_MODE_SERVICE_UNAVAILABLE");
+      return StepResult::fail(StepCode::SetModeServiceUnavailable);
     }
   }
 
@@ -1217,16 +1219,18 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceResponseWaitS_);
   while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= deadline) {
-      return StepResult::fail("SET_MODE_SERVICE_TIMEOUT");
+      return StepResult::fail(StepCode::SetModeServiceTimeout);
     }
     if (!active_ || isEmergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
   }
 
   const auto response = future.get();
   if (!response->success) {
-    return StepResult::fail(response->message.empty() ? "SET_MODE_REJECTED" : response->message);
+    return StepResult::fail(
+      StepCode::SetModeRejected,
+      response->message.empty() ? std::string{} : response->message);
   }
 
   return StepResult::ok();
@@ -1314,10 +1318,10 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
     secondsToMillis(actionServerWaitS_);
   while (std::chrono::steady_clock::now() < serverDeadline) {
     if (emergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
     if (trajectoryExecuteClient_ &&
       trajectoryExecuteClient_->wait_for_action_server(std::chrono::milliseconds(200)))
@@ -1327,7 +1331,7 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
   }
 
   if (!trajectoryExecuteClient_ || !trajectoryExecuteClient_->action_server_is_ready()) {
-    return StepResult::fail("TRAJECTORY_EXECUTE_SERVER_UNAVAILABLE");
+    return StepResult::fail(StepCode::TrajectoryExecuteServerUnavailable);
   }
 
   rclcpp_action::Client<ExecuteTrajectory>::SendGoalOptions options;
@@ -1348,19 +1352,19 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
     secondsToMillis(serviceResponseWaitS_);
   while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= goalDeadline) {
-      return StepResult::fail("TRAJECTORY_EXECUTE_GOAL_TIMEOUT");
+      return StepResult::fail(StepCode::TrajectoryExecuteGoalTimeout);
     }
     if (emergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
   }
 
   auto goalHandle = goalHandleFuture.get();
   if (!goalHandle) {
-    return StepResult::fail("TRAJECTORY_EXECUTE_GOAL_REJECTED");
+    return StepResult::fail(StepCode::TrajectoryExecuteGoalRejected);
   }
 
   auto resultFuture = trajectoryExecuteClient_->async_get_result(goalHandle);
@@ -1369,15 +1373,15 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
     secondsToMillis(actionResultWaitS_);
   while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= resultDeadline) {
-      return StepResult::fail("TRAJECTORY_EXECUTE_RESULT_TIMEOUT");
+      return StepResult::fail(StepCode::TrajectoryExecuteResultTimeout);
     }
     if (emergency()) {
       trajectoryExecuteClient_->async_cancel_goal(goalHandle);
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
       trajectoryExecuteClient_->async_cancel_goal(goalHandle);
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
   }
 
@@ -1387,7 +1391,7 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
   }
 
   if (wrappedResult.code != rclcpp_action::ResultCode::SUCCEEDED) {
-    return StepResult::fail("TRAJECTORY_EXECUTE_RESULT_NOT_SUCCEEDED");
+    return StepResult::fail(StepCode::TrajectoryExecuteResultNotSucceeded);
   }
 
   return StepResult::ok();
@@ -1407,10 +1411,10 @@ StepResult UavManagerNode::forwardGoTo(
     secondsToMillis(actionServerWaitS_);
   while (std::chrono::steady_clock::now() < serverDeadline) {
     if (emergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
     if (trajectoryGoToClient_ &&
       trajectoryGoToClient_->wait_for_action_server(std::chrono::milliseconds(200)))
@@ -1420,7 +1424,7 @@ StepResult UavManagerNode::forwardGoTo(
   }
 
   if (!trajectoryGoToClient_ || !trajectoryGoToClient_->action_server_is_ready()) {
-    return StepResult::fail("TRAJECTORY_GOTO_SERVER_UNAVAILABLE");
+    return StepResult::fail(StepCode::TrajectoryGotoServerUnavailable);
   }
 
   rclcpp_action::Client<GoTo>::SendGoalOptions options;
@@ -1439,19 +1443,19 @@ StepResult UavManagerNode::forwardGoTo(
     secondsToMillis(serviceResponseWaitS_);
   while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= goalDeadline) {
-      return StepResult::fail("TRAJECTORY_GOTO_GOAL_TIMEOUT");
+      return StepResult::fail(StepCode::TrajectoryGotoGoalTimeout);
     }
     if (emergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
   }
 
   auto goalHandle = goalHandleFuture.get();
   if (!goalHandle) {
-    return StepResult::fail("TRAJECTORY_GOTO_GOAL_REJECTED");
+    return StepResult::fail(StepCode::TrajectoryGotoGoalRejected);
   }
 
   auto resultFuture = trajectoryGoToClient_->async_get_result(goalHandle);
@@ -1460,15 +1464,15 @@ StepResult UavManagerNode::forwardGoTo(
     secondsToMillis(actionResultWaitS_);
   while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (std::chrono::steady_clock::now() >= resultDeadline) {
-      return StepResult::fail("TRAJECTORY_GOTO_RESULT_TIMEOUT");
+      return StepResult::fail(StepCode::TrajectoryGotoResultTimeout);
     }
     if (emergency()) {
       trajectoryGoToClient_->async_cancel_goal(goalHandle);
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
       trajectoryGoToClient_->async_cancel_goal(goalHandle);
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
   }
 
@@ -1478,7 +1482,7 @@ StepResult UavManagerNode::forwardGoTo(
   }
 
   if (wrappedResult.code != rclcpp_action::ResultCode::SUCCEEDED) {
-    return StepResult::fail("TRAJECTORY_GOTO_RESULT_NOT_SUCCEEDED");
+    return StepResult::fail(StepCode::TrajectoryGotoResultNotSucceeded);
   }
 
   return StepResult::ok();

@@ -29,8 +29,15 @@ Usage:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    LogInfo,
+    RegisterEventHandler,
+    Shutdown,
+)
+from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import ComposableNodeContainer, Node
@@ -54,6 +61,10 @@ def generate_launch_description() -> LaunchDescription:
     use_lifecycle_orchestrator = LaunchConfiguration("use_lifecycle_orchestrator")
     lifecycle_service_timeout_s = LaunchConfiguration("lifecycle_service_timeout_s")
     lifecycle_state_timeout_s = LaunchConfiguration("lifecycle_state_timeout_s")
+    lifecycle_data_readiness_timeout_s = LaunchConfiguration("lifecycle_data_readiness_timeout_s")
+    lifecycle_data_freshness_timeout_s = LaunchConfiguration("lifecycle_data_freshness_timeout_s")
+    lifecycle_phase_2_retry_timeout_s = LaunchConfiguration("lifecycle_phase_2_retry_timeout_s")
+    lifecycle_phase_2_retry_backoff_s = LaunchConfiguration("lifecycle_phase_2_retry_backoff_s")
 
     mission_type = LaunchConfiguration("mission_type")
     takeoff_altitude_m = LaunchConfiguration("takeoff_altitude_m")
@@ -94,6 +105,82 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
+    demo_parameters = [
+        {
+            "mission_type": mission_type,
+            "takeoff_altitude_m": takeoff_altitude_m,
+            "climb_velocity_mps": climb_velocity_mps,
+            "landing_descent_velocity_mps": landing_descent_velocity_mps,
+            "circle_radius_m": circle_radius_m,
+            "circle_angular_velocity_radps": circle_angular_velocity_radps,
+            "circle_loops": circle_loops,
+            "figure8_radius_m": figure8_radius_m,
+            "figure8_angular_velocity_radps": figure8_angular_velocity_radps,
+            "figure8_loops": figure8_loops,
+            "preflight_wait_s": preflight_wait_s,
+            "server_wait_s": server_wait_s,
+            "action_timeout_s": action_timeout_s,
+        }
+    ]
+
+    orchestrator_node = Node(
+        condition=IfCondition(use_lifecycle_orchestrator),
+        package="hardware_abstraction_example",
+        executable="lifecycle_bringup_orchestrator.py",
+        namespace=uav_namespace,
+        output="screen",
+        parameters=[
+            {
+                "phase_1_nodes": [
+                    "estimation_manager",
+                    "control_manager",
+                    "trajectory_manager",
+                ],
+                "phase_2_nodes": ["uav_manager"],
+                "service_wait_timeout_s": lifecycle_service_timeout_s,
+                "state_wait_timeout_s": lifecycle_state_timeout_s,
+                "data_readiness_timeout_s": lifecycle_data_readiness_timeout_s,
+                "data_freshness_timeout_s": lifecycle_data_freshness_timeout_s,
+                "phase_2_retry_timeout_s": lifecycle_phase_2_retry_timeout_s,
+                "phase_2_retry_backoff_s": lifecycle_phase_2_retry_backoff_s,
+            }
+        ],
+    )
+
+    demo_node_direct = Node(
+        condition=UnlessCondition(use_lifecycle_orchestrator),
+        package="hardware_abstraction_example",
+        executable="circle_figure8_demo.py",
+        namespace=uav_namespace,
+        output="screen",
+        parameters=demo_parameters,
+    )
+
+    demo_node_after_orchestrator = Node(
+        package="hardware_abstraction_example",
+        executable="circle_figure8_demo.py",
+        namespace=uav_namespace,
+        output="screen",
+        parameters=demo_parameters,
+    )
+
+    def _on_orchestrator_exit(event, _context):
+        if event.returncode == 0:
+            return [demo_node_after_orchestrator]
+        return [
+            LogInfo(
+                msg=(
+                    "lifecycle_bringup_orchestrator exited with non-zero status; "
+                    "demo mission will not start."
+                )
+            ),
+            Shutdown(reason="Lifecycle bringup failed"),
+        ]
+
+    orchestrator_exit_handler = RegisterEventHandler(
+        OnProcessExit(target_action=orchestrator_node, on_exit=_on_orchestrator_exit)
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument("uav_namespace", default_value=""),
@@ -120,6 +207,10 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("lifecycle_service_timeout_s", default_value="10.0"),
             DeclareLaunchArgument("lifecycle_state_timeout_s", default_value="15.0"),
+            DeclareLaunchArgument("lifecycle_data_readiness_timeout_s", default_value="30.0"),
+            DeclareLaunchArgument("lifecycle_data_freshness_timeout_s", default_value="1.5"),
+            DeclareLaunchArgument("lifecycle_phase_2_retry_timeout_s", default_value="20.0"),
+            DeclareLaunchArgument("lifecycle_phase_2_retry_backoff_s", default_value="0.5"),
             DeclareLaunchArgument(
                 "mission_type",
                 default_value="circle_figure8",
@@ -180,55 +271,9 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                 ],
             ),
-            # The lifecycle orchestrator is a standalone Python node that calls
-            # change_state/get_state services to drive the lifecycle transitions.
-            # It's conditional (use_lifecycle_orchestrator) so users can manually
-            # orchestrate via `ros2 lifecycle set` CLI commands if preferred.
-            Node(
-                condition=IfCondition(use_lifecycle_orchestrator),
-                package="hardware_abstraction_example",
-                executable="lifecycle_bringup_orchestrator.py",
-                namespace=uav_namespace,
-                output="screen",
-                parameters=[
-                    {
-                        "phase_1_nodes": [
-                            "estimation_manager",
-                            "control_manager",
-                            "trajectory_manager",
-                        ],
-                        "phase_2_nodes": ["uav_manager"],
-                        "service_wait_timeout_s": lifecycle_service_timeout_s,
-                        "state_wait_timeout_s": lifecycle_state_timeout_s,
-                    }
-                ],
-            ),
-            # The demo mission node runs unconditionally. It waits for preflight
-            # readiness (PX4 connected, all managers healthy) before sending any
-            # action goals, so it tolerates the delay while the orchestrator
-            # completes lifecycle transitions.
-            Node(
-                package="hardware_abstraction_example",
-                executable="circle_figure8_demo.py",
-                namespace=uav_namespace,
-                output="screen",
-                parameters=[
-                    {
-                        "mission_type": mission_type,
-                        "takeoff_altitude_m": takeoff_altitude_m,
-                        "climb_velocity_mps": climb_velocity_mps,
-                        "landing_descent_velocity_mps": landing_descent_velocity_mps,
-                        "circle_radius_m": circle_radius_m,
-                        "circle_angular_velocity_radps": circle_angular_velocity_radps,
-                        "circle_loops": circle_loops,
-                        "figure8_radius_m": figure8_radius_m,
-                        "figure8_angular_velocity_radps": figure8_angular_velocity_radps,
-                        "figure8_loops": figure8_loops,
-                        "preflight_wait_s": preflight_wait_s,
-                        "server_wait_s": server_wait_s,
-                        "action_timeout_s": action_timeout_s,
-                    }
-                ],
-            ),
+            # Start orchestrator first; demo starts only if it exits cleanly.
+            orchestrator_node,
+            orchestrator_exit_handler,
+            demo_node_direct,
         ]
     )

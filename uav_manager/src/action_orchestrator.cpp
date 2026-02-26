@@ -29,10 +29,10 @@ StepResult ActionOrchestrator::callStep(
 {
   // Pre-checks ensure emergency/cancel always wins before executing the step.
   if (emergency()) {
-    return StepResult::fail("EMERGENCY_PREEMPT");
+    return StepResult::fail(StepCode::EmergencyPreempt);
   }
   if (preempted()) {
-    return StepResult::fail("GOAL_PREEMPTED");
+    return StepResult::fail(StepCode::GoalPreempted);
   }
 
   StepResult result = fn();
@@ -43,8 +43,9 @@ StepResult ActionOrchestrator::callStep(
   }
 
   // If a step returns failure without reason, synthesize one from step identity.
-  if (result.reasonCode.empty()) {
-    result.reasonCode = stepCode + "_FAILED";
+  if (result.code == StepCode::Unknown && result.customCode.empty()) {
+    result.code = StepCode::Custom;
+    result.customCode = stepCode + "_FAILED";
   }
   return result;
 }
@@ -75,23 +76,23 @@ StepResult ActionOrchestrator::waitForCondition(
   while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
     // Emergency and cancel checks are evaluated on each poll tick.
     if (emergency()) {
-      return StepResult::fail("EMERGENCY_PREEMPT");
+      return StepResult::fail(StepCode::EmergencyPreempt);
     }
     if (preempted()) {
-      return StepResult::fail("GOAL_PREEMPTED");
+      return StepResult::fail(StepCode::GoalPreempted);
     }
     if (condition()) {
-      return StepResult::ok("OK");
+      return StepResult::ok();
     }
     rate.sleep();
   }
 
   // One final condition check handles races where condition flips near deadline.
   if (condition()) {
-    return StepResult::ok("OK");
+    return StepResult::ok();
   }
 
-  return StepResult::fail(timeoutCode);
+  return StepResult::failCustom(timeoutCode);
 }
 
 }  // namespace uav_manager

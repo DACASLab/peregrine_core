@@ -42,33 +42,80 @@ Mission selection:
   - `frame_transformer`
 - Optional `MicroXRCEAgent` process (enabled by default)
 
-## Suggested usage
+## Validated SITL Runbook (2026-02-26)
 
-1. Terminal A (PX4 SITL):
-   `cd /opt/PX4-Autopilot && ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=42 HEADLESS=1 make px4_sitl gz_x500`
-2. Terminal B (ROS stack):
-   `cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example8_px4_sitl_single_uav.launch.py ros_localhost_only:=1 ros_domain_id:=42`
-3. Terminal C (checks):
-   - `ros2 topic echo --once /status`
-   - `ros2 topic hz /odometry`
-   - `ros2 run tf2_ros tf2_echo odom base_link`
+### 0) Clean stale processes
 
-For the autonomous trajectory demo, replace step 2 with:
+```bash
+pkill -f "ros2 launch hardware_abstraction_example|component_container_mt|MicroXRCEAgent|/opt/PX4-Autopilot/build/px4_sitl_default/bin/px4|gz sim" || true
+```
 
-`cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle_figure8 ros_localhost_only:=1 ros_domain_id:=42`
+### 1) Start PX4 SITL
 
-For the FSM cycle validation requested here:
+```bash
+cd /opt/PX4-Autopilot
+ROS_DOMAIN_ID=42 HEADLESS=1 make px4_sitl gz_x500
+```
 
-`cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle_land_figure8 ros_localhost_only:=1 ros_domain_id:=42`
+### 2) Verify PX4 uXRCE params in `pxh`
 
-For repeated takeoff/land cycles in a dedicated example:
+```bash
+param show UXRCE_DDS_DOM_ID
+param show UXRCE_DDS_PTCFG
+```
 
-`cd /ros2_ws && source install/setup.bash && ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py multi_cycle_sequence:=circle,figure8,circle,figure8 ros_localhost_only:=1 ros_domain_id:=42`
+Expected values:
+
+- `UXRCE_DDS_DOM_ID = 42`
+- `UXRCE_DDS_PTCFG = 1`
+
+### 3) Launch Example 8 (stack-only sanity check)
+
+```bash
+cd /ros2_ws
+source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 ros2 launch hardware_abstraction_example example8_px4_sitl_single_uav.launch.py
+```
+
+### 4) Launch Example 10 (circle + figure-8)
+
+```bash
+cd /ros2_ws
+source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+mkdir -p /tmp/ros_logs
+export ROS_LOG_DIR=/tmp/ros_logs
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
+  timeout 600s ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py \
+  > /tmp/example10_redo.log 2>&1
+```
+
+### 5) Launch Example 11 (multi-cycle)
+
+```bash
+cd /ros2_ws
+source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+mkdir -p /tmp/ros_logs
+export ROS_LOG_DIR=/tmp/ros_logs
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
+  timeout 900s ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py \
+  > /tmp/example11_redo2.log 2>&1
+```
+
+### 6) Quick result checks
+
+```bash
+rg -n "Data readiness satisfied|Lifecycle bringup completed successfully|Demo mission completed successfully" /tmp/example10_redo.log
+rg -n "Data readiness satisfied|Lifecycle bringup completed successfully|Multi-cycle mission completed successfully|cycle4_figure8_land completed" /tmp/example11_redo2.log
+```
 
 ## PX4 uXRCE-DDS Notes
 
-- PX4 SITL startup already maps `ROS_DOMAIN_ID` to `UXRCE_DDS_DOM_ID`.
-- PX4 SITL does not auto-map `ROS_LOCALHOST_ONLY`; set this once in PX4 shell and save:
+- SITL startup script maps `ROS_DOMAIN_ID` to `UXRCE_DDS_DOM_ID` at boot.
+- If `ROS_DOMAIN_ID` is not exported when SITL starts, rcS will set `UXRCE_DDS_DOM_ID` to `0`.
+- PX4 SITL does not auto-map `ROS_LOCALHOST_ONLY`; set once and save:
   - `param set UXRCE_DDS_PTCFG 1`
   - `param save`
-- Reboot/restart SITL after changing these PX4 parameters.
+- Restart SITL after any uXRCE param changes.

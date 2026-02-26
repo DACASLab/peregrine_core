@@ -118,7 +118,11 @@ private:
   CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
 
   /**
-   * @brief Activates status publication after dependency readiness check.
+    * @brief Activates status publication and exposes action servers.
+    *
+    * This callback intentionally does NOT fail activation based on dependency readiness.
+    * Readiness is enforced at goal execution time via explicit checks and reason codes
+    * rather than making lifecycle activation timing-sensitive.
    */
   CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override;
 
@@ -207,6 +211,11 @@ private:
   TransitionOutcome applyEvent(SupervisorEvent event);
   /// Returns true when supervisor is in Emergency state.
   bool isEmergency() const;
+
+  /// Creates (advertises) uav_manager action servers.
+  bool createActionServers();
+  /// Destroys uav_manager action servers (removes them from the ROS graph).
+  void destroyActionServers();
 
   /// Ensures PX4 nav state is armable before arming.
   StepResult ensureArmableMode();
