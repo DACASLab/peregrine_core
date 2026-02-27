@@ -191,6 +191,10 @@ private:
   std::atomic<bool> failsafe_{false};
   std::atomic<float> batteryRemaining_{NAN};
   std::atomic<float> batteryVoltage_{NAN};
+  std::atomic<float> motorOutput0_{0.0f};
+  std::atomic<float> motorOutput1_{0.0f};
+  std::atomic<float> motorOutput2_{0.0f};
+  std::atomic<float> motorOutput3_{0.0f};
   /// Packed snapshot of control mode + trajectory flags for coherent offboard heartbeat publication.
   /// See packOffboardModeFlags() in the .cpp for the bit layout.
   std::atomic<uint32_t> offboardModeFlags_{0};

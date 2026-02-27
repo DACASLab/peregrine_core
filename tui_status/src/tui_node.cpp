@@ -428,12 +428,21 @@ StatusSnapshot TuiNode::buildSnapshot() const
   if (latestPx4Status_.has_value()) {
     snapshot.battery_percent = latestPx4Status_->battery_remaining;
     snapshot.battery_voltage = latestPx4Status_->battery_voltage;
+    bool anyMotor = false;
+    for (int i = 0; i < 4; ++i) {
+      snapshot.motor_output[i] = latestPx4Status_->motor_output[i];
+      if (snapshot.motor_output[i] > 0.0F) {
+        anyMotor = true;
+      }
+    }
+    snapshot.has_motor_data = anyMotor;
   }
 
   if (latestGpsStatus_.has_value()) {
     snapshot.gps_fix_type = latestGpsStatus_->fix_type;
     snapshot.gps_satellites = latestGpsStatus_->satellites_used;
     snapshot.gps_hdop = latestGpsStatus_->hdop;
+    snapshot.gps_vdop = latestGpsStatus_->vdop;
   }
 
   if (latestSafetyStatus_.has_value()) {

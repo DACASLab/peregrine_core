@@ -54,9 +54,12 @@ struct StatusSnapshot
 
   float battery_percent{-1.0F};
   float battery_voltage{-1.0F};
+  bool has_motor_data{false};
+  float motor_output[4]{0.0F, 0.0F, 0.0F, 0.0F};
   uint8_t gps_fix_type{0};
   uint8_t gps_satellites{0};
   float gps_hdop{0.0F};
+  float gps_vdop{0.0F};
 
   uint8_t safety_level{0};
   bool has_safety_status{false};

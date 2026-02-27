@@ -58,11 +58,11 @@ short levelToColorPair(const uint8_t level)
 std::string levelToString(const uint8_t level)
 {
   switch (level) {
-    case 0: return "OK";
-    case 1: return "WARN";
-    case 2: return "CRIT";
-    case 3: return "EMER";
-    default: return "L" + std::to_string(level);
+    case 0: return "NOMINAL";
+    case 1: return "WARNING";
+    case 2: return "CRITICAL";
+    case 3: return "EMERGENCY";
+    default: return "LEVEL " + std::to_string(level);
   }
 }
 
@@ -388,7 +388,7 @@ Renderer::Renderer()
     init_pair(kColorPairBorder, COLOR_BLUE, -1);
     init_pair(kColorPairTitle, COLOR_WHITE, -1);
     init_pair(kColorPairValue, COLOR_WHITE, -1);
-    init_pair(kColorPairDim, COLOR_BLUE, -1);
+    init_pair(kColorPairDim, COLOR_WHITE, -1);
     init_pair(kColorPairAccent, COLOR_MAGENTA, -1);
   }
 
@@ -455,7 +455,7 @@ void Renderer::render(
 
   // --- Header row 1: namespace + uptime + flight timer ---
   const std::string ns = uav_namespace.empty() ? std::string("/") : uav_namespace;
-  const std::string nsStr = " ns: " + ns;
+  const std::string nsStr = " namespace: " + ns;
   withColor(hasColors_, kColorPairAccent, A_BOLD, true);
   mvaddnstr(1, 2, nsStr.c_str(), cols / 2);
   withColor(hasColors_, kColorPairAccent, A_BOLD, false);
@@ -476,9 +476,9 @@ void Renderer::render(
   const int content_x = 2;
   const int content_w = cols - 4;
   const int top_y = 3;
-  const int top_h = 5;
+  const int top_h = 8;
   const int middle_y = top_y + top_h;
-  const int middle_h = 8;
+  const int middle_h = 6;
   const int alerts_y = middle_y + middle_h;
   const int alerts_h = rows - alerts_y - 2;
   const int left_w = content_w / 2 - 1;
@@ -488,37 +488,36 @@ void Renderer::render(
   drawPanel(hasColors_, top_y, content_x, top_h, content_w, "Flight");
   drawPanel(hasColors_, middle_y, content_x, middle_h, left_w, "Managers / Readiness");
   drawPanel(hasColors_, middle_y, right_x, middle_h, right_w, "Safety / Hardware");
-  drawPanel(hasColors_, alerts_y, content_x, alerts_h, content_w, "Alerts");
+  drawPanel(hasColors_, alerts_y, content_x, alerts_h, content_w, "Messages");
 
   // --- Flight panel row 1: state/mode/badges ---
   int row = top_y + 1;
   int col = content_x + 2;
-  const int top_badge_col_start = content_x + content_w - 33;
   printLabel(hasColors_, row, col, "State:");
   printBadge(hasColors_, row, col + 7, stateColorPair(snapshot), snapshot.state);
 
   printLabel(hasColors_, row, col + 28, "Mode:");
   const int mode_col = col + 34;
-  const int mode_width = std::max(6, top_badge_col_start - mode_col - 2);
-  const std::string mode_text = snapshot.mode.empty() ? std::string("UNKNOWN") : truncate(snapshot.mode, mode_width);
+  const std::string mode_text = snapshot.mode.empty() ? std::string("UNKNOWN") : truncate(snapshot.mode, 16);
   printBadge(hasColors_, row, mode_col, modeColorPair(snapshot), mode_text, A_BOLD);
 
-  int badge_col = top_badge_col_start;
+  // Status badges — right-aligned, readable labels
+  int badge_col = content_x + content_w - 50;
   printBadge(
     hasColors_, row, badge_col, snapshot.armed ? kColorPairAccent : kColorPairLabel,
-    snapshot.armed ? "ARM" : "DIS", snapshot.armed ? A_BOLD : A_DIM);
-  badge_col += 6;
+    snapshot.armed ? "ARMED" : "DISARMED", snapshot.armed ? A_BOLD : A_DIM);
+  badge_col += snapshot.armed ? 9 : 12;
   printBadge(
     hasColors_, row, badge_col, boolWarnColorPair(snapshot.offboard),
-    snapshot.offboard ? "OFF" : "MAN", snapshot.offboard ? A_BOLD : A_DIM);
-  badge_col += 6;
+    snapshot.offboard ? "OFFBOARD" : "MANUAL", snapshot.offboard ? A_BOLD : A_DIM);
+  badge_col += snapshot.offboard ? 12 : 10;
   printBadge(
     hasColors_, row, badge_col, boolColorPair(snapshot.connected),
-    snapshot.connected ? "LINK" : "NOLINK", snapshot.connected ? A_DIM : A_BOLD);
-  badge_col += 9;
+    snapshot.connected ? "LINK OK" : "NO LINK", snapshot.connected ? A_DIM : A_BOLD);
+  badge_col += 11;
   printBadge(
     hasColors_, row, badge_col, snapshot.failsafe ? kColorPairBad : kColorPairGood,
-    snapshot.failsafe ? "FAIL" : "OK", snapshot.failsafe ? A_BOLD : A_DIM);
+    snapshot.failsafe ? "FAILSAFE" : "SAFE", snapshot.failsafe ? A_BOLD : A_DIM);
 
   // --- Flight panel row 2: position (with staleness + auto-scaled units) ---
   row = top_y + 2;
@@ -540,26 +539,80 @@ void Renderer::render(
     printDim(hasColors_, row, col, "Position waiting for estimated_state...");
   }
 
-  // --- Flight panel row 3: velocity + RPY (with staleness) ---
+  // --- Flight panel row 3: velocity ---
   row = top_y + 3;
   if (snapshot.has_velocity) {
     char vel[128];
     formatTo(
       vel, sizeof(vel), "Vel[m/s] VX:%6.2f  VY:%6.2f  VZ:%6.2f",
       snapshot.vx_mps, snapshot.vy_mps, snapshot.vz_mps);
+    if (poseStale) {
+      printDim(hasColors_, row, col, vel);
+    } else {
+      printValue(hasColors_, row, col, vel);
+    }
+  } else {
+    printDim(hasColors_, row, col, "Velocity waiting for estimated_state...");
+  }
+
+  // --- Flight panel row 4: RPY ---
+  row = top_y + 4;
+  if (snapshot.has_pose) {
     char rpy[128];
     formatTo(
       rpy, sizeof(rpy), "RPY[deg] R:%6.1f  P:%6.1f  Y:%6.1f",
       snapshot.roll_deg, snapshot.pitch_deg, snapshot.yaw_deg);
     if (poseStale) {
-      printDim(hasColors_, row, col, vel);
-      printDim(hasColors_, row, col + 42, rpy);
+      printDim(hasColors_, row, col, rpy);
     } else {
-      printValue(hasColors_, row, col, vel);
-      printValue(hasColors_, row, col + 42, rpy);
+      printValue(hasColors_, row, col, rpy);
+    }
+  }
+
+  // --- Flight panel rows 5-6: motor outputs ---
+  row = top_y + 5;
+  if (snapshot.has_motor_data) {
+    constexpr int kMotorBarW = 8;
+    const int halfW = content_w / 2 - 4;
+    for (int m = 0; m < 4; ++m) {
+      const int mr = row + m / 2;
+      const int mc = col + (m % 2) * halfW;
+      const float pct = std::clamp(snapshot.motor_output[m], 0.0F, 1.0F);
+      const int filled = static_cast<int>(pct * kMotorBarW);
+      const short mcolor = pct > 0.9F ? kColorPairBad :
+                           pct > 0.7F ? kColorPairWarn : kColorPairGood;
+
+      char mlabel[8];
+      std::snprintf(mlabel, sizeof(mlabel), "M%d ", m + 1);
+      printLabel(hasColors_, mr, mc, mlabel);
+
+      int bc = mc + 3;
+      withColor(hasColors_, kColorPairValue, A_NORMAL, true);
+      mvaddch(mr, bc++, '[');
+      withColor(hasColors_, kColorPairValue, A_NORMAL, false);
+
+      withColor(hasColors_, mcolor, A_BOLD, true);
+      for (int b = 0; b < filled; ++b) {
+        mvaddch(mr, bc++, ACS_BLOCK);
+      }
+      withColor(hasColors_, mcolor, A_BOLD, false);
+
+      withColor(hasColors_, kColorPairDim, A_DIM, true);
+      for (int b = filled; b < kMotorBarW; ++b) {
+        mvaddch(mr, bc++, ACS_BULLET);
+      }
+      withColor(hasColors_, kColorPairDim, A_DIM, false);
+
+      withColor(hasColors_, kColorPairValue, A_NORMAL, true);
+      mvaddch(mr, bc++, ']');
+      withColor(hasColors_, kColorPairValue, A_NORMAL, false);
+
+      char mpct[8];
+      std::snprintf(mpct, sizeof(mpct), "%3.0f%%", pct * 100.0F);
+      printValue(hasColors_, mr, bc + 1, mpct);
     }
   } else {
-    printDim(hasColors_, row, col, "Velocity waiting for estimated_state...");
+    printDim(hasColors_, row, col, "Motors: waiting for data...");
   }
 
   // --- Managers panel ---
@@ -591,19 +644,19 @@ void Renderer::render(
     printValue(hasColors_, row, col + left_w - 12, rate_str);
   }
 
-  // Readiness
-  row = middle_y + 5;
-  printLabel(hasColors_, row, col, "Deps:");
-  printBadge(
-    hasColors_, row, col + 6, boolWarnColorPair(snapshot.dependencies_ready),
-    snapshot.dependencies_ready ? "READY" : "BLOCKED");
-  printLabel(hasColors_, row, col + 16, "Safety:");
-  if (snapshot.has_safety_status) {
-    printBadge(
-      hasColors_, row, col + 24, boolWarnColorPair(snapshot.safety_ready),
-      snapshot.safety_ready ? "READY" : "BLOCKED");
+  // Readiness — show detail string when something is blocked, otherwise a clean "ALL READY"
+  row = middle_y + 4;
+  printLabel(hasColors_, row, col, "Ready:");
+  if (snapshot.dependencies_ready && snapshot.safety_ready) {
+    printBadge(hasColors_, row, col + 7, kColorPairGood, "ALL SYSTEMS GO");
+  } else if (snapshot.dependencies_ready && !snapshot.has_safety_status) {
+    printBadge(hasColors_, row, col + 7, kColorPairGood, "DEPS OK");
+    printDim(hasColors_, row, col + 18, "(safety monitor off)");
   } else {
-    printBadge(hasColors_, row, col + 24, kColorPairLabel, "OFF", A_DIM);
+    printBadge(hasColors_, row, col + 7, kColorPairWarn, "NOT READY");
+    if (!snapshot.readiness_detail.empty()) {
+      printValue(hasColors_, row, col + 20, truncate(snapshot.readiness_detail, left_w - 24));
+    }
   }
 
   // --- Safety / Hardware panel ---
@@ -611,24 +664,25 @@ void Renderer::render(
   col = right_x + 2;
   printLabel(hasColors_, row, col, "Safety:");
   if (snapshot.has_safety_status) {
+    const std::string safetyStr = levelToString(snapshot.safety_level);
     printBadge(
-      hasColors_, row, col + 8, levelToColorPair(snapshot.safety_level),
-      "L" + std::to_string(snapshot.safety_level));
-    printValue(hasColors_, row, col + 13, truncate(snapshot.safety_reason, right_w - 16));
+      hasColors_, row, col + 8, levelToColorPair(snapshot.safety_level), safetyStr);
+    printValue(hasColors_, row, col + 11 + static_cast<int>(safetyStr.size()), truncate(snapshot.safety_reason, right_w - 16));
   } else {
     printBadge(hasColors_, row, col + 8, kColorPairLabel, "OFF", A_DIM);
     printDim(hasColors_, row, col + 13, "not enabled in this launch");
   }
 
-  // PX4 row
+  // PX4 row — only show when something noteworthy (disconnected or failsafe)
   row = middle_y + 2;
   printLabel(hasColors_, row, col, "PX4:");
-  printBadge(
-    hasColors_, row, col + 5, boolColorPair(snapshot.connected),
-    snapshot.connected ? "CONNECTED" : "DISCONNECTED");
-  printBadge(
-    hasColors_, row, col + 18, snapshot.failsafe ? kColorPairBad : kColorPairGood,
-    snapshot.failsafe ? "FAILSAFE" : "NOMINAL");
+  if (!snapshot.connected) {
+    printBadge(hasColors_, row, col + 5, kColorPairBad, "DISCONNECTED", A_BOLD);
+  } else if (snapshot.failsafe) {
+    printBadge(hasColors_, row, col + 5, kColorPairBad, "FAILSAFE ACTIVE", A_BOLD);
+  } else {
+    printBadge(hasColors_, row, col + 5, kColorPairGood, "OK", A_DIM);
+  }
 
   // Battery row - visual bar
   row = middle_y + 3;
@@ -646,50 +700,14 @@ void Renderer::render(
     const std::string fixStr = gpsFixString(snapshot.gps_fix_type);
     char gps[96];
     formatTo(
-      gps, sizeof(gps), "%s  sats=%u  hdop=%.2f",
-      fixStr.c_str(), snapshot.gps_satellites, snapshot.gps_hdop);
+      gps, sizeof(gps), "%s  sats=%u  hdop=%.1f  vdop=%.1f",
+      fixStr.c_str(), snapshot.gps_satellites, snapshot.gps_hdop, snapshot.gps_vdop);
     printBadge(hasColors_, row, col + 5, gpsColorPair(snapshot.gps_fix_type), gps);
   }
 
-  // Checkers row - per-checker coloring
-  row = middle_y + 6;
-  printLabel(hasColors_, row, col, "Checkers:");
-  if (snapshot.checker_levels.empty()) {
-    if (snapshot.has_safety_status) {
-      printDim(hasColors_, row, col + 10, "no checker results yet");
-    } else {
-      printDim(hasColors_, row, col + 10, "safety monitor not active");
-    }
-  } else {
-    int checker_col = col + 10;
-    const int max_col = right_x + right_w - 3;
-    std::string nonNominalReason;
-    for (const auto & checker : snapshot.checker_levels) {
-      const std::string badge = checker.name + " " + levelToString(checker.level);
-      const int needed = static_cast<int>(badge.size()) + 3;  // " badge " + space
-      if (checker_col + needed > max_col) {
-        break;
-      }
-      printBadge(hasColors_, row, checker_col, levelToColorPair(checker.level), badge);
-      checker_col += needed;
-      if (checker.level > 0 && nonNominalReason.empty() && !checker.reason.empty()) {
-        nonNominalReason = checker.name + ": " + checker.reason;
-      }
-    }
-    // Show first non-nominal reason on the border row if space allows
-    // (We use middle_y + 6 which is inside the panel, there's no extra row)
-    // Instead we'll show it in the readiness area if there's a non-nominal checker
-    if (!nonNominalReason.empty()) {
-      // Use the row below checkers if within panel bounds
-      // middle_y + middle_h - 1 is the bottom border = middle_y + 7
-      // We're at middle_y + 6, no room. We'll skip the reason display
-      // if the panel is too tight. The badge coloring is the primary indicator.
-    }
-  }
 
-  // --- Alerts panel ---
+  // --- Messages panel ---
   const int alert_title_row = alerts_y + 1;
-  printLabel(hasColors_, alert_title_row, content_x + 2, "Newest first");
 
   // Scroll indicator: [1-5 of 23]
   if (!alerts.empty()) {
@@ -725,7 +743,7 @@ void Renderer::render(
   lineAt(rows - 3, 1, cols - 2);
   withColor(hasColors_, kColorPairBorder, A_NORMAL, false);
 
-  printDim(hasColors_, rows - 2, 2, "Q:Quit  C:Clear  \xe2\x86\x91\xe2\x86\x93:Scroll");
+  printDim(hasColors_, rows - 2, 2, "Q:Quit  C:Clear messages  \xe2\x86\x91\xe2\x86\x93:Scroll messages");
 
   // Wall clock on right side of footer
   const std::string footerClock = wallClockString();

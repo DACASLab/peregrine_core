@@ -220,7 +220,6 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   vehicleStatusSub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
       px4Topic("/fmu/out/vehicle_status" + getMessageNameVersion<px4_msgs::msg::VehicleStatus>()), px4InputQos,
       std::bind(&PX4HardwareAbstraction::onVehicleStatus, this, std::placeholders::_1));
-
   // Manager command input.
   controlOutputSub_ = this->create_subscription<peregrine_interfaces::msg::ControlOutput>(
       "control_output", rosInputQos, std::bind(&PX4HardwareAbstraction::onControlOutput, this, std::placeholders::_1));
@@ -511,6 +510,7 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
   publishStatus();
 }
 
+
 // Control commands are ONLY forwarded to PX4 when the vehicle is in OFFBOARD nav_state.
 // In other flight modes (MANUAL, POSCTL, etc.), PX4 runs its own internal controllers and
 // would ignore external setpoints anyway. The throttled warning below helps diagnose
@@ -676,6 +676,15 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
         actuators.control[i] = std::clamp(msg->motor_commands[i], -1.0f, 1.0f);
       }
 
+      // Cache motor values for TUI status display.
+      auto safeClamp = [](float val) -> float {
+        return std::isfinite(val) ? std::clamp(val, 0.0f, 1.0f) : 0.0f;
+      };
+      if (count > 0) motorOutput0_.store(safeClamp(actuators.control[0]));
+      if (count > 1) motorOutput1_.store(safeClamp(actuators.control[1]));
+      if (count > 2) motorOutput2_.store(safeClamp(actuators.control[2]));
+      if (count > 3) motorOutput3_.store(safeClamp(actuators.control[3]));
+
       actuatorMotorsPub_->publish(actuators);
       break;
     }
@@ -775,6 +784,10 @@ void PX4HardwareAbstraction::publishStatus()
   status.failure_detector_status = failureDetectorStatus_.load();
   status.battery_remaining = batteryRemaining_.load();
   status.battery_voltage = batteryVoltage_.load();
+  status.motor_output[0] = motorOutput0_.load();
+  status.motor_output[1] = motorOutput1_.load();
+  status.motor_output[2] = motorOutput2_.load();
+  status.motor_output[3] = motorOutput3_.load();
 
   // This message is the single readiness contract consumed by uav_manager.
   statusPub_->publish(status);
