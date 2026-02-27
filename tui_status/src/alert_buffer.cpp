@@ -56,13 +56,13 @@ std::string severityToString(const AlertSeverity severity)
 {
   switch (severity) {
     case AlertSeverity::Info:
-      return "INFO";
+      return " INFO ";
     case AlertSeverity::Warning:
-      return "WARN";
+      return " WARN ";
     case AlertSeverity::Error:
       return "ERROR";
     default:
-      return "UNKNOWN";
+      return "  ???  ";
   }
 }
 

@@ -44,10 +44,13 @@ struct StatusSnapshot
 
   std::string estimation_module{"-"};
   bool estimation_healthy{false};
+  double estimation_rate_hz{0.0};
   std::string control_module{"-"};
   bool control_healthy{false};
+  double control_rate_hz{0.0};
   std::string trajectory_module{"-"};
   bool trajectory_healthy{false};
+  double trajectory_rate_hz{0.0};
 
   float battery_percent{-1.0F};
   float battery_voltage{-1.0F};
@@ -59,6 +62,17 @@ struct StatusSnapshot
   bool has_safety_status{false};
   std::string safety_reason{"unknown"};
   std::vector<SafetyCheckerView> checker_levels;
+
+  // Staleness ages in seconds (-1 = never received)
+  double estimated_state_age_s{-1.0};
+  double safety_status_age_s{-1.0};
+  double px4_status_age_s{-1.0};
+  double gps_status_age_s{-1.0};
+  double uav_state_age_s{-1.0};
+
+  // Timers
+  double uptime_s{0.0};
+  double flight_time_s{0.0};
 };
 
 class Renderer

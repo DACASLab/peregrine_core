@@ -41,6 +41,14 @@ std::string uavStateToString(const uint8_t state)
   }
 }
 
+bool isFlightState(const uint8_t state)
+{
+  return state == peregrine_interfaces::msg::UAVState::STATE_TAKING_OFF ||
+         state == peregrine_interfaces::msg::UAVState::STATE_HOVERING ||
+         state == peregrine_interfaces::msg::UAVState::STATE_FLYING ||
+         state == peregrine_interfaces::msg::UAVState::STATE_LANDING;
+}
+
 }  // namespace
 
 TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
@@ -51,6 +59,7 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
       std::max<int64_t>(
         1,
         this->declare_parameter<int>("alert_buffer_size", 100))))
+, startTime_(this->now())
 {
   const double refreshRateHz = this->declare_parameter<double>("refresh_rate_hz", 10.0);
   uavNamespace_ = this->declare_parameter<std::string>("uav_namespace", "");
@@ -178,13 +187,46 @@ void TuiNode::onTimer()
 
 void TuiNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)
 {
+  const std::string newState = uavStateToString(msg->state);
+
   std::scoped_lock lock(mutex_);
+
+  // Transition alerts
+  if (hadFirstUavState_) {
+    if (newState != lastUavStateStr_) {
+      alertBuffer_.push(
+        AlertSeverity::Info,
+        "State: " + lastUavStateStr_ + " -> " + newState);
+    }
+    if (msg->armed != lastArmed_) {
+      alertBuffer_.push(
+        msg->armed ? AlertSeverity::Warning : AlertSeverity::Info,
+        msg->armed ? "Vehicle ARMED" : "Vehicle DISARMED");
+    }
+  }
+
+  // Flight timer tracking
+  if (isFlightState(msg->state) && !inFlight_) {
+    inFlight_ = true;
+    flightStartTime_ = this->now();
+  } else if (!isFlightState(msg->state) && inFlight_) {
+    inFlight_ = false;
+  }
+
+  lastUavStateStr_ = newState;
+  lastArmed_ = msg->armed;
+  hadFirstUavState_ = true;
+
+  lastUavStateTime_ = this->now();
+  receivedUavState_ = true;
   latestUavState_ = *msg;
 }
 
 void TuiNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+  lastEstimatedStateTime_ = this->now();
+  receivedEstimatedState_ = true;
   latestEstimatedState_ = *msg;
 }
 
@@ -192,6 +234,8 @@ void TuiNode::onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::Shar
 {
   {
     std::scoped_lock lock(mutex_);
+    lastSafetyStatusTime_ = this->now();
+    receivedSafetyStatus_ = true;
     latestSafetyStatus_ = *msg;
   }
 
@@ -213,30 +257,78 @@ void TuiNode::onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::Shar
 void TuiNode::onEstimationStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+
+  if (hadFirstEstimationStatus_ && msg->healthy != lastEstimationHealthy_) {
+    alertBuffer_.push(
+      msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
+      std::string("EST health: ") + (msg->healthy ? "OK" : "BAD"));
+  }
+  lastEstimationHealthy_ = msg->healthy;
+  hadFirstEstimationStatus_ = true;
+
   latestEstimationStatus_ = *msg;
 }
 
 void TuiNode::onControlStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+
+  if (hadFirstControlStatus_ && msg->healthy != lastControlHealthy_) {
+    alertBuffer_.push(
+      msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
+      std::string("CTL health: ") + (msg->healthy ? "OK" : "BAD"));
+  }
+  lastControlHealthy_ = msg->healthy;
+  hadFirstControlStatus_ = true;
+
   latestControlStatus_ = *msg;
 }
 
 void TuiNode::onTrajectoryStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+
+  if (hadFirstTrajectoryStatus_ && msg->healthy != lastTrajectoryHealthy_) {
+    alertBuffer_.push(
+      msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
+      std::string("TRJ health: ") + (msg->healthy ? "OK" : "BAD"));
+  }
+  lastTrajectoryHealthy_ = msg->healthy;
+  hadFirstTrajectoryStatus_ = true;
+
   latestTrajectoryStatus_ = *msg;
 }
 
 void TuiNode::onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+
+  if (hadFirstPx4Status_) {
+    if (msg->connected != lastConnected_) {
+      alertBuffer_.push(
+        msg->connected ? AlertSeverity::Info : AlertSeverity::Error,
+        msg->connected ? "PX4 CONNECTED" : "PX4 DISCONNECTED");
+    }
+    if (msg->failsafe != lastFailsafe_) {
+      alertBuffer_.push(
+        msg->failsafe ? AlertSeverity::Error : AlertSeverity::Info,
+        msg->failsafe ? "FAILSAFE ACTIVATED" : "Failsafe cleared");
+    }
+  }
+  lastConnected_ = msg->connected;
+  lastFailsafe_ = msg->failsafe;
+  hadFirstPx4Status_ = true;
+
+  lastPx4StatusTime_ = this->now();
+  receivedPx4Status_ = true;
   latestPx4Status_ = *msg;
 }
 
 void TuiNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg)
 {
   std::scoped_lock lock(mutex_);
+  lastGpsStatusTime_ = this->now();
+  receivedGpsStatus_ = true;
   latestGpsStatus_ = *msg;
 }
 
@@ -245,6 +337,35 @@ StatusSnapshot TuiNode::buildSnapshot() const
   StatusSnapshot snapshot;
 
   std::scoped_lock lock(mutex_);
+
+  const rclcpp::Time now = this->now();
+
+  // Uptime
+  snapshot.uptime_s = (now - startTime_).seconds();
+
+  // Flight time
+  if (inFlight_) {
+    snapshot.flight_time_s = (now - flightStartTime_).seconds();
+  } else {
+    snapshot.flight_time_s = 0.0;
+  }
+
+  // Staleness
+  if (receivedUavState_) {
+    snapshot.uav_state_age_s = (now - lastUavStateTime_).seconds();
+  }
+  if (receivedEstimatedState_) {
+    snapshot.estimated_state_age_s = (now - lastEstimatedStateTime_).seconds();
+  }
+  if (receivedSafetyStatus_) {
+    snapshot.safety_status_age_s = (now - lastSafetyStatusTime_).seconds();
+  }
+  if (receivedPx4Status_) {
+    snapshot.px4_status_age_s = (now - lastPx4StatusTime_).seconds();
+  }
+  if (receivedGpsStatus_) {
+    snapshot.gps_status_age_s = (now - lastGpsStatusTime_).seconds();
+  }
 
   if (latestUavState_.has_value()) {
     snapshot.state = uavStateToString(latestUavState_->state);
@@ -289,16 +410,19 @@ StatusSnapshot TuiNode::buildSnapshot() const
   if (latestEstimationStatus_.has_value()) {
     snapshot.estimation_module = latestEstimationStatus_->active_module;
     snapshot.estimation_healthy = latestEstimationStatus_->healthy;
+    snapshot.estimation_rate_hz = latestEstimationStatus_->output_rate_hz;
   }
 
   if (latestControlStatus_.has_value()) {
     snapshot.control_module = latestControlStatus_->active_module;
     snapshot.control_healthy = latestControlStatus_->healthy;
+    snapshot.control_rate_hz = latestControlStatus_->output_rate_hz;
   }
 
   if (latestTrajectoryStatus_.has_value()) {
     snapshot.trajectory_module = latestTrajectoryStatus_->active_module;
     snapshot.trajectory_healthy = latestTrajectoryStatus_->healthy;
+    snapshot.trajectory_rate_hz = latestTrajectoryStatus_->output_rate_hz;
   }
 
   if (latestPx4Status_.has_value()) {
