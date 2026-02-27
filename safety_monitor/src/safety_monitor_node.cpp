@@ -398,10 +398,23 @@ void SafetyMonitorNode::evaluateAndPublish()
   statusMsg.reason = overallReason.empty() ? "nominal" : overallReason;
   safetyStatusPub_->publish(statusMsg);
 
-  // Action execution
+  // Action execution — only request land when vehicle is armed (in flight or
+  // about to fly). Sending land to a grounded vehicle causes PX4 health issues
+  // that block subsequent arming attempts.
+  const bool vehicleArmed = ctx.px4.has_value() && ctx.px4->armed;
   if (commandLandEnabled_ && actionExecutor_) {
-    if (evalResult.overallLevel >= SafetyLevel::Critical) {
+    if (evalResult.overallLevel >= SafetyLevel::Critical && vehicleArmed) {
       actionExecutor_->requestLand(overallReason);
+    } else if (evalResult.overallLevel < SafetyLevel::Critical
+      && !vehicleArmed
+      && actionExecutor_->state() != LandCommandState::Idle)
+    {
+      // Vehicle is disarmed and situation recovered below Critical — reset
+      // executor so it can handle future critical events. Without this, the
+      // executor stays latched in Sent/Timeout/Rejected and ignores subsequent
+      // requestLand() calls.
+      RCLCPP_INFO(get_logger(), "Safety level nominal and vehicle disarmed, resetting action executor");
+      actionExecutor_->reset();
     }
     actionExecutor_->tick(now);
   }
