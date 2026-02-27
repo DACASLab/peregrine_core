@@ -1,0 +1,22 @@
+flight_visualizer:
+  ros__parameters:
+    uav_namespace: ""
+    fixed_frame: "map"
+    publish_rate_hz: 15.0
+    max_actual_path_points: 2000
+    max_reference_path_points: 2000
+    path_min_separation_m: 0.05
+
+    show_geofence: true
+    geofence_radius_m: 500.0
+    geofence_min_altitude_m: -5.0
+    geofence_max_altitude_m: 120.0
+
+    show_setpoint_velocity: true
+    setpoint_velocity_scale: 0.5
+    clear_reference_path_on_disarm: true
+
+    actual_path_topic: "viz/actual_path"
+    reference_path_topic: "viz/reference_path"
+    marker_topic: "viz/markers"
+

@@ -27,11 +27,23 @@ constexpr char kNodeName[] = "uav_manager";
 // PX4 nav_state values from px4_msgs::msg::VehicleStatus. These are raw uint8 constants
 // because the PX4Status bridge message exposes nav_state as a plain integer.
 // `constexpr` makes these compile-time constants with zero runtime initialization cost.
+constexpr uint8_t kNavStateManual = 0;
+constexpr uint8_t kNavStateAltCtl = 1;
 constexpr uint8_t kNavStatePosCtl = 2;
 constexpr uint8_t kNavStateAutoMission = 3;
+constexpr uint8_t kNavStateAutoLoiter = 4;
 constexpr uint8_t kNavStateAutoRtl = 5;
+constexpr uint8_t kNavStateAcro = 10;
+constexpr uint8_t kNavStateDescend = 12;
+constexpr uint8_t kNavStateTermination = 13;
+constexpr uint8_t kNavStateOffboard = 14;
+constexpr uint8_t kNavStateStab = 15;
 constexpr uint8_t kNavStateAutoTakeoff = 17;
 constexpr uint8_t kNavStateAutoLand = 18;
+constexpr uint8_t kNavStateAutoFollowTarget = 19;
+constexpr uint8_t kNavStateAutoPrecland = 20;
+constexpr uint8_t kNavStateOrbit = 21;
+constexpr uint8_t kNavStateAutoVtolTakeoff = 22;
 
 // PX4 firmware rejects arm commands while in certain autonomous nav states
 // (e.g. AUTO_MISSION, AUTO_RTL). Before arming we must detect these and
@@ -41,6 +53,55 @@ bool navStatePreventsArming(const uint8_t navState)
   return navState == kNavStateAutoMission || navState == kNavStateAutoRtl ||
          navState == kNavStateAutoTakeoff ||
          navState == kNavStateAutoLand;
+}
+
+std::string px4ModeString(const peregrine_interfaces::msg::PX4Status & status)
+{
+  if (status.failsafe) {
+    return "FAILSAFE";
+  }
+
+  // OFFBOARD is safety-critical and should be explicit even if nav_state was delayed.
+  if (status.offboard || status.nav_state == kNavStateOffboard) {
+    return "OFFBOARD";
+  }
+
+  switch (status.nav_state) {
+    case kNavStateManual:
+      return "MANUAL";
+    case kNavStateAltCtl:
+      return "ALTCTL";
+    case kNavStatePosCtl:
+      return "POSCTL";
+    case kNavStateAutoMission:
+      return "AUTO_MISSION";
+    case kNavStateAutoLoiter:
+      return "AUTO_LOITER";
+    case kNavStateAutoRtl:
+      return "AUTO_RTL";
+    case kNavStateAcro:
+      return "ACRO";
+    case kNavStateDescend:
+      return "DESCEND";
+    case kNavStateTermination:
+      return "TERMINATION";
+    case kNavStateStab:
+      return "STAB";
+    case kNavStateAutoTakeoff:
+      return "AUTO_TAKEOFF";
+    case kNavStateAutoLand:
+      return "AUTO_LAND";
+    case kNavStateAutoFollowTarget:
+      return "AUTO_FOLLOW_TARGET";
+    case kNavStateAutoPrecland:
+      return "AUTO_PRECLAND";
+    case kNavStateOrbit:
+      return "ORBIT";
+    case kNavStateAutoVtolTakeoff:
+      return "AUTO_VTOL_TAKEOFF";
+    default:
+      return "NAV_" + std::to_string(status.nav_state);
+  }
 }
 
 std::chrono::milliseconds secondsToMillis(const double seconds)
@@ -562,7 +623,7 @@ void UavManagerNode::publishUavState()
   {
     std::scoped_lock lock(mutex_);
     output.state = toUavStateCode(supervisor_.state());
-    output.mode = SupervisorStateMachine::toString(supervisor_.state());
+    output.mode = latestPx4Status_.has_value() ? px4ModeString(*latestPx4Status_) : "PX4_UNKNOWN";
     // `detail` carries the latest transition/guard reason for operator visibility.
     output.detail = lastTransitionReason_;
 

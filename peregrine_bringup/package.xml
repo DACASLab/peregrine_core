@@ -1,29 +1,25 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>hardware_abstraction_example</name>
+  <name>peregrine_bringup</name>
   <version>0.1.0</version>
-  <description>Standalone Example 8 launch package for hardware abstraction and frame transforms.</description>
+  <description>Launch and configuration package for single-UAV PEREGRINE bringup.</description>
   <maintainer email="vaidyavarad2001@gmail.com">px4ros2</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>frame_transforms</exec_depend>
-  <exec_depend>hardware_abstraction</exec_depend>
-  <exec_depend>control_manager</exec_depend>
-  <exec_depend>estimation_manager</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>lifecycle_msgs</exec_depend>
-  <exec_depend>peregrine_interfaces</exec_depend>
-  <exec_depend>rclcpp_components</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>safety_monitor</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+
+  <exec_depend>hardware_abstraction</exec_depend>
+  <exec_depend>frame_transforms</exec_depend>
+  <exec_depend>estimation_manager</exec_depend>
+  <exec_depend>control_manager</exec_depend>
   <exec_depend>trajectory_manager</exec_depend>
+  <exec_depend>safety_monitor</exec_depend>
   <exec_depend>uav_manager</exec_depend>
-  <exec_depend>tui_status</exec_depend>
   <exec_depend>rviz_plugins</exec_depend>
   <exec_depend>rviz2</exec_depend>
 

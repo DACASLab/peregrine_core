@@ -20,6 +20,10 @@ For autonomous circle/figure-eight demo on the manager chain:
 
 `ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py mission_type:=circle_figure8`
 
+For focused multi-cycle demo with RViz/TUI monitoring hooks:
+
+`ros2 launch hardware_abstraction_example example13_monitoring_demo.launch.py`
+
 For a fresh SITL safety-regression run:
 
 `ros2 launch safety_validation_example safety_fresh_sitl_regression.launch.py`

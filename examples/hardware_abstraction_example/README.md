@@ -19,6 +19,30 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example12_safety_validation.launch.py`
 
+## Focused Monitoring Launch
+
+`ros2 launch hardware_abstraction_example example13_monitoring_demo.launch.py`
+
+This wraps Example 11 (multi-cycle mission) and adds optional monitoring:
+
+- `start_flight_visualizer:=true|false` (default `true`)
+- `start_rviz:=true|false` (default `true`)
+- `start_tui:=true|false` (default `false`)
+
+Common usage:
+
+```bash
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
+  ros2 launch hardware_abstraction_example example13_monitoring_demo.launch.py
+```
+
+Enable TUI from this launch if desired:
+
+```bash
+ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1 \
+  ros2 launch hardware_abstraction_example example13_monitoring_demo.launch.py start_tui:=true
+```
+
 Default behavior:
 
 - full single-container stack (`peregrine_single_container.launch.py`)

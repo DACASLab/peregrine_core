@@ -1,0 +1,16 @@
+frame_transformer:
+  ros__parameters:
+    home_lat_deg: 47.397742
+    home_lon_deg: 8.545594
+    home_init_timeout_s: 90.0
+
+uav_manager:
+  ros__parameters:
+    dependency_startup_timeout_s: 5.0
+    data_readiness_timeout_s: 45.0
+
+safety_monitor:
+  ros__parameters:
+    command_land_enabled: false
+    global.land_command_timeout_s: 6.0
+    global.land_command_retry_count: 3

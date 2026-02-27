@@ -130,8 +130,8 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
       std::bind(&FrameTransformer::odometryCallback, this, std::placeholders::_1));
 
   // Home GPS origin parameters
-  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 13.018509);
-  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 77.565088);
+  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397742);
+  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 8.545594);
   gpsMinFixType_ = this->declare_parameter<int>("gps_min_fix_type", 3);
   gpsMinSatellites_ = this->declare_parameter<int>("gps_min_satellites", 6);
   gpsMaxHdop_ = this->declare_parameter<double>("gps_max_hdop", 5.0);
