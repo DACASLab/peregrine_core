@@ -378,6 +378,13 @@ private:
   /// Whether safety monitor must be healthy for dependenciesReady().
   bool requireExternalSafety_{false};
 
+  /// Seconds the vehicle must remain in a safe state before EmergencyCleared fires.
+  double emergencyClearHoldS_{5.0};
+  /// When the emergency-clear conditions first became continuously true (reset on relapse).
+  std::optional<std::chrono::steady_clock::time_point> emergencyClearStart_;
+  /// Latest safety level from safety_monitor (0 = nominal).
+  uint8_t latestSafetyLevel_{0};
+
   /// When true, node self-transitions through configure -> activate on startup.
   bool autoStart_{true};
   /// Timeout for data readiness polling between configure and activate.

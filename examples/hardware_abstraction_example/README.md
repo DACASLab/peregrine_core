@@ -23,7 +23,7 @@ Default behavior:
 
 - full single-container stack (`peregrine_single_container.launch.py`)
 - `safety_regression_demo.py` (multi-case sequence)
-- safety monitor + regression node wired to isolated `safety_test/*` topics for deterministic evaluation
+- safety monitor + regression node on live stack topics (`battery`, `gps_status`, `estimated_state`)
 - `safety_params_file:=.../safety_regression.yaml`
 - `uav_params_file:=.../uav_require_external_safety.yaml`
 
@@ -43,12 +43,12 @@ Useful overrides:
 - keep old manual helpers disabled by default:
   - `start_takeoff_hold_demo:=false`
   - `start_fault_injector:=false`
-- override synthetic input topics (must match safety monitor profile):
-  - `fault_battery_topic:=safety_test/battery`
-  - `fault_gps_status_topic:=safety_test/gps_status`
-  - `fault_estimated_state_topic:=safety_test/estimated_state`
-- geofence breach distance used by regression:
-  - `regression_geofence_breach_x_m:=80.0`
+- geofence breach target used by regression:
+  - `regression_geofence_breach_x_m:=40.0`
+- GPS fault strength used by regression:
+  - `regression_gps_fault_satellites:=2`
+- runtime PX4 param tool path used by regression:
+  - `regression_px4_param_tool:=/opt/PX4-Autopilot/build/px4_sitl_default/bin/px4-param`
 
 Fault scenarios (`safety_fault_injector.py`, optional helper):
 

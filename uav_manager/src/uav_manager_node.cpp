@@ -87,6 +87,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
   dataReadinessTimeoutS_ = this->declare_parameter<double>("data_readiness_timeout_s", 30.0);
   dataReadinessPollMs_ = this->declare_parameter<int>("data_readiness_poll_ms", 200);
+  emergencyClearHoldS_ = this->declare_parameter<double>("emergency_clear_hold_s", 5.0);
 
   healthAggregator_ = std::make_unique<HealthAggregator>(freshnessConfig_);
   healthAggregator_->setRequireExternalSafety(requireExternalSafety_);
@@ -254,6 +255,8 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
     latestTrajectoryStatus_.reset();
     supervisor_ = SupervisorStateMachine();
     lastTransitionReason_ = "CONFIGURED";
+    emergencyClearStart_.reset();
+    latestSafetyLevel_ = 0;
   }
 
   configured_ = true;
@@ -416,6 +419,8 @@ UavManagerNode::CallbackReturn UavManagerNode::on_cleanup(const rclcpp_lifecycle
     latestTrajectoryStatus_.reset();
     supervisor_ = SupervisorStateMachine();
     lastTransitionReason_ = "CLEANUP";
+    emergencyClearStart_.reset();
+    latestSafetyLevel_ = 0;
   }
 
   RCLCPP_INFO(this->get_logger(), "Cleaned up uav_manager");
@@ -534,6 +539,11 @@ void UavManagerNode::onSafetyStatus(
     healthAggregator_->updateSafetyStatus(nowSteady(), input);
   }
 
+  {
+    std::scoped_lock lock(mutex_);
+    latestSafetyLevel_ = msg->level;
+  }
+
   // EMERGENCY level from safety_monitor triggers failsafe event in FSM
   if (msg->level >= peregrine_interfaces::msg::SafetyStatus::LEVEL_EMERGENCY) {
     (void)applyEvent(SupervisorEvent::FailsafeDetected);
@@ -589,6 +599,68 @@ void UavManagerNode::publishUavState()
   }
 
   uavStatePub_->publish(output);
+
+  // --- Automatic EmergencyCleared recovery ---
+  // When the supervisor is latched in Emergency, periodically check whether the
+  // vehicle has returned to a safe ground state. If all conditions hold for
+  // `emergency_clear_hold_s` continuously, fire EmergencyCleared to reset the FSM.
+  {
+    bool inEmergency = false;
+    bool px4FailsafeClear = false;
+    bool disarmed = false;
+    uint8_t safetyLevel = 0;
+
+    {
+      std::scoped_lock lock(mutex_);
+      inEmergency = (supervisor_.state() == SupervisorState::Emergency);
+      safetyLevel = latestSafetyLevel_;
+      if (latestPx4Status_.has_value()) {
+        px4FailsafeClear = !latestPx4Status_->failsafe;
+        disarmed = !latestPx4Status_->armed;
+      }
+    }
+
+    if (inEmergency) {
+      const bool safetyOk =
+        (safetyLevel <= peregrine_interfaces::msg::SafetyStatus::LEVEL_WARNING);
+      const bool clearConditionsMet = px4FailsafeClear && disarmed && safetyOk;
+
+      if (clearConditionsMet) {
+        const auto now = nowSteady();
+        if (!emergencyClearStart_.has_value()) {
+          emergencyClearStart_ = now;
+          RCLCPP_INFO(
+            this->get_logger(),
+            "Emergency auto-clear: conditions met, hold timer started (%.1fs required)",
+            emergencyClearHoldS_);
+        }
+
+        const auto elapsed = std::chrono::duration<double>(now - *emergencyClearStart_).count();
+        if (elapsed >= emergencyClearHoldS_) {
+          RCLCPP_INFO(
+            this->get_logger(),
+            "Emergency auto-clear: hold period elapsed (%.1fs), firing EmergencyCleared",
+            elapsed);
+          (void)applyEvent(SupervisorEvent::EmergencyCleared);
+          emergencyClearStart_.reset();
+        }
+      } else {
+        // Conditions not met — reset hold timer
+        if (emergencyClearStart_.has_value()) {
+          RCLCPP_INFO(
+            this->get_logger(),
+            "Emergency auto-clear: conditions lost (failsafe_clear=%s disarmed=%s safety_level=%u), "
+            "hold timer reset",
+            px4FailsafeClear ? "true" : "false",
+            disarmed ? "true" : "false",
+            safetyLevel);
+        }
+        emergencyClearStart_.reset();
+      }
+    } else {
+      emergencyClearStart_.reset();
+    }
+  }
 }
 
 // Multi-layer rejection logic filters goals before they reach the expensive

@@ -7,9 +7,9 @@ safety validation:
   2) `safety_takeoff_hold_demo.py` (optional manual helper)
   3) `safety_fault_injector.py` (optional manual helper)
 
-Default profile routes safety inputs to isolated `safety_test/*` topics, enables
-auto-land, requires external safety in `uav_manager`, and uses a small geofence
-for explicit geofence breach validation.
+Default profile runs the regression on live stack telemetry (battery, gps_status,
+estimated_state), enables auto-land, requires external safety in `uav_manager`,
+and uses a small geofence for explicit geofence breach validation.
 """
 
 from launch import LaunchDescription
@@ -45,8 +45,9 @@ def generate_launch_description() -> LaunchDescription:
     fault_estimated_state_topic = LaunchConfiguration("fault_estimated_state_topic")
 
     start_safety_regression_demo = LaunchConfiguration("start_safety_regression_demo")
-    regression_publish_rate_hz = LaunchConfiguration("regression_publish_rate_hz")
     regression_geofence_breach_x_m = LaunchConfiguration("regression_geofence_breach_x_m")
+    regression_gps_fault_satellites = LaunchConfiguration("regression_gps_fault_satellites")
+    regression_px4_param_tool = LaunchConfiguration("regression_px4_param_tool")
     regression_cases = LaunchConfiguration("regression_cases")
 
     base_launch = IncludeLaunchDescription(
@@ -111,11 +112,9 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             {
-                "publish_rate_hz": regression_publish_rate_hz,
-                "battery_topic": fault_battery_topic,
-                "gps_status_topic": fault_gps_status_topic,
-                "estimated_state_topic": fault_estimated_state_topic,
                 "geofence_breach_x_m": regression_geofence_breach_x_m,
+                "gps_fault_satellites": regression_gps_fault_satellites,
+                "px4_param_tool": regression_px4_param_tool,
                 "cases": regression_cases,
             }
         ],
@@ -163,14 +162,19 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument(
-                "regression_publish_rate_hz",
-                default_value="25.0",
-                description="Synthetic safety input publish rate for regression runner.",
+                "regression_geofence_breach_x_m",
+                default_value="40.0",
+                description="GoTo x-position used to breach geofence radius with live state.",
             ),
             DeclareLaunchArgument(
-                "regression_geofence_breach_x_m",
-                default_value="80.0",
-                description="Injected x-position used to breach geofence radius.",
+                "regression_gps_fault_satellites",
+                default_value="2",
+                description="SIM_GPS_USED value used to trigger GPS critical condition.",
+            ),
+            DeclareLaunchArgument(
+                "regression_px4_param_tool",
+                default_value="/opt/PX4-Autopilot/build/px4_sitl_default/bin/px4-param",
+                description="Path to px4-param used for runtime GPS fault toggling.",
             ),
             DeclareLaunchArgument(
                 "regression_cases",

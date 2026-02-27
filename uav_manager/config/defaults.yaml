@@ -17,3 +17,4 @@
     require_external_safety: false
     data_readiness_timeout_s: 30.0
     data_readiness_poll_ms: 200
+    emergency_clear_hold_s: 5.0

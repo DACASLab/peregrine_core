@@ -32,6 +32,11 @@ def generate_launch_description() -> LaunchDescription:
     microxrce_port = LaunchConfiguration("microxrce_port")
     uav_namespace = LaunchConfiguration("uav_namespace")
     regression_cases = LaunchConfiguration("regression_cases")
+    regression_gps_fault_satellites = LaunchConfiguration("regression_gps_fault_satellites")
+    regression_px4_param_tool = LaunchConfiguration("regression_px4_param_tool")
+    px4_param_uxrce_dds_ptcfg = LaunchConfiguration("px4_param_uxrce_dds_ptcfg")
+    px4_param_sys_failure_en = LaunchConfiguration("px4_param_sys_failure_en")
+    px4_param_sim_gps_used = LaunchConfiguration("px4_param_sim_gps_used")
 
     cleanup = ExecuteProcess(
         condition=IfCondition(clean_before_start),
@@ -69,6 +74,12 @@ def generate_launch_description() -> LaunchDescription:
                 ros_domain_id,
                 " ROS_LOCALHOST_ONLY=",
                 ros_localhost_only,
+                " PX4_PARAM_UXRCE_DDS_PTCFG=",
+                px4_param_uxrce_dds_ptcfg,
+                " PX4_PARAM_SYS_FAILURE_EN=",
+                px4_param_sys_failure_en,
+                " PX4_PARAM_SIM_GPS_USED=",
+                px4_param_sim_gps_used,
                 " make px4_sitl gz_x500",
             ],
         ],
@@ -96,6 +107,8 @@ def generate_launch_description() -> LaunchDescription:
             "start_takeoff_hold_demo": "false",
             "start_fault_injector": "false",
             "regression_cases": regression_cases,
+            "regression_gps_fault_satellites": regression_gps_fault_satellites,
+            "regression_px4_param_tool": regression_px4_param_tool,
         }.items(),
     )
 
@@ -145,12 +158,37 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("start_microxrce_agent", default_value="true"),
             DeclareLaunchArgument("microxrce_port", default_value="8888"),
             DeclareLaunchArgument(
+                "px4_param_uxrce_dds_ptcfg",
+                default_value="1",
+                description="Value exported as PX4_PARAM_UXRCE_DDS_PTCFG for SITL startup.",
+            ),
+            DeclareLaunchArgument(
+                "px4_param_sys_failure_en",
+                default_value="1",
+                description="Value exported as PX4_PARAM_SYS_FAILURE_EN for SITL startup.",
+            ),
+            DeclareLaunchArgument(
+                "px4_param_sim_gps_used",
+                default_value="10",
+                description="Nominal SIM_GPS_USED exported at SITL startup.",
+            ),
+            DeclareLaunchArgument(
                 "regression_cases",
                 default_value="all",
                 description=(
                     "Comma-separated safety case names (or 'all') forwarded to "
                     "safety_regression_demo."
                 ),
+            ),
+            DeclareLaunchArgument(
+                "regression_gps_fault_satellites",
+                default_value="2",
+                description="SIM_GPS_USED value used by regression node for GPS fault cases.",
+            ),
+            DeclareLaunchArgument(
+                "regression_px4_param_tool",
+                default_value="/opt/PX4-Autopilot/build/px4_sitl_default/bin/px4-param",
+                description="Path forwarded to safety_regression_demo for runtime PX4 param updates.",
             ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
