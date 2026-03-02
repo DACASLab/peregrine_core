@@ -25,6 +25,9 @@ def generate_launch_description() -> LaunchDescription:
     microxrce_port = LaunchConfiguration("microxrce_port")
     ros_localhost_only = LaunchConfiguration("ros_localhost_only")
     ros_domain_id = LaunchConfiguration("ros_domain_id")
+    px4_namespace = LaunchConfiguration("px4_namespace")
+    target_system_id = LaunchConfiguration("target_system_id")
+    use_sim_time = LaunchConfiguration("use_sim_time")
     safety_params_file = LaunchConfiguration("safety_params_file")
     uav_params_file = LaunchConfiguration("uav_params_file")
     config_overrides = LaunchConfiguration("config_overrides")
@@ -100,8 +103,23 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "ros_domain_id",
-                default_value="42",
+                default_value="0",
                 description="ROS_DOMAIN_ID for this stack.",
+            ),
+            DeclareLaunchArgument(
+                "px4_namespace",
+                default_value="",
+                description="PX4 topic namespace prefix (e.g. /px4_1 for multi-instance SITL).",
+            ),
+            DeclareLaunchArgument(
+                "target_system_id",
+                default_value="1",
+                description="MAV_SYS_ID of the PX4 instance this stack commands (instance N → N+1).",
+            ),
+            DeclareLaunchArgument(
+                "use_sim_time",
+                default_value="false",
+                description="Use Gazebo /clock as time source (set true for SITL).",
             ),
             DeclareLaunchArgument(
                 "safety_params_file",
@@ -146,6 +164,16 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 name="microxrce_agent",
             ),
+            # Bridge Gazebo /clock → ROS 2 so all nodes share simulation time.
+            # See: https://docs.px4.io/main/en/ros2/user_guide#ros-gazebo-and-px4-time-synchronization
+            Node(
+                condition=IfCondition(use_sim_time),
+                package="ros_gz_bridge",
+                executable="parameter_bridge",
+                name="gz_clock_bridge",
+                output="screen",
+                arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+            ),
             ComposableNodeContainer(
                 name="peregrine_container",
                 namespace="",
@@ -158,49 +186,53 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="hardware_abstraction::PX4HardwareAbstraction",
                         name="px4_hardware_abstraction",
                         namespace=uav_namespace,
-                        parameters=[hardware_yaml, config_overrides],
+                        parameters=[hardware_yaml, config_overrides, {
+                            "px4_namespace": px4_namespace,
+                            "target_system_id": target_system_id,
+                            "use_sim_time": use_sim_time,
+                        }],
                     ),
                     ComposableNode(
                         package="frame_transforms",
                         plugin="frame_transforms::FrameTransformer",
                         name="frame_transformer",
                         namespace=uav_namespace,
-                        parameters=[frame_defaults, config_overrides],
+                        parameters=[frame_defaults, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="estimation_manager",
                         plugin="estimation_manager::EstimationManagerNode",
                         name="estimation_manager",
                         namespace=uav_namespace,
-                        parameters=[estimation_yaml, config_overrides],
+                        parameters=[estimation_yaml, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="control_manager",
                         plugin="control_manager::ControlManagerNode",
                         name="control_manager",
                         namespace=uav_namespace,
-                        parameters=[control_yaml, config_overrides],
+                        parameters=[control_yaml, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="trajectory_manager",
                         plugin="trajectory_manager::TrajectoryManagerNode",
                         name="trajectory_manager",
                         namespace=uav_namespace,
-                        parameters=[trajectory_yaml, config_overrides],
+                        parameters=[trajectory_yaml, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="safety_monitor",
                         plugin="safety_monitor::SafetyMonitorNode",
                         name="safety_monitor",
                         namespace=uav_namespace,
-                        parameters=[safety_params_file, config_overrides],
+                        parameters=[safety_params_file, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="uav_manager",
                         plugin="uav_manager::UavManagerNode",
                         name="uav_manager",
                         namespace=uav_namespace,
-                        parameters=[uav_params_file, config_overrides],
+                        parameters=[uav_params_file, config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                 ],
             ),
@@ -215,7 +247,7 @@ def generate_launch_description() -> LaunchDescription:
                     {
                         "uav_namespace": uav_namespace,
                         "fixed_frame": fixed_frame,
-                        "use_sim_time": True,
+                        "use_sim_time": use_sim_time,
                     },
                 ],
             ),
@@ -227,7 +259,7 @@ def generate_launch_description() -> LaunchDescription:
                 namespace=uav_namespace,
                 output="screen",
                 arguments=["-d", rviz_config],
-                parameters=[{"use_sim_time": True}],
+                parameters=[{"use_sim_time": use_sim_time}],
             ),
         ]
     )

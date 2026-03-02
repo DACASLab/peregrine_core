@@ -1,0 +1,16 @@
+/**:
+  ros__parameters:
+    # Tuned for dual-UAV demo with 5 m initial spawn spacing.
+    mission_type: "circle_figure8"
+    takeoff_altitude_m: 4.0
+    climb_velocity_mps: 1.0
+    landing_descent_velocity_mps: 0.8
+    circle_radius_m: 1.5
+    circle_angular_velocity_radps: 0.5
+    circle_loops: 1.0
+    figure8_radius_m: 1.5
+    figure8_angular_velocity_radps: 0.5
+    figure8_loops: 1.0
+    preflight_wait_s: 45.0
+    server_wait_s: 30.0
+    action_timeout_s: 300.0

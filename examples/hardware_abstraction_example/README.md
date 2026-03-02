@@ -23,6 +23,17 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example13_monitoring_demo.launch.py`
 
+## Multi-UAV Container Mission Launch
+
+`ros2 launch hardware_abstraction_example example14_multi_uav_circle_figure8.launch.py`
+
+Use this with the multi-container stack (`sim`, `uav1`, `uav2`, `gcs`) already running.
+It launches two mission clients only (one in ROS domain 1, one in domain 2):
+
+- UAV1: takeoff -> circle -> figure-8 -> land
+- UAV2: takeoff -> circle -> figure-8 -> land
+- Default takeoff altitude split: UAV1 = 4 m, UAV2 = 6 m
+
 This wraps Example 11 (multi-cycle mission) and adds optional monitoring:
 
 - `start_flight_visualizer:=true|false` (default `true`)
