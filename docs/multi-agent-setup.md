@@ -2,7 +2,7 @@
 
 ## Context
 
-The peregrine stack currently runs as a single UAV in one Docker container. The goal is to run **2 UAVs**, each in its own container, with a shared Gazebo simulation and **Zenoh for inter-container topic bridging**. This is infrastructure for future multi-agent coordination — NO coordination code needed yet, just prove N isolated UAV stacks can run, and a ground station TUI can observe both.
+The peregrine stack currently runs as a single UAV in one Docker container. The goal is to run **N UAVs**, each in its own container, with a shared Gazebo simulation and **Zenoh for inter-container topic bridging**. Multi-agent coordination is functional — N isolated UAV stacks run concurrently, and a ground station TUI observes all of them.
 
 ### What Already Exists
 - `docker/docker/Dockerfile.simulation` — full sim image (CUDA, Gazebo, PX4 SITL, ROS2)

@@ -100,9 +100,12 @@ def _launch_setup(context, *args, **kwargs):
                     "bash",
                     "-lc",
                     (
-                        "pkill -f '[p]x4_sitl_default/bin/px4' || true; "
+                        "pkill -f '[p]x4.*gz_x500' || true; "
+                        "pkill -f '[m]ake px4_sitl' || true; "
+                        "pkill -f '[/]PX4-Autopilot/.*/bin/px4' || true; "
                         "pkill -f '[M]icroXRCEAgent' || true; "
                         "pkill -f '[g]z sim' || true; "
+                        "pkill -f '[c]omponent_container_mt' || true; "
                         "sleep 1"
                     ),
                 ],
@@ -174,6 +177,11 @@ def _launch_setup(context, *args, **kwargs):
             f"PX4_PARAM_UXRCE_DDS_SYNCT=0"
         )
 
+        # Multi-vehicle SITL requires per-instance runtime isolation and IDs.
+        # We launch the PX4 binary from rootfs/instance_i with `-i i` so each
+        # vehicle has separate state/params/logs while all instances connect to
+        # one shared Gazebo server (PX4_GZ_STANDALONE=1), instead of each
+        # `make px4_sitl gz_x500` invocation starting its own Gazebo process.
         px4_cmd = (
             f"cd {px4_dir}/build/px4_sitl_default/rootfs && "
             f"mkdir -p instance_{i} && "

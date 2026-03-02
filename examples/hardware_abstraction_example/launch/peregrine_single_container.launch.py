@@ -30,7 +30,11 @@ Override safety/uav parameter profiles:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    SetEnvironmentVariable,
+)
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import ComposableNodeContainer
@@ -48,6 +52,9 @@ def generate_launch_description() -> LaunchDescription:
     safety_params_file = LaunchConfiguration("safety_params_file")
     uav_params_file = LaunchConfiguration("uav_params_file")
 
+    frame_yaml = PathJoinSubstitution(
+        [FindPackageShare("frame_transforms"), "config", "defaults.yaml"]
+    )
     hardware_abstraction_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
     )
@@ -65,6 +72,9 @@ def generate_launch_description() -> LaunchDescription:
     )
     safety_yaml = PathJoinSubstitution(
         [FindPackageShare("safety_monitor"), "config", "defaults.yaml"]
+    )
+    bringup_default_overrides = PathJoinSubstitution(
+        [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
     )
 
     return LaunchDescription(
@@ -124,28 +134,14 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="hardware_abstraction::PX4HardwareAbstraction",
                         name="px4_hardware_abstraction",
                         namespace=uav_namespace,
-                        parameters=[hardware_abstraction_yaml],
+                        parameters=[hardware_abstraction_yaml, {"frame_prefix": uav_namespace}],
                     ),
                     ComposableNode(
                         package="frame_transforms",
                         plugin="frame_transforms::FrameTransformer",
                         name="frame_transformer",
                         namespace=uav_namespace,
-                        parameters=[
-                            {
-                                "frame_prefix": "",
-                                "odometry_topic": "odometry",
-                                "publish_rate_hz": 100.0,
-                                "home_lat_deg": 47.397742,
-                                "home_lon_deg": 8.545594,
-                                "gps_min_fix_type": 3,
-                                "gps_min_satellites": 6,
-                                "gps_max_hdop": 5.0,
-                                "gps_max_vdop": 5.0,
-                                "gps_freshness_timeout_s": 2.0,
-                                "home_init_timeout_s": 60.0,
-                            }
-                        ],
+                        parameters=[frame_yaml, bringup_default_overrides, {"frame_prefix": uav_namespace}],
                     ),
                     ComposableNode(
                         package="estimation_manager",

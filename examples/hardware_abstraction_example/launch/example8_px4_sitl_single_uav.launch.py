@@ -35,6 +35,9 @@ def generate_launch_description() -> LaunchDescription:
     hardware_abstraction_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
     )
+    frame_yaml = PathJoinSubstitution(
+        [FindPackageShare("frame_transforms"), "config", "defaults.yaml"]
+    )
 
     return LaunchDescription(
         [
@@ -83,20 +86,14 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="hardware_abstraction::PX4HardwareAbstraction",
                         name="px4_hardware_abstraction",
                         namespace=uav_namespace,
-                        parameters=[hardware_abstraction_yaml],
+                        parameters=[hardware_abstraction_yaml, {"frame_prefix": uav_namespace}],
                     ),
                     ComposableNode(
                         package="frame_transforms",
                         plugin="frame_transforms::FrameTransformer",
                         name="frame_transformer",
                         namespace=uav_namespace,
-                        parameters=[
-                            {
-                                "frame_prefix": "",
-                                "odometry_topic": "odometry",
-                                "publish_rate_hz": 100.0,
-                            }
-                        ],
+                        parameters=[frame_yaml],
                     ),
                 ],
             ),

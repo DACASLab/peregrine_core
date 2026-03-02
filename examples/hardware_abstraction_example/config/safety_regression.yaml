@@ -1,4 +1,5 @@
 /**:
   ros__parameters:
     command_land_enabled: true
-    rules.geofence.max_radius_m: 25.0
+    geofence:
+      max_radius_m: 25.0

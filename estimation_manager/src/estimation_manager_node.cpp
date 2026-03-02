@@ -51,7 +51,7 @@ EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options
 : rclcpp_lifecycle::LifecycleNode(kManagerName, options)
 {
   publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 250.0);
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 10.0);
+  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
   dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);

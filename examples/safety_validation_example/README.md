@@ -72,7 +72,7 @@ Expected:
 rg -n "CASE START|CASE PASS|CASE FAIL|Safety regression summary|\[PASS\]|\[FAIL\]" /tmp/safety_native_all.log
 ```
 
-## Latest Observed Outcome (2026-02-26)
+## Example Observed Outcome
 
 Command used:
 

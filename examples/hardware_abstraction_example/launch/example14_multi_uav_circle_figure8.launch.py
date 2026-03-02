@@ -114,7 +114,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "base_domain_id",
                 default_value="1",
-                description="ROS domain ID for UAV1; UAV i uses base_domain_id + i - 1.",
+                description="ROS domain ID for UAV1; UAV N uses base_domain_id + (N-1).",
             ),
             DeclareLaunchArgument(
                 "ros_localhost_only",

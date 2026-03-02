@@ -25,8 +25,8 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kNodeName, options)
 {
   evaluateRateHz_ = this->declare_parameter<double>("evaluate_rate_hz", 2.0);
-  commandLandEnabled_ = this->declare_parameter<bool>("command_land_enabled", false);
-  gpsFreshnessTimeoutS_ = this->declare_parameter<double>("rules.gps.freshness_timeout_s", 2.0);
+  commandLandEnabled_ = this->declare_parameter<bool>("command_land_enabled", true);
+  gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps.freshness_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
   batteryTopic_ = this->declare_parameter<std::string>("battery_topic", "battery");
   gpsStatusTopic_ = this->declare_parameter<std::string>("gps_status_topic", "gps_status");
@@ -35,43 +35,43 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
   px4StatusTopic_ = this->declare_parameter<std::string>("px4_status_topic", "status");
 
   // Battery checker params
-  this->declare_parameter<bool>("rules.battery.enabled", true);
-  this->declare_parameter<double>("rules.battery.warn_pct", 0.25);
-  this->declare_parameter<double>("rules.battery.critical_pct", 0.15);
-  this->declare_parameter<double>("rules.battery.emergency_pct", 0.10);
-  this->declare_parameter<double>("rules.battery.min_voltage", 10.0);
-  this->declare_parameter<double>("rules.battery.warn_grace_s", 5.0);
-  this->declare_parameter<double>("rules.battery.critical_grace_s", 2.0);
+  this->declare_parameter<bool>("battery.enabled", true);
+  this->declare_parameter<double>("battery.warn_pct", 0.25);
+  this->declare_parameter<double>("battery.critical_pct", 0.15);
+  this->declare_parameter<double>("battery.emergency_pct", 0.10);
+  this->declare_parameter<double>("battery.min_voltage", 10.0);
+  this->declare_parameter<double>("battery.warn_grace_s", 5.0);
+  this->declare_parameter<double>("battery.critical_grace_s", 2.0);
 
   // GPS checker params
-  this->declare_parameter<bool>("rules.gps.enabled", true);
-  this->declare_parameter<int>("rules.gps.min_fix_type", 3);
-  this->declare_parameter<double>("rules.gps.max_hdop", 5.0);
-  this->declare_parameter<double>("rules.gps.max_vdop", 5.0);
-  this->declare_parameter<int>("rules.gps.min_satellites", 6);
-  this->declare_parameter<double>("rules.gps.warn_grace_s", 5.0);
-  this->declare_parameter<double>("rules.gps.critical_grace_s", 3.0);
+  this->declare_parameter<bool>("gps.enabled", true);
+  this->declare_parameter<int>("gps.min_fix_type", 3);
+  this->declare_parameter<double>("gps.max_hdop", 5.0);
+  this->declare_parameter<double>("gps.max_vdop", 5.0);
+  this->declare_parameter<int>("gps.min_satellites", 6);
+  this->declare_parameter<double>("gps.warn_grace_s", 5.0);
+  this->declare_parameter<double>("gps.critical_grace_s", 3.0);
 
   // Geofence checker params
-  this->declare_parameter<bool>("rules.geofence.enabled", true);
-  this->declare_parameter<double>("rules.geofence.max_radius_m", 500.0);
-  this->declare_parameter<double>("rules.geofence.max_altitude_m", 120.0);
-  this->declare_parameter<double>("rules.geofence.min_altitude_m", -5.0);
-  this->declare_parameter<double>("rules.geofence.warn_grace_s", 3.0);
-  this->declare_parameter<double>("rules.geofence.critical_grace_s", 1.0);
+  this->declare_parameter<bool>("geofence.enabled", true);
+  this->declare_parameter<double>("geofence.max_radius_m", 500.0);
+  this->declare_parameter<double>("geofence.max_altitude_m", 120.0);
+  this->declare_parameter<double>("geofence.min_altitude_m", -5.0);
+  this->declare_parameter<double>("geofence.warn_grace_s", 3.0);
+  this->declare_parameter<double>("geofence.critical_grace_s", 1.0);
 
   // Envelope checker params
-  this->declare_parameter<bool>("rules.envelope.enabled", true);
-  this->declare_parameter<double>("rules.envelope.max_velocity_ms", 15.0);
-  this->declare_parameter<double>("rules.envelope.max_altitude_m", 120.0);
-  this->declare_parameter<double>("rules.envelope.max_tilt_rad", 0.7);
-  this->declare_parameter<double>("rules.envelope.warn_grace_s", 3.0);
-  this->declare_parameter<double>("rules.envelope.critical_grace_s", 1.0);
+  this->declare_parameter<bool>("envelope.enabled", true);
+  this->declare_parameter<double>("envelope.max_velocity_ms", 15.0);
+  this->declare_parameter<double>("envelope.max_altitude_m", 120.0);
+  this->declare_parameter<double>("envelope.max_tilt_rad", 0.7);
+  this->declare_parameter<double>("envelope.warn_grace_s", 3.0);
+  this->declare_parameter<double>("envelope.critical_grace_s", 1.0);
 
-  // Global params
-  this->declare_parameter<double>("global.healthy_auto_clear_s", 3.0);
-  this->declare_parameter<double>("global.land_command_timeout_s", 5.0);
-  this->declare_parameter<int>("global.land_command_retry_count", 3);
+  // Cross-checker action/recovery params
+  this->declare_parameter<double>("healthy_auto_clear_s", 3.0);
+  this->declare_parameter<double>("land_command_timeout_s", 5.0);
+  this->declare_parameter<int>("land_command_retry_count", 3);
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
@@ -108,60 +108,60 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
 
   // Build rule engine
   RuleEngineConfig engineConfig;
-  engineConfig.healthy_auto_clear_s = this->get_parameter("global.healthy_auto_clear_s").as_double();
+  engineConfig.healthy_auto_clear_s = this->get_parameter("healthy_auto_clear_s").as_double();
   ruleEngine_ = std::make_unique<RuleEngine>(engineConfig);
 
   // Battery checker
-  if (this->get_parameter("rules.battery.enabled").as_bool()) {
+  if (this->get_parameter("battery.enabled").as_bool()) {
     BatteryCheckerConfig cfg;
-    cfg.warn_pct = static_cast<float>(this->get_parameter("rules.battery.warn_pct").as_double());
-    cfg.critical_pct = static_cast<float>(this->get_parameter("rules.battery.critical_pct").as_double());
-    cfg.emergency_pct = static_cast<float>(this->get_parameter("rules.battery.emergency_pct").as_double());
-    cfg.min_voltage = static_cast<float>(this->get_parameter("rules.battery.min_voltage").as_double());
+    cfg.warn_pct = static_cast<float>(this->get_parameter("battery.warn_pct").as_double());
+    cfg.critical_pct = static_cast<float>(this->get_parameter("battery.critical_pct").as_double());
+    cfg.emergency_pct = static_cast<float>(this->get_parameter("battery.emergency_pct").as_double());
+    cfg.min_voltage = static_cast<float>(this->get_parameter("battery.min_voltage").as_double());
     RuleConfig rule;
     rule.enabled = true;
-    rule.warn_grace_s = this->get_parameter("rules.battery.warn_grace_s").as_double();
-    rule.critical_grace_s = this->get_parameter("rules.battery.critical_grace_s").as_double();
+    rule.warn_grace_s = this->get_parameter("battery.warn_grace_s").as_double();
+    rule.critical_grace_s = this->get_parameter("battery.critical_grace_s").as_double();
     ruleEngine_->addChecker(std::make_shared<BatteryChecker>(cfg), rule);
   }
 
   // GPS checker
-  if (this->get_parameter("rules.gps.enabled").as_bool()) {
+  if (this->get_parameter("gps.enabled").as_bool()) {
     GpsCheckerConfig cfg;
-    cfg.min_fix_type = this->get_parameter("rules.gps.min_fix_type").as_int();
-    cfg.max_hdop = static_cast<float>(this->get_parameter("rules.gps.max_hdop").as_double());
-    cfg.max_vdop = static_cast<float>(this->get_parameter("rules.gps.max_vdop").as_double());
-    cfg.min_satellites = this->get_parameter("rules.gps.min_satellites").as_int();
+    cfg.min_fix_type = this->get_parameter("gps.min_fix_type").as_int();
+    cfg.max_hdop = static_cast<float>(this->get_parameter("gps.max_hdop").as_double());
+    cfg.max_vdop = static_cast<float>(this->get_parameter("gps.max_vdop").as_double());
+    cfg.min_satellites = this->get_parameter("gps.min_satellites").as_int();
     RuleConfig rule;
     rule.enabled = true;
-    rule.warn_grace_s = this->get_parameter("rules.gps.warn_grace_s").as_double();
-    rule.critical_grace_s = this->get_parameter("rules.gps.critical_grace_s").as_double();
+    rule.warn_grace_s = this->get_parameter("gps.warn_grace_s").as_double();
+    rule.critical_grace_s = this->get_parameter("gps.critical_grace_s").as_double();
     ruleEngine_->addChecker(std::make_shared<GpsChecker>(cfg), rule);
   }
 
   // Geofence checker
-  if (this->get_parameter("rules.geofence.enabled").as_bool()) {
+  if (this->get_parameter("geofence.enabled").as_bool()) {
     GeofenceCheckerConfig cfg;
-    cfg.max_radius_m = this->get_parameter("rules.geofence.max_radius_m").as_double();
-    cfg.max_altitude_m = this->get_parameter("rules.geofence.max_altitude_m").as_double();
-    cfg.min_altitude_m = this->get_parameter("rules.geofence.min_altitude_m").as_double();
+    cfg.max_radius_m = this->get_parameter("geofence.max_radius_m").as_double();
+    cfg.max_altitude_m = this->get_parameter("geofence.max_altitude_m").as_double();
+    cfg.min_altitude_m = this->get_parameter("geofence.min_altitude_m").as_double();
     RuleConfig rule;
     rule.enabled = true;
-    rule.warn_grace_s = this->get_parameter("rules.geofence.warn_grace_s").as_double();
-    rule.critical_grace_s = this->get_parameter("rules.geofence.critical_grace_s").as_double();
+    rule.warn_grace_s = this->get_parameter("geofence.warn_grace_s").as_double();
+    rule.critical_grace_s = this->get_parameter("geofence.critical_grace_s").as_double();
     ruleEngine_->addChecker(std::make_shared<GeofenceChecker>(cfg), rule);
   }
 
   // Envelope checker
-  if (this->get_parameter("rules.envelope.enabled").as_bool()) {
+  if (this->get_parameter("envelope.enabled").as_bool()) {
     EnvelopeCheckerConfig cfg;
-    cfg.max_velocity_ms = this->get_parameter("rules.envelope.max_velocity_ms").as_double();
-    cfg.max_altitude_m = this->get_parameter("rules.envelope.max_altitude_m").as_double();
-    cfg.max_tilt_rad = this->get_parameter("rules.envelope.max_tilt_rad").as_double();
+    cfg.max_velocity_ms = this->get_parameter("envelope.max_velocity_ms").as_double();
+    cfg.max_altitude_m = this->get_parameter("envelope.max_altitude_m").as_double();
+    cfg.max_tilt_rad = this->get_parameter("envelope.max_tilt_rad").as_double();
     RuleConfig rule;
     rule.enabled = true;
-    rule.warn_grace_s = this->get_parameter("rules.envelope.warn_grace_s").as_double();
-    rule.critical_grace_s = this->get_parameter("rules.envelope.critical_grace_s").as_double();
+    rule.warn_grace_s = this->get_parameter("envelope.warn_grace_s").as_double();
+    rule.critical_grace_s = this->get_parameter("envelope.critical_grace_s").as_double();
     ruleEngine_->addChecker(std::make_shared<EnvelopeChecker>(cfg), rule);
   }
 
@@ -186,8 +186,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   setModeClient_ = this->create_client<peregrine_interfaces::srv::SetMode>("set_mode");
 
   SafetyActionConfig actionConfig;
-  actionConfig.land_command_timeout_s = this->get_parameter("global.land_command_timeout_s").as_double();
-  actionConfig.land_command_retry_count = this->get_parameter("global.land_command_retry_count").as_int();
+  actionConfig.land_command_timeout_s = this->get_parameter("land_command_timeout_s").as_double();
+  actionConfig.land_command_retry_count = this->get_parameter("land_command_retry_count").as_int();
   actionExecutor_ = std::make_unique<SafetyActionExecutor>(
     setModeClient_, get_logger(), actionConfig);
 

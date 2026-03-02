@@ -105,8 +105,10 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   // Parameters define topic and the local frame naming convention for one UAV.
   framePrefix_ = normalizePrefix(this->declare_parameter<std::string>("frame_prefix", ""));
   odometryTopic_ = this->declare_parameter<std::string>("odometry_topic", "odometry");
-  worldFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("world_frame", "world"));
-  mapFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("map_frame", "map"));
+  // Keep global reference frames shared across the fleet; only vehicle-local
+  // frames are namespaced via frame_prefix.
+  worldFrame_ = this->declare_parameter<std::string>("world_frame", "world");
+  mapFrame_ = this->declare_parameter<std::string>("map_frame", "map");
   odomFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("odom_frame", "odom"));
   baseLinkFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("base_link_frame", "base_link"));
   baseLinkFrdFrame_ =
@@ -130,14 +132,14 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
       std::bind(&FrameTransformer::odometryCallback, this, std::placeholders::_1));
 
   // Home GPS origin parameters
-  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397742);
-  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 8.545594);
+  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397971);
+  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 8.546164);
   gpsMinFixType_ = this->declare_parameter<int>("gps_min_fix_type", 3);
   gpsMinSatellites_ = this->declare_parameter<int>("gps_min_satellites", 6);
   gpsMaxHdop_ = this->declare_parameter<double>("gps_max_hdop", 5.0);
   gpsMaxVdop_ = this->declare_parameter<double>("gps_max_vdop", 5.0);
   gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps_freshness_timeout_s", 2.0);
-  homeInitTimeoutS_ = this->declare_parameter<double>("home_init_timeout_s", 60.0);
+  homeInitTimeoutS_ = this->declare_parameter<double>("home_init_timeout_s", 90.0);
 
   publishStaticTransforms();
 

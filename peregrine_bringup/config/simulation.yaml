@@ -13,6 +13,6 @@ uav_manager:
 
 safety_monitor:
   ros__parameters:
-    command_land_enabled: false
-    global.land_command_timeout_s: 6.0
-    global.land_command_retry_count: 3
+    command_land_enabled: true
+    land_command_timeout_s: 6.0
+    land_command_retry_count: 3

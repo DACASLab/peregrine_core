@@ -119,7 +119,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
   // All timeouts are configurable ROS parameters so they can be tuned per deployment.
   // SITL environments typically use shorter timeouts than real hardware because
   // simulated PX4 responds faster and network latency is negligible.
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 10.0);
+  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
 
   // Freshness thresholds determine how stale a subscription message can be before the

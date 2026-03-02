@@ -166,8 +166,13 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 {
   // Names, rates, and command IDs are parameterized for single and multi-UAV deployments.
   px4Namespace_ = normalizeNamespace(this->declare_parameter<std::string>("px4_namespace", ""));
-  odomFrame_ = this->declare_parameter<std::string>("odom_frame", "odom");
-  baseLinkFrame_ = this->declare_parameter<std::string>("base_link_frame", "base_link");
+  auto framePrefix = this->declare_parameter<std::string>("frame_prefix", "");
+  if (!framePrefix.empty()) {
+    if (framePrefix.front() == '/') framePrefix.erase(framePrefix.begin());
+    while (!framePrefix.empty() && framePrefix.back() == '/') framePrefix.pop_back();
+  }
+  odomFrame_ = framePrefix.empty() ? std::string("odom") : framePrefix + "/odom";
+  baseLinkFrame_ = framePrefix.empty() ? std::string("base_link") : framePrefix + "/base_link";
   sensorGpsTopicSuffix_ =
       normalizeTopicSuffix(
           this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/vehicle_gps_position"));

@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
     microxrce_port = LaunchConfiguration("microxrce_port")
     ros_localhost_only = LaunchConfiguration("ros_localhost_only")
     ros_domain_id = LaunchConfiguration("ros_domain_id")
+    use_sim_time = LaunchConfiguration("use_sim_time")
 
     multi_cycle_sequence = LaunchConfiguration("multi_cycle_sequence")
 
@@ -66,7 +67,7 @@ def generate_launch_description() -> LaunchDescription:
             PathJoinSubstitution(
                 [FindPackageShare("tui_status"), "config", "defaults.yaml"]
             ),
-            {"uav_namespace": uav_namespace, "use_sim_time": True},
+            {"uav_namespace": uav_namespace, "use_sim_time": use_sim_time},
         ],
     )
 
@@ -83,7 +84,7 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "uav_namespace": uav_namespace,
                 "fixed_frame": fixed_frame,
-                "use_sim_time": True,
+                "use_sim_time": use_sim_time,
             },
         ],
     )
@@ -96,7 +97,7 @@ def generate_launch_description() -> LaunchDescription:
         namespace=uav_namespace,
         output="screen",
         arguments=["-d", rviz_config],
-        parameters=[{"use_sim_time": True}],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     return LaunchDescription(
@@ -110,6 +111,11 @@ def generate_launch_description() -> LaunchDescription:
                 description="Set ROS_LOCALHOST_ONLY (use 1 with PX4 UXRCE_DDS_PTCFG=1).",
             ),
             DeclareLaunchArgument("ros_domain_id", default_value="42"),
+            DeclareLaunchArgument(
+                "use_sim_time",
+                default_value="true",
+                description="Use simulation time from /clock topic.",
+            ),
             DeclareLaunchArgument(
                 "multi_cycle_sequence",
                 default_value="circle,figure8,circle,figure8",

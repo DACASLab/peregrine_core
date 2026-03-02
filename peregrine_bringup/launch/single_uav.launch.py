@@ -13,38 +13,13 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
-    OpaqueFunction,
     SetEnvironmentVariable,
-    SetLaunchConfiguration,
 )
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
-
-
-def _resolve_frame_ids(context, *args, **kwargs):
-    """Resolve TF frame IDs internally from UAV namespace to avoid user overrides."""
-    namespace = context.launch_configurations.get("uav_namespace", "").strip().strip("/")
-
-    if namespace:
-        odom_frame = f"{namespace}/odom"
-        base_link_frame = f"{namespace}/base_link"
-        base_link_frd_frame = f"{namespace}/base_link_frd"
-    else:
-        odom_frame = "odom"
-        base_link_frame = "base_link"
-        base_link_frd_frame = "base_link_frd"
-
-    return [
-        SetLaunchConfiguration("resolved_world_frame", "world"),
-        SetLaunchConfiguration("resolved_map_frame", "map"),
-        SetLaunchConfiguration("resolved_odom_frame", odom_frame),
-        SetLaunchConfiguration("resolved_base_link_frame", base_link_frame),
-        SetLaunchConfiguration("resolved_base_link_frd_frame", base_link_frd_frame),
-        SetLaunchConfiguration("resolved_fixed_frame", "map"),
-    ]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -63,17 +38,14 @@ def generate_launch_description() -> LaunchDescription:
     start_visualizer = LaunchConfiguration("start_visualizer")
     start_rviz = LaunchConfiguration("start_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
-    resolved_world_frame = LaunchConfiguration("resolved_world_frame")
-    resolved_map_frame = LaunchConfiguration("resolved_map_frame")
-    resolved_odom_frame = LaunchConfiguration("resolved_odom_frame")
-    resolved_base_link_frame = LaunchConfiguration("resolved_base_link_frame")
-    resolved_base_link_frd_frame = LaunchConfiguration("resolved_base_link_frd_frame")
-    resolved_fixed_frame = LaunchConfiguration("resolved_fixed_frame")
 
     bringup_default_overrides = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
     )
 
+    frame_yaml = PathJoinSubstitution(
+        [FindPackageShare("frame_transforms"), "config", "defaults.yaml"]
+    )
     hardware_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
     )
@@ -98,25 +70,6 @@ def generate_launch_description() -> LaunchDescription:
     default_rviz_config = PathJoinSubstitution(
         [FindPackageShare("rviz_plugins"), "rviz", "flight_visualization.rviz"]
     )
-
-    frame_defaults = {
-        "frame_prefix": "",
-        "world_frame": resolved_world_frame,
-        "map_frame": resolved_map_frame,
-        "odom_frame": resolved_odom_frame,
-        "base_link_frame": resolved_base_link_frame,
-        "base_link_frd_frame": resolved_base_link_frd_frame,
-        "odometry_topic": "odometry",
-        "publish_rate_hz": 100.0,
-        "home_lat_deg": 47.397742,
-        "home_lon_deg": 8.545594,
-        "gps_min_fix_type": 3,
-        "gps_min_satellites": 6,
-        "gps_max_hdop": 5.0,
-        "gps_max_vdop": 5.0,
-        "gps_freshness_timeout_s": 2.0,
-        "home_init_timeout_s": 60.0,
-    }
 
     return LaunchDescription(
         [
@@ -190,7 +143,6 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=default_rviz_config,
                 description="RViz config file to load when start_rviz:=true.",
             ),
-            OpaqueFunction(function=_resolve_frame_ids),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
             ExecuteProcess(
@@ -224,8 +176,7 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[hardware_yaml, config_overrides, {
                             "px4_namespace": px4_namespace,
                             "target_system_id": target_system_id,
-                            "odom_frame": resolved_odom_frame,
-                            "base_link_frame": resolved_base_link_frame,
+                            "frame_prefix": uav_namespace,
                             "use_sim_time": use_sim_time,
                         }],
                     ),
@@ -234,7 +185,10 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="frame_transforms::FrameTransformer",
                         name="frame_transformer",
                         namespace=uav_namespace,
-                        parameters=[frame_defaults, config_overrides, {"use_sim_time": use_sim_time}],
+                        parameters=[frame_yaml, config_overrides, {
+                            "frame_prefix": uav_namespace,
+                            "use_sim_time": use_sim_time,
+                        }],
                     ),
                     ComposableNode(
                         package="estimation_manager",
@@ -283,7 +237,7 @@ def generate_launch_description() -> LaunchDescription:
                     rviz_yaml,
                     {
                         "uav_namespace": uav_namespace,
-                        "fixed_frame": resolved_fixed_frame,
+                        "fixed_frame": "map",
                         "use_sim_time": use_sim_time,
                     },
                 ],
