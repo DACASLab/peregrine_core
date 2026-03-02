@@ -96,22 +96,37 @@ def _generate_instances(ld: LaunchDescription) -> None:
                 )
             )
 
+        # Launch one shared Gazebo instance first; all PX4 SITL instances then
+        # connect in standalone mode.
+        gz_world_path = f"{px4_dir}/Tools/simulation/gz/worlds/{gz_world}.sdf"
+        gz_flags = "-v2 -r -s" if headless_val.lower() in ("true", "1", "yes") else "-v2 -r"
+        gz_cmd = f"gz sim {gz_flags} {gz_world_path}"
+        actions.append(
+            TimerAction(
+                period=1.0,
+                actions=[
+                    LogInfo(msg=f"[multi_uav_sitl] Launching shared Gazebo world: {gz_world}"),
+                    ExecuteProcess(
+                        cmd=["bash", "-lc", gz_cmd],
+                        output="screen",
+                        name="gz_sim_world",
+                    ),
+                ],
+            )
+        )
+
         for i in range(n):
             instance_id = i
             domain_id = i + 1  # UAV 1 → domain 1, UAV 2 → domain 2
             xrce_port = 8888 + 2 * i  # 8888, 8890, 8892, ...
             x_pos = i * 3  # 0m, 3m, 6m, ...
-            delay = 2.0 + i * 5.0  # stagger: 2s, 7s, 12s, ...
+            delay = 4.0 + i * 5.0  # stagger after Gazebo: 4s, 9s, 14s, ...
 
-            # For instance 0, we let PX4 spawn Gazebo (GZ_MODEL_POSE creates
-            # the world). For instance 1+, we set PX4_GZ_MODEL_NAME to avoid
-            # spawning a second Gazebo server.
-            #
             # PX4 multi-vehicle uses instance index (-i) to offset ports.
             # Instance 0: SITL UDP 14540, MAVLink 14550, XRCE 8888
             # Instance 1: SITL UDP 14541, MAVLink 14551, XRCE 8890
-
             env_vars = (
+                f"PX4_GZ_STANDALONE=1 "
                 f"PX4_SYS_AUTOSTART=4001 "
                 f"PX4_GZ_MODEL_POSE='{x_pos},0,0,0,0,0' "
                 f"PX4_GZ_WORLD={gz_world} "
@@ -124,30 +139,16 @@ def _generate_instances(ld: LaunchDescription) -> None:
                 f"PX4_PARAM_SIM_GPS_USED=10"
             )
 
-            # First instance spawns the Gazebo world; subsequent instances
-            # attach to the existing Gazebo server.
-            if i == 0:
-                px4_cmd = (
-                    f"cd {px4_dir} && "
-                    f"{env_vars} "
-                    f"./build/px4_sitl_default/bin/px4 "
-                    f"-i {instance_id} "
-                    f"-d ./build/px4_sitl_default/etc "
-                    f"-s etc/init.d-posix/rcS "
-                    f"-w sitl_instance_{instance_id}"
-                )
-            else:
-                # Skip world creation for subsequent instances
-                px4_cmd = (
-                    f"cd {px4_dir} && "
-                    f"{env_vars} "
-                    f"PX4_GZ_MODEL=x500 "
-                    f"./build/px4_sitl_default/bin/px4 "
-                    f"-i {instance_id} "
-                    f"-d ./build/px4_sitl_default/etc "
-                    f"-s etc/init.d-posix/rcS "
-                    f"-w sitl_instance_{instance_id}"
-                )
+            px4_cmd = (
+                f"cd {px4_dir}/build/px4_sitl_default/rootfs && "
+                f"mkdir -p instance_{instance_id} && "
+                f"cd instance_{instance_id} && "
+                f"{env_vars} "
+                f"PX4_SIM_MODEL=gz_x500 "
+                f"../../bin/px4 "
+                f"-i {instance_id} "
+                f"-d ../../etc"
+            )
 
             px4_action = ExecuteProcess(
                 cmd=["bash", "-lc", px4_cmd],
