@@ -31,11 +31,12 @@ public:
   SafetyActionExecutor(
     rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient,
     rclcpp::Logger logger,
-    SafetyActionConfig config);
+    SafetyActionConfig config,
+    rclcpp::Clock::SharedPtr clock);
 
   void requestLand(const std::string & reason);
 
-  void tick(std::chrono::steady_clock::time_point now);
+  void tick(rclcpp::Time now);
 
   LandCommandState state() const { return state_; }
 
@@ -47,11 +48,12 @@ private:
   rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient_;
   rclcpp::Logger logger_;
   SafetyActionConfig config_;
+  rclcpp::Clock::SharedPtr clock_;
 
   LandCommandState state_{LandCommandState::Idle};
   std::string reason_;
   int retryCount_{0};
-  std::chrono::steady_clock::time_point lastSendTime_;
+  rclcpp::Time lastSendTime_{0, 0, RCL_ROS_TIME};
   bool pendingResponse_{false};
 };
 

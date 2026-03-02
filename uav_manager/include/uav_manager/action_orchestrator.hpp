@@ -34,9 +34,13 @@
 
 #pragma once
 
+#include <rclcpp/clock.hpp>
+#include <rclcpp/time.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -244,7 +248,7 @@ public:
   /**
    * @brief Constructs the orchestrator with polling configuration.
    */
-  explicit ActionOrchestrator(OrchestratorConfig config);
+  explicit ActionOrchestrator(OrchestratorConfig config, rclcpp::Clock::SharedPtr clock);
 
   /**
    * @brief Executes one step function after preemption checks.
@@ -281,6 +285,8 @@ public:
 private:
   /// Polling/wait configuration.
   OrchestratorConfig config_;
+  /// Clock source (sim-time aware when use_sim_time is true).
+  rclcpp::Clock::SharedPtr clock_;
 };
 
 }  // namespace uav_manager

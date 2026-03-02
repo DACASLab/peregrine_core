@@ -189,7 +189,7 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   actionConfig.land_command_timeout_s = this->get_parameter("land_command_timeout_s").as_double();
   actionConfig.land_command_retry_count = this->get_parameter("land_command_retry_count").as_int();
   actionExecutor_ = std::make_unique<SafetyActionExecutor>(
-    setModeClient_, get_logger(), actionConfig);
+    setModeClient_, get_logger(), actionConfig, this->get_clock());
 
   // Evaluation timer (created but not started until activate)
   const auto period = std::chrono::duration<double>(1.0 / evaluateRateHz_);
@@ -296,7 +296,7 @@ void SafetyMonitorNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::
   data.epv = msg->epv;
   data.satellites_used = msg->satellites_used;
   latestGps_ = data;
-  lastGpsTime_ = std::chrono::steady_clock::now();
+  lastGpsTime_ = this->now();
 }
 
 void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
@@ -343,8 +343,7 @@ CheckerContext SafetyMonitorNode::buildContext() const
 
   // Check GPS freshness
   if (latestGps_.has_value()) {
-    auto elapsed = std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - lastGpsTime_).count();
+    auto elapsed = (this->now() - lastGpsTime_).seconds();
     if (elapsed <= gpsFreshnessTimeoutS_) {
       ctx.gps = latestGps_;
     }
@@ -366,8 +365,8 @@ void SafetyMonitorNode::evaluateAndPublish()
     ctx = buildContext();
   }
 
-  const auto now = std::chrono::steady_clock::now();
-  auto evalResult = ruleEngine_->evaluateDetailed(ctx, now);
+  const auto steadyNow = std::chrono::steady_clock::now();
+  auto evalResult = ruleEngine_->evaluateDetailed(ctx, steadyNow);
 
   // Build and publish SafetyStatus
   peregrine_interfaces::msg::SafetyStatus statusMsg;
@@ -416,7 +415,7 @@ void SafetyMonitorNode::evaluateAndPublish()
       RCLCPP_INFO(get_logger(), "Safety level nominal and vehicle disarmed, resetting action executor");
       actionExecutor_->reset();
     }
-    actionExecutor_->tick(now);
+    actionExecutor_->tick(this->now());
   }
 }
 

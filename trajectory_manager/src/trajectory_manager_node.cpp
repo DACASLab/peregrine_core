@@ -78,10 +78,10 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
     return CallbackReturn::FAILURE;
   }
 
-  const auto startupDeadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(
-    dependencyStartupTimeoutS_);
+  const auto startupDeadline = this->now() +
+    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
   // Deterministic startup gate: trajectory generation requires estimated_state input.
-  while (std::chrono::steady_clock::now() < startupDeadline) {
+  while (this->now() < startupDeadline) {
     if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
       break;
     }

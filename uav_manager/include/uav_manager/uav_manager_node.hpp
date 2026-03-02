@@ -396,7 +396,7 @@ private:
   /// Recurring timer that polls data readiness before activating (phase 2).
   rclcpp::TimerBase::SharedPtr readinessTimer_;
   /// Deadline for data readiness polling before activating anyway.
-  std::chrono::steady_clock::time_point readinessDeadline_;
+  rclcpp::Time readinessDeadline_;
 };
 
 }  // namespace uav_manager

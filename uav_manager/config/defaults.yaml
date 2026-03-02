@@ -10,7 +10,7 @@
     action_server_wait_s: 3.0
     action_result_wait_s: 180.0
     offboard_wait_s: 6.0
-    armed_wait_s: 6.0
+    armed_wait_s: 10.0
     orchestrator_poll_ms: 50
     auto_start: true
     safety_status_timeout_s: 2.0

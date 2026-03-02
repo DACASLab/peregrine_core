@@ -15,10 +15,10 @@
 namespace uav_manager
 {
 
-ActionOrchestrator::ActionOrchestrator(const OrchestratorConfig config)
+ActionOrchestrator::ActionOrchestrator(const OrchestratorConfig config, rclcpp::Clock::SharedPtr clock)
 : config_(config)
+, clock_(std::move(clock))
 {
-  // Small POD config is copied by value into an owning member for simplicity.
 }
 
 StepResult ActionOrchestrator::callStep(
@@ -72,8 +72,8 @@ StepResult ActionOrchestrator::waitForCondition(
     ? 1.0 / std::chrono::duration<double>(config_.pollPeriod).count()
     : 20.0);
 
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
+  const auto deadline = clock_->now() + rclcpp::Duration(timeout);
+  while (rclcpp::ok() && clock_->now() < deadline) {
     // Emergency and cancel checks are evaluated on each poll tick.
     if (emergency()) {
       return StepResult::fail(StepCode::EmergencyPreempt);

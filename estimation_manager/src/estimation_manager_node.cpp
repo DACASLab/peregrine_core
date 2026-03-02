@@ -100,9 +100,9 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   // queries the ROS2 graph API to discover live publishers without subscribing. This
   // creates a deterministic dependency chain: hardware_abstraction must be running before
   // estimation_manager can complete configuration.
-  const auto startupDeadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(
-    dependencyStartupTimeoutS_);
-  while (std::chrono::steady_clock::now() < startupDeadline) {
+  const auto startupDeadline = this->now() +
+    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
+  while (this->now() < startupDeadline) {
     if (!this->get_publishers_info_by_topic("state").empty()) {
       break;
     }

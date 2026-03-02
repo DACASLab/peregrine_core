@@ -6,10 +6,12 @@ namespace safety_monitor
 SafetyActionExecutor::SafetyActionExecutor(
   rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient,
   rclcpp::Logger logger,
-  SafetyActionConfig config)
+  SafetyActionConfig config,
+  rclcpp::Clock::SharedPtr clock)
 : setModeClient_(std::move(setModeClient))
 , logger_(logger)
 , config_(config)
+, clock_(std::move(clock))
 {
 }
 
@@ -24,14 +26,14 @@ void SafetyActionExecutor::requestLand(const std::string & reason)
   sendLandCommand();
 }
 
-void SafetyActionExecutor::tick(std::chrono::steady_clock::time_point now)
+void SafetyActionExecutor::tick(rclcpp::Time now)
 {
   if (state_ != LandCommandState::Sending) {
     return;
   }
 
   if (pendingResponse_) {
-    const auto elapsed = std::chrono::duration<double>(now - lastSendTime_).count();
+    const auto elapsed = (now - lastSendTime_).seconds();
     if (elapsed >= config_.land_command_timeout_s) {
       RCLCPP_WARN(logger_, "Land command timeout (attempt %d/%d)",
         retryCount_, config_.land_command_retry_count);
@@ -69,7 +71,7 @@ void SafetyActionExecutor::sendLandCommand()
 
   state_ = LandCommandState::Sending;
   pendingResponse_ = true;
-  lastSendTime_ = std::chrono::steady_clock::now();
+  lastSendTime_ = clock_->now();
   retryCount_++;
 
   RCLCPP_WARN(logger_, "Sending safety land command (attempt %d): %s",

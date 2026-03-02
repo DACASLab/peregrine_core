@@ -49,7 +49,7 @@ private:
   std::optional<GpsData> latestGps_;
   std::optional<PositionData> latestPosition_;
   std::optional<Px4Data> latestPx4_;
-  std::chrono::steady_clock::time_point lastGpsTime_;
+  rclcpp::Time lastGpsTime_{0, 0, RCL_ROS_TIME};
 
   double evaluateRateHz_{2.0};
   bool commandLandEnabled_{false};

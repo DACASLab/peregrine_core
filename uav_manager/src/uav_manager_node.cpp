@@ -139,7 +139,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
   actionServerWaitS_ = this->declare_parameter<double>("action_server_wait_s", 3.0);
   actionResultWaitS_ = this->declare_parameter<double>("action_result_wait_s", 180.0);
   offboardWaitS_ = this->declare_parameter<double>("offboard_wait_s", 6.0);
-  armedWaitS_ = this->declare_parameter<double>("armed_wait_s", 6.0);
+  armedWaitS_ = this->declare_parameter<double>("armed_wait_s", 10.0);
 
   const auto pollMs = this->declare_parameter<int>("orchestrator_poll_ms", 50);
   OrchestratorConfig orchestratorConfig;
@@ -152,7 +152,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
 
   healthAggregator_ = std::make_unique<HealthAggregator>(freshnessConfig_);
   healthAggregator_->setRequireExternalSafety(requireExternalSafety_);
-  orchestrator_ = std::make_unique<ActionOrchestrator>(orchestratorConfig);
+  orchestrator_ = std::make_unique<ActionOrchestrator>(orchestratorConfig, this->get_clock());
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
@@ -172,9 +172,8 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
         // Phase 2: non-blocking readiness polling via recurring timer.
         // Between ticks the executor is free to dispatch subscription callbacks,
         // so the HealthAggregator receives fresh data and readiness resolves naturally.
-        readinessDeadline_ = std::chrono::steady_clock::now()
-          + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-          std::chrono::duration<double>(dataReadinessTimeoutS_));
+        readinessDeadline_ = this->now()
+          + rclcpp::Duration::from_seconds(dataReadinessTimeoutS_);
         RCLCPP_INFO(get_logger(),
           "Auto-start: waiting for data readiness (timeout=%.1fs)",
           dataReadinessTimeoutS_);
@@ -183,7 +182,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
           std::chrono::milliseconds(dataReadinessPollMs_),
           [this]() {
             auto snap = healthAggregator_->snapshot(nowSteady());
-            bool timedOut = std::chrono::steady_clock::now() >= readinessDeadline_;
+            bool timedOut = this->now() >= readinessDeadline_;
 
             if (snap.dependenciesReady()) {
               RCLCPP_INFO(get_logger(), "Auto-start: data readiness satisfied");
@@ -813,6 +812,19 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
   // This is safe here because `failGoal` never outlives this function scope.
   auto failGoal = [&](const std::string & reason)
   {
+    // Keep FSM and PX4 arming state aligned on aborted takeoff paths.
+    bool needsDisarmTransition = false;
+    {
+      std::scoped_lock lock(mutex_);
+      needsDisarmTransition =
+        supervisor_.state() == SupervisorState::Armed &&
+        latestPx4Status_.has_value() &&
+        !latestPx4Status_->armed;
+    }
+    if (needsDisarmTransition) {
+      (void)applyEvent(SupervisorEvent::DisarmCompleted);
+    }
+
     result->success = false;
     result->message = reason;
     result->final_altitude_m = latestAltitudeM();
@@ -1387,8 +1399,8 @@ StepResult UavManagerNode::callArmService(const bool arm)
   }
 
   {
-    const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceWaitS_);
-    while (std::chrono::steady_clock::now() < deadline) {
+    const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceWaitS_));
+    while (this->now() < deadline) {
       if (!active_ || isEmergency()) {
         return StepResult::fail(StepCode::EmergencyPreempt);
       }
@@ -1408,9 +1420,9 @@ StepResult UavManagerNode::callArmService(const bool arm)
   // a value that will be produced asynchronously by the executor thread.
 
   // Poll the future with emergency/active checks.
-  const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceResponseWaitS_);
+  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
   while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= deadline) {
+    if (this->now() >= deadline) {
       return StepResult::fail(StepCode::ArmServiceTimeout);
     }
     if (!active_ || isEmergency()) {
@@ -1437,8 +1449,8 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   }
 
   {
-    const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceWaitS_);
-    while (std::chrono::steady_clock::now() < deadline) {
+    const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceWaitS_));
+    while (this->now() < deadline) {
       if (!active_ || isEmergency()) {
         return StepResult::fail(StepCode::EmergencyPreempt);
       }
@@ -1455,9 +1467,9 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   request->mode = mode;
   auto future = setModeClient_->async_send_request(request);
 
-  const auto deadline = std::chrono::steady_clock::now() + secondsToMillis(serviceResponseWaitS_);
+  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
   while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= deadline) {
+    if (this->now() >= deadline) {
       return StepResult::fail(StepCode::SetModeServiceTimeout);
     }
     if (!active_ || isEmergency()) {
@@ -1553,9 +1565,9 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
   const std::function<bool()> & preempted,
   const std::function<bool()> & emergency, ExecuteTrajectory::Result * resultOut) const
 {
-  const auto serverDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(actionServerWaitS_);
-  while (std::chrono::steady_clock::now() < serverDeadline) {
+  const auto serverDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(actionServerWaitS_));
+  while (this->now() < serverDeadline) {
     if (emergency()) {
       return StepResult::fail(StepCode::EmergencyPreempt);
     }
@@ -1587,10 +1599,10 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
 
   auto goalHandleFuture = trajectoryExecuteClient_->async_send_goal(goal, options);
   // Wait for goal acceptance using bounded polling to keep callback interruptible.
-  const auto goalDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(serviceResponseWaitS_);
+  const auto goalDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
   while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= goalDeadline) {
+    if (this->now() >= goalDeadline) {
       return StepResult::fail(StepCode::TrajectoryExecuteGoalTimeout);
     }
     if (emergency()) {
@@ -1608,10 +1620,10 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
 
   auto resultFuture = trajectoryExecuteClient_->async_get_result(goalHandle);
   // While waiting for result, propagate local preemption to downstream cancel.
-  const auto resultDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(actionResultWaitS_);
+  const auto resultDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(actionResultWaitS_));
   while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= resultDeadline) {
+    if (this->now() >= resultDeadline) {
       return StepResult::fail(StepCode::TrajectoryExecuteResultTimeout);
     }
     if (emergency()) {
@@ -1646,9 +1658,9 @@ StepResult UavManagerNode::forwardGoTo(
   const std::function<bool()> & emergency,
   GoTo::Result * resultOut) const
 {
-  const auto serverDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(actionServerWaitS_);
-  while (std::chrono::steady_clock::now() < serverDeadline) {
+  const auto serverDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(actionServerWaitS_));
+  while (this->now() < serverDeadline) {
     if (emergency()) {
       return StepResult::fail(StepCode::EmergencyPreempt);
     }
@@ -1678,10 +1690,10 @@ StepResult UavManagerNode::forwardGoTo(
 
   auto goalHandleFuture = trajectoryGoToClient_->async_send_goal(goal, options);
   // Wait for goal acceptance using bounded polling to keep callback interruptible.
-  const auto goalDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(serviceResponseWaitS_);
+  const auto goalDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
   while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= goalDeadline) {
+    if (this->now() >= goalDeadline) {
       return StepResult::fail(StepCode::TrajectoryGotoGoalTimeout);
     }
     if (emergency()) {
@@ -1699,10 +1711,10 @@ StepResult UavManagerNode::forwardGoTo(
 
   auto resultFuture = trajectoryGoToClient_->async_get_result(goalHandle);
   // While waiting for result, propagate local preemption to downstream cancel.
-  const auto resultDeadline = std::chrono::steady_clock::now() +
-    secondsToMillis(actionResultWaitS_);
+  const auto resultDeadline = this->now() +
+    rclcpp::Duration(secondsToMillis(actionResultWaitS_));
   while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-    if (std::chrono::steady_clock::now() >= resultDeadline) {
+    if (this->now() >= resultDeadline) {
       return StepResult::fail(StepCode::TrajectoryGotoResultTimeout);
     }
     if (emergency()) {
