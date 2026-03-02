@@ -25,7 +25,7 @@ constexpr short kColorPairValue = 7;
 constexpr short kColorPairDim = 8;
 constexpr short kColorPairAccent = 9;
 
-constexpr int kMinRows = 24;
+constexpr int kMinRows = 18;
 constexpr int kMinCols = 90;
 
 constexpr double kStaleThresholdS = 2.0;
@@ -476,9 +476,9 @@ void Renderer::render(
   const int content_x = 2;
   const int content_w = cols - 4;
   const int top_y = 3;
-  const int top_h = 8;
+  const int top_h = 6;
   const int middle_y = top_y + top_h;
-  const int middle_h = 6;
+  const int middle_h = 5;
   const int alerts_y = middle_y + middle_h;
   const int alerts_h = rows - alerts_y - 2;
   const int left_w = content_w / 2 - 1;
@@ -569,51 +569,6 @@ void Renderer::render(
     }
   }
 
-  // --- Flight panel rows 5-6: motor outputs ---
-  row = top_y + 5;
-  if (snapshot.has_motor_data) {
-    constexpr int kMotorBarW = 8;
-    const int halfW = content_w / 2 - 4;
-    for (int m = 0; m < 4; ++m) {
-      const int mr = row + m / 2;
-      const int mc = col + (m % 2) * halfW;
-      const float pct = std::clamp(snapshot.motor_output[m], 0.0F, 1.0F);
-      const int filled = static_cast<int>(pct * kMotorBarW);
-      const short mcolor = pct > 0.9F ? kColorPairBad :
-                           pct > 0.7F ? kColorPairWarn : kColorPairGood;
-
-      char mlabel[8];
-      std::snprintf(mlabel, sizeof(mlabel), "M%d ", m + 1);
-      printLabel(hasColors_, mr, mc, mlabel);
-
-      int bc = mc + 3;
-      withColor(hasColors_, kColorPairValue, A_NORMAL, true);
-      mvaddch(mr, bc++, '[');
-      withColor(hasColors_, kColorPairValue, A_NORMAL, false);
-
-      withColor(hasColors_, mcolor, A_BOLD, true);
-      for (int b = 0; b < filled; ++b) {
-        mvaddch(mr, bc++, ACS_BLOCK);
-      }
-      withColor(hasColors_, mcolor, A_BOLD, false);
-
-      withColor(hasColors_, kColorPairDim, A_DIM, true);
-      for (int b = filled; b < kMotorBarW; ++b) {
-        mvaddch(mr, bc++, ACS_BULLET);
-      }
-      withColor(hasColors_, kColorPairDim, A_DIM, false);
-
-      withColor(hasColors_, kColorPairValue, A_NORMAL, true);
-      mvaddch(mr, bc++, ']');
-      withColor(hasColors_, kColorPairValue, A_NORMAL, false);
-
-      char mpct[8];
-      std::snprintf(mpct, sizeof(mpct), "%3.0f%%", pct * 100.0F);
-      printValue(hasColors_, mr, bc + 1, mpct);
-    }
-  } else {
-    printDim(hasColors_, row, col, "Motors: waiting for data...");
-  }
 
   // --- Managers panel ---
   row = middle_y + 1;
@@ -644,19 +599,12 @@ void Renderer::render(
     printValue(hasColors_, row, col + left_w - 12, rate_str);
   }
 
-  // Readiness — show detail string when something is blocked, otherwise a clean "ALL READY"
-  row = middle_y + 4;
-  printLabel(hasColors_, row, col, "Ready:");
-  if (snapshot.dependencies_ready && snapshot.safety_ready) {
-    printBadge(hasColors_, row, col + 7, kColorPairGood, "ALL SYSTEMS GO");
-  } else if (snapshot.dependencies_ready && !snapshot.has_safety_status) {
-    printBadge(hasColors_, row, col + 7, kColorPairGood, "DEPS OK");
-    printDim(hasColors_, row, col + 18, "(safety monitor off)");
-  } else {
-    printBadge(hasColors_, row, col + 7, kColorPairWarn, "NOT READY");
-    if (!snapshot.readiness_detail.empty()) {
-      printValue(hasColors_, row, col + 20, truncate(snapshot.readiness_detail, left_w - 24));
-    }
+  // Readiness — appended to TRJ row when space allows
+  {
+    const bool allReady = snapshot.dependencies_ready && snapshot.safety_ready;
+    const char* rdyTag = allReady ? " GO" : " !RDY";
+    const short rdyColor = allReady ? kColorPairGood : kColorPairWarn;
+    printBadge(hasColors_, row, col + left_w - 6, rdyColor, rdyTag);
   }
 
   // --- Safety / Hardware panel ---
@@ -693,16 +641,12 @@ void Renderer::render(
     printDim(hasColors_, row, col + 9, "n/a");
   }
 
-  // GPS row - human-readable fix type
-  row = middle_y + 4;
-  printLabel(hasColors_, row, col, "GPS:");
+  // GPS — appended to battery row
   {
     const std::string fixStr = gpsFixString(snapshot.gps_fix_type);
-    char gps[96];
-    formatTo(
-      gps, sizeof(gps), "%s  sats=%u  hdop=%.1f  vdop=%.1f",
-      fixStr.c_str(), snapshot.gps_satellites, snapshot.gps_hdop, snapshot.gps_vdop);
-    printBadge(hasColors_, row, col + 5, gpsColorPair(snapshot.gps_fix_type), gps);
+    char gps[48];
+    formatTo(gps, sizeof(gps), "GPS:%s s=%u", fixStr.c_str(), snapshot.gps_satellites);
+    printBadge(hasColors_, row, col + right_w - static_cast<int>(fixStr.size()) - 12, gpsColorPair(snapshot.gps_fix_type), gps);
   }
 
 
