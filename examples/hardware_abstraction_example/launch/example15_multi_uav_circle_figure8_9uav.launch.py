@@ -1,9 +1,12 @@
 """@file
-@brief Example 15 launch: 9-UAV circle + figure-8 mission client bundle.
+@brief Example 15 launch: N-UAV circle + figure-8 mission client bundle.
 
 Wraps example14_multi_uav_circle_figure8.launch.py with defaults tuned for
-running nine UAV mission clients (domains 1..9).
+running N UAV mission clients (domains 1..N), where N defaults to the
+NUM_UAVS environment variable set in docker/.env.
 """
+
+import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -13,7 +16,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    """Launch 9 mission clients by default for N-UAV multi-container SITL."""
+    """Launch N mission clients (from NUM_UAVS env) for multi-container SITL."""
     base_launch = PathJoinSubstitution(
         [
             FindPackageShare("hardware_abstraction_example"),
@@ -26,8 +29,8 @@ def generate_launch_description() -> LaunchDescription:
         [
             DeclareLaunchArgument(
                 "num_uavs",
-                default_value="9",
-                description="Number of UAV mission clients to launch.",
+                default_value=os.environ.get("NUM_UAVS", "9"),
+                description="Number of UAV mission clients to launch (defaults to NUM_UAVS env var).",
             ),
             DeclareLaunchArgument(
                 "base_domain_id",
