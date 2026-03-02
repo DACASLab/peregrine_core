@@ -35,6 +35,11 @@ def generate_launch_description() -> LaunchDescription:
     start_rviz = LaunchConfiguration("start_rviz")
     fixed_frame = LaunchConfiguration("fixed_frame")
     rviz_config = LaunchConfiguration("rviz_config")
+    world_frame = LaunchConfiguration("world_frame")
+    map_frame = LaunchConfiguration("map_frame")
+    odom_frame = LaunchConfiguration("odom_frame")
+    base_link_frame = LaunchConfiguration("base_link_frame")
+    base_link_frd_frame = LaunchConfiguration("base_link_frd_frame")
 
     bringup_default_overrides = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
@@ -67,6 +72,11 @@ def generate_launch_description() -> LaunchDescription:
 
     frame_defaults = {
         "frame_prefix": "",
+        "world_frame": world_frame,
+        "map_frame": map_frame,
+        "odom_frame": odom_frame,
+        "base_link_frame": base_link_frame,
+        "base_link_frd_frame": base_link_frd_frame,
         "odometry_topic": "odometry",
         "publish_rate_hz": 100.0,
         "home_lat_deg": 47.397742,
@@ -156,6 +166,31 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=default_rviz_config,
                 description="RViz config file to load when start_rviz:=true.",
             ),
+            DeclareLaunchArgument(
+                "world_frame",
+                default_value="world",
+                description="World frame ID used by frame_transformer.",
+            ),
+            DeclareLaunchArgument(
+                "map_frame",
+                default_value="map",
+                description="Map frame ID used by frame_transformer.",
+            ),
+            DeclareLaunchArgument(
+                "odom_frame",
+                default_value="odom",
+                description="Odometry frame ID used by hardware_abstraction and frame_transformer.",
+            ),
+            DeclareLaunchArgument(
+                "base_link_frame",
+                default_value="base_link",
+                description="Body frame ID (FLU) used by hardware_abstraction and frame_transformer.",
+            ),
+            DeclareLaunchArgument(
+                "base_link_frd_frame",
+                default_value="base_link_frd",
+                description="Body frame ID (FRD) published by frame_transformer.",
+            ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
             ExecuteProcess(
@@ -189,6 +224,8 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[hardware_yaml, config_overrides, {
                             "px4_namespace": px4_namespace,
                             "target_system_id": target_system_id,
+                            "odom_frame": odom_frame,
+                            "base_link_frame": base_link_frame,
                             "use_sim_time": use_sim_time,
                         }],
                     ),

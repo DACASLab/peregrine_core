@@ -9,6 +9,7 @@ Usage:
   ros2 launch peregrine_bringup multi_uav_sitl.launch.py num_uavs:=2
 """
 
+import math
 import platform
 
 from launch import LaunchDescription
@@ -43,7 +44,22 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "uav_spawn_spacing_m",
                 default_value="5.0",
-                description="X-axis spawn spacing between UAV instances (meters).",
+                description="Grid spacing between UAV spawn points (meters).",
+            ),
+            DeclareLaunchArgument(
+                "px4_base_delay",
+                default_value="8.0",
+                description="Seconds before launching first PX4 instance.",
+            ),
+            DeclareLaunchArgument(
+                "px4_stagger_delay",
+                default_value="5.0",
+                description="Additional seconds between consecutive PX4 instances.",
+            ),
+            DeclareLaunchArgument(
+                "xrce_offset",
+                default_value="2.0",
+                description="Seconds after each PX4 launch before starting its XRCE agent.",
             ),
             DeclareLaunchArgument(
                 "headless",
@@ -68,6 +84,9 @@ def _launch_setup(context, *args, **kwargs):
     px4_dir = context.launch_configurations["px4_autopilot_dir"]
     gz_world = context.launch_configurations["px4_gz_world"]
     spacing_m = float(context.launch_configurations["uav_spawn_spacing_m"])
+    base_delay = float(context.launch_configurations["px4_base_delay"])
+    stagger_delay = float(context.launch_configurations["px4_stagger_delay"])
+    xrce_offset = float(context.launch_configurations["xrce_offset"])
     headless_val = context.launch_configurations["headless"]
     clean = context.launch_configurations["clean_before_start"]
 
@@ -125,16 +144,24 @@ def _launch_setup(context, *args, **kwargs):
     )
 
     # ── Per-instance PX4 SITL + XRCE agent ───────────────────────────────
+    grid_cols = math.ceil(math.sqrt(n))
+    grid_rows = math.ceil(n / grid_cols)
+    x_center = 0.5 * (grid_cols - 1)
+    y_center = 0.5 * (grid_rows - 1)
+
     for i in range(n):
         domain_id = i + 1              # UAV 1 → domain 1, UAV 2 → domain 2
         xrce_port = 8888 + 2 * i       # 8888, 8890, 8892, ...
-        x_pos = i * spacing_m
-        delay = 10.0 + i * 8.0         # stagger after Gazebo: 10s, 18s, ...
+        col = i % grid_cols
+        row = i // grid_cols
+        x_pos = (col - x_center) * spacing_m
+        y_pos = (row - y_center) * spacing_m
+        delay = base_delay + i * stagger_delay
 
         env_vars = (
             f"PX4_GZ_STANDALONE=1 "
             f"PX4_SYS_AUTOSTART=4001 "
-            f"PX4_GZ_MODEL_POSE='{x_pos},0,0,0,0,0' "
+            f"PX4_GZ_MODEL_POSE='{x_pos},{y_pos},0,0,0,0' "
             f"PX4_GZ_WORLD={gz_world} "
             f"HEADLESS={headless_val} "
             f"ROS_DOMAIN_ID={domain_id} "
@@ -160,10 +187,10 @@ def _launch_setup(context, *args, **kwargs):
         log_action = LogInfo(
             msg=f"[multi_uav_sitl] Launching PX4 instance {i}: "
             f"domain_id={domain_id}, xrce_port={xrce_port}, "
-            f"pose=({x_pos},0,0)"
+            f"pose=({x_pos},{y_pos},0)"
         )
 
-        # Stagger PX4 instances; XRCE agent starts 2s after its PX4.
+        # Stagger PX4 instances; XRCE agent starts xrce_offset seconds later.
         actions.append(
             TimerAction(
                 period=delay,
@@ -179,7 +206,7 @@ def _launch_setup(context, *args, **kwargs):
         )
         actions.append(
             TimerAction(
-                period=delay + 2.0,
+                period=delay + xrce_offset,
                 actions=[
                     ExecuteProcess(
                         cmd=["MicroXRCEAgent", "udp4", "-p", str(xrce_port)],

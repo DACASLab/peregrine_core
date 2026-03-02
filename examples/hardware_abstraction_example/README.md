@@ -27,12 +27,41 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example14_multi_uav_circle_figure8.launch.py`
 
-Use this with the multi-container stack (`sim`, `uav1`, `uav2`, `gcs`) already running.
-It launches two mission clients only (one in ROS domain 1, one in domain 2):
+Use this with the multi-container stack already running.
+It launches one mission client per UAV domain:
 
-- UAV1: takeoff -> circle -> figure-8 -> land
-- UAV2: takeoff -> circle -> figure-8 -> land
-- Default takeoff altitude split: UAV1 = 4 m, UAV2 = 6 m
+- UAVi mission: takeoff -> circle -> figure-8 -> land
+- `num_uavs:=N` launches N clients on domains `base_domain_id..base_domain_id+N-1`
+- Default namespace prefix is `uav` (`/uav1`, `/uav2`, ...)
+- Default altitude split: `base_takeoff_altitude_m:=4.0`, `takeoff_altitude_step_m:=1.5`
+- Large-pattern defaults in `multi_uav_circle_figure8_mission.yaml`:
+  - `circle_radius_m=5.0`
+  - `figure8_radius_m=5.0`
+
+Example for 4 UAVs:
+
+```bash
+ros2 launch hardware_abstraction_example example14_multi_uav_circle_figure8.launch.py \
+  num_uavs:=4 base_domain_id:=1
+```
+
+## 9-UAV Multi-Container Mission Launch
+
+`ros2 launch hardware_abstraction_example example15_multi_uav_circle_figure8_9uav.launch.py`
+
+This wraps Example 14 with 9-UAV defaults:
+
+- `num_uavs:=9`
+- `base_domain_id:=1` (domains 1..9)
+- `inter_uav_start_delay_s:=1.0`
+- `base_takeoff_altitude_m:=4.0`
+- `takeoff_altitude_step_m:=1.0`
+
+Example:
+
+```bash
+ros2 launch hardware_abstraction_example example15_multi_uav_circle_figure8_9uav.launch.py
+```
 
 This wraps Example 11 (multi-cycle mission) and adds optional monitoring:
 
