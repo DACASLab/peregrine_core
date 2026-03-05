@@ -120,15 +120,15 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // accepted callbacks block for the duration of the goal).
   goToServer_ = rclcpp_action::create_server<GoTo>(
     this, "~/go_to",
-    [this](const auto & uuid, const auto goal) { return onGoToGoal(uuid, goal); },
-    [this](const auto goalHandle) { return onGoToCancel(goalHandle); },
-    [this](const auto goalHandle) { onGoToAccepted(goalHandle); });
+    [this](const auto & uuid, const auto & goal) { return onGoToGoal(uuid, goal); },
+    [this](const auto & goalHandle) { return onGoToCancel(goalHandle); },
+    [this](const auto & goalHandle) { onGoToAccepted(goalHandle); });
 
   executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
     this, "~/execute_trajectory",
-    [this](const auto & uuid, const auto goal) { return onExecuteGoal(uuid, goal); },
-    [this](const auto goalHandle) { return onExecuteCancel(goalHandle); },
-    [this](const auto goalHandle) { onExecuteAccepted(goalHandle); });
+    [this](const auto & uuid, const auto & goal) { return onExecuteGoal(uuid, goal); },
+    [this](const auto & goalHandle) { return onExecuteCancel(goalHandle); },
+    [this](const auto & goalHandle) { onExecuteAccepted(goalHandle); });
 
   // Create-then-cancel pattern: timers must exist before on_activate, but should not
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.

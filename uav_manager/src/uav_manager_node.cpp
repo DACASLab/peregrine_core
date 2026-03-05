@@ -348,30 +348,30 @@ bool UavManagerNode::createActionServers()
 
     takeoffServer_ = rclcpp_action::create_server<Takeoff>(
       this, "~/takeoff",
-      [this](const auto & uuid, const auto goal) { return onTakeoffGoal(uuid, goal); },
-      [this](const auto goalHandle) { return onTakeoffCancel(goalHandle); },
-      [this](const auto goalHandle) { onTakeoffAccepted(goalHandle); },
+      [this](const auto & uuid, const auto & goal) { return onTakeoffGoal(uuid, goal); },
+      [this](const auto & goalHandle) { return onTakeoffCancel(goalHandle); },
+      [this](const auto & goalHandle) { onTakeoffAccepted(goalHandle); },
       actionOpts, actionCbGroup_);
 
     landServer_ = rclcpp_action::create_server<Land>(
       this, "~/land",
-      [this](const auto & uuid, const auto goal) { return onLandGoal(uuid, goal); },
-      [this](const auto goalHandle) { return onLandCancel(goalHandle); },
-      [this](const auto goalHandle) { onLandAccepted(goalHandle); },
+      [this](const auto & uuid, const auto & goal) { return onLandGoal(uuid, goal); },
+      [this](const auto & goalHandle) { return onLandCancel(goalHandle); },
+      [this](const auto & goalHandle) { onLandAccepted(goalHandle); },
       actionOpts, actionCbGroup_);
 
     goToServer_ = rclcpp_action::create_server<GoTo>(
       this, "~/go_to",
-      [this](const auto & uuid, const auto goal) { return onGoToGoal(uuid, goal); },
-      [this](const auto goalHandle) { return onGoToCancel(goalHandle); },
-      [this](const auto goalHandle) { onGoToAccepted(goalHandle); },
+      [this](const auto & uuid, const auto & goal) { return onGoToGoal(uuid, goal); },
+      [this](const auto & goalHandle) { return onGoToCancel(goalHandle); },
+      [this](const auto & goalHandle) { onGoToAccepted(goalHandle); },
       actionOpts, actionCbGroup_);
 
     executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
       this, "~/execute_trajectory",
-      [this](const auto & uuid, const auto goal) { return onExecuteGoal(uuid, goal); },
-      [this](const auto goalHandle) { return onExecuteCancel(goalHandle); },
-      [this](const auto goalHandle) { onExecuteAccepted(goalHandle); },
+      [this](const auto & uuid, const auto & goal) { return onExecuteGoal(uuid, goal); },
+      [this](const auto & goalHandle) { return onExecuteCancel(goalHandle); },
+      [this](const auto & goalHandle) { onExecuteAccepted(goalHandle); },
       actionOpts, actionCbGroup_);
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to create action servers: %s", e.what());

@@ -252,10 +252,10 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Service interface for manager/state-machine orchestration.
   armService_ = this->create_service<peregrine_interfaces::srv::Arm>(
-      "arm", [this](const auto & req, auto resp) { onArmService(req, resp); });
+      "arm", [this](const auto & req, const auto & resp) { onArmService(req, resp); });
   setModeService_ = this->create_service<peregrine_interfaces::srv::SetMode>(
       "set_mode",
-      [this](const auto & req, auto resp) { onSetModeService(req, resp); });
+      [this](const auto & req, const auto & resp) { onSetModeService(req, resp); });
 
   // Timers for offboard heartbeat and status publication.
   offboardModeTimer_ = this->create_wall_timer(
