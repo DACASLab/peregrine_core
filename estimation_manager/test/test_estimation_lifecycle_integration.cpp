@@ -42,6 +42,8 @@
 #include <chrono>
 #include <thread>
 
+using namespace std::chrono_literals;
+
 class EstimationLifecycleIntegrationTest : public ::testing::Test
 {
 protected:
@@ -72,7 +74,7 @@ protected:
       if (condition()) {
         return true;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      std::this_thread::sleep_for(20ms);
     }
     return condition();
   }
@@ -172,7 +174,7 @@ TEST_F(EstimationLifecycleIntegrationTest, LifecycleFlowAndReadinessSignals)
   for (int i = 0; i < 10; ++i) {
     state.header.stamp = sourceNode->now();
     statePub->publish(state);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(50ms);
     if (gotEstimate.load() && sawHealthy.load()) {
       break;
     }
