@@ -12,6 +12,7 @@
 
 #include <control_manager/px4_passthrough_controller.hpp>
 
+#include <Eigen/Geometry>
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
@@ -237,6 +238,22 @@ void ControlManagerNode::onEstimatedState(const peregrine_interfaces::msg::State
   } else {
     lastStateTime_ = rclcpp::Time(msg->header.stamp);
   }
+
+  // Capture frame names from upstream estimated_state.
+  if (!msg->header.frame_id.empty()) {
+    if (odomFrame_ != "odom" && msg->header.frame_id != odomFrame_) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "estimated_state frame_id changed: '%s' -> '%s'",
+        odomFrame_.c_str(), msg->header.frame_id.c_str());
+    }
+    odomFrame_ = msg->header.frame_id;
+    // Derive baseLinkFrame_ from odomFrame_: "uav1/odom" -> "uav1/base_link".
+    const auto pos = odomFrame_.rfind("odom");
+    if (pos != std::string::npos) {
+      baseLinkFrame_ = odomFrame_.substr(0, pos) + "base_link";
+    }
+  }
 }
 
 void ControlManagerNode::onTrajectorySetpoint(
@@ -247,6 +264,18 @@ void ControlManagerNode::onTrajectorySetpoint(
   }
 
   std::scoped_lock lock(dataMutex_);
+
+  // Validate setpoint frame_id: must be odom (world-frame) or base_link (body-frame).
+  if (!msg->header.frame_id.empty() &&
+    msg->header.frame_id != odomFrame_ &&
+    msg->header.frame_id != baseLinkFrame_)
+  {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 5000,
+      "trajectory_setpoint has unexpected frame_id '%s' (expected '%s' or '%s')",
+      msg->header.frame_id.c_str(), odomFrame_.c_str(), baseLinkFrame_.c_str());
+  }
+
   // Last-writer-wins policy: newest setpoint drives the next control tick.
   latestSetpoint_ = *msg;
 }
@@ -279,10 +308,62 @@ void ControlManagerNode::publishControlOutput()
   // we synthesize a hold-at-current-position setpoint. This ensures the PX4 offboard
   // setpoint stream never goes stale -- PX4 will exit offboard mode if setpoints stop
   // arriving for more than ~500ms.
-  const auto activeSetpoint = setpoint.has_value() ? *setpoint : makeHoldSetpoint(*state);
+  auto activeSetpoint = setpoint.has_value() ? *setpoint : makeHoldSetpoint(*state);
+
+  // If setpoint is in body frame, rotate velocity/acceleration to odom frame.
+  if (activeSetpoint.header.frame_id == baseLinkFrame_) {
+    const auto & q = state->pose.pose.orientation;
+    const Eigen::Quaterniond orientation(q.w, q.x, q.y, q.z);
+
+    if (activeSetpoint.use_velocity) {
+      const Eigen::Vector3d bodyVel(
+        activeSetpoint.velocity.x, activeSetpoint.velocity.y, activeSetpoint.velocity.z);
+      const Eigen::Vector3d odomVel = orientation * bodyVel;
+      activeSetpoint.velocity.x = odomVel.x();
+      activeSetpoint.velocity.y = odomVel.y();
+      activeSetpoint.velocity.z = odomVel.z();
+    }
+
+    if (activeSetpoint.use_acceleration) {
+      const Eigen::Vector3d bodyAcc(
+        activeSetpoint.acceleration.x, activeSetpoint.acceleration.y,
+        activeSetpoint.acceleration.z);
+      const Eigen::Vector3d odomAcc = orientation * bodyAcc;
+      activeSetpoint.acceleration.x = odomAcc.x();
+      activeSetpoint.acceleration.y = odomAcc.y();
+      activeSetpoint.acceleration.z = odomAcc.z();
+    }
+
+    if (activeSetpoint.use_position) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "Position setpoint in body frame is not meaningful; ignoring position fields");
+      activeSetpoint.use_position = false;
+    }
+
+    // After rotation, setpoint is now in odom frame.
+    activeSetpoint.header.frame_id = odomFrame_;
+  }
+
   // Controller backend is pure; all ROS side-effects happen only around this call.
   auto output = controller_->compute(*state, activeSetpoint);
   output.header.stamp = this->now();
+
+  // Set frame_id based on control mode.
+  switch (output.control_mode) {
+    case peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY:
+    case peregrine_interfaces::msg::ControlOutput::MODE_ATTITUDE:
+      output.header.frame_id = odomFrame_;
+      break;
+    case peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE:
+      output.header.frame_id = baseLinkFrame_;
+      break;
+    case peregrine_interfaces::msg::ControlOutput::MODE_DIRECT_ACTUATOR:
+    default:
+      output.header.frame_id = "";
+      break;
+  }
+
   // One output per timer tick keeps command cadence deterministic.
   controlOutputPub_->publish(output);
 }

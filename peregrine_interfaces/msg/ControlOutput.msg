@@ -1,3 +1,10 @@
+# Control output from the control manager to hardware abstraction.
+#
+# Frame conventions for header.frame_id per control_mode:
+#   MODE_TRAJECTORY  -> odom frame (world-frame position/velocity/acceleration)
+#   MODE_ATTITUDE    -> odom frame (world-frame orientation)
+#   MODE_BODY_RATE   -> base_link frame (body-frame rates and thrust)
+#   MODE_DIRECT_ACTUATOR -> "" (no frame, raw actuator commands)
 std_msgs/Header header
 
 uint8 control_mode

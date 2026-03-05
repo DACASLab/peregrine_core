@@ -12,10 +12,13 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 
 namespace safety_monitor
 {
@@ -71,6 +74,12 @@ private:
   rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient_;
 
   rclcpp::TimerBase::SharedPtr evaluateTimer_;
+
+  /// TF2 buffer and listener for odom→map frame transforms.
+  std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tfListener_;
+  /// Target frame for geofence checks (global map frame).
+  std::string mapFrame_{"map"};
 
   bool autoStart_{true};
   rclcpp::TimerBase::SharedPtr startupTimer_;

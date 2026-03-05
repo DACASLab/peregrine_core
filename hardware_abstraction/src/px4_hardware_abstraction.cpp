@@ -533,6 +533,31 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
       packOffboardModeFlags(msg->control_mode, msg->use_position, msg->use_velocity, msg->use_acceleration),
       std::memory_order_release);
 
+  // Validate frame_id matches expectation for the control mode.
+  if (!msg->header.frame_id.empty()) {
+    bool ok = false;
+    switch (msg->control_mode) {
+      case peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY:
+      case peregrine_interfaces::msg::ControlOutput::MODE_ATTITUDE:
+        ok = (msg->header.frame_id == odomFrame_);
+        break;
+      case peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE:
+        ok = (msg->header.frame_id == baseLinkFrame_);
+        break;
+      case peregrine_interfaces::msg::ControlOutput::MODE_DIRECT_ACTUATOR:
+        ok = true;  // no frame expectation
+        break;
+    }
+    if (!ok) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "control_output frame_id '%s' unexpected for control_mode=%u (expected '%s')",
+        msg->header.frame_id.c_str(), msg->control_mode,
+        (msg->control_mode == peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE)
+          ? baseLinkFrame_.c_str() : odomFrame_.c_str());
+    }
+  }
+
   const uint8_t navState = navState_.load(std::memory_order_acquire);
   if (navState != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
   {

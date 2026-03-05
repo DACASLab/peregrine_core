@@ -6,11 +6,14 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_library(safety_monitor_component SHARED
   src/battery_checker.cpp
@@ -31,11 +34,14 @@ target_include_directories(safety_monitor_component
 target_compile_features(safety_monitor_component PUBLIC cxx_std_17)
 
 ament_target_dependencies(safety_monitor_component
+  geometry_msgs
   peregrine_interfaces
   rclcpp
   rclcpp_components
   rclcpp_lifecycle
   sensor_msgs
+  tf2_geometry_msgs
+  tf2_ros
 )
 
 rclcpp_components_register_node(safety_monitor_component
@@ -65,6 +71,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle sensor_msgs)
+ament_export_dependencies(geometry_msgs peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle sensor_msgs tf2_geometry_msgs tf2_ros)
 
 ament_package()

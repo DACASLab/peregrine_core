@@ -302,6 +302,7 @@ void EstimationManagerNode::publishEstimatedState()
   // that type. Unlike Python, the type is still fixed at compile time; `auto` is just
   // syntactic convenience, not dynamic dispatch.
   auto estimate = estimator_->getEstimate();
+  // frame_id is preserved from upstream (hardware_abstraction sets it to the odom frame).
   // Preserve source timestamp when available; otherwise publish with local ROS time.
   if (estimate.header.stamp.sec == 0 && estimate.header.stamp.nanosec == 0) {
     estimate.header.stamp = this->now();

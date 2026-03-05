@@ -5,9 +5,11 @@
 #include <safety_monitor/geofence_checker.hpp>
 #include <safety_monitor/gps_checker.hpp>
 
+#include <geometry_msgs/msg/point_stamped.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <lifecycle_msgs/msg/transition.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <cmath>
 #include <chrono>
@@ -165,6 +167,10 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
     ruleEngine_->addChecker(std::make_shared<EnvelopeChecker>(cfg), rule);
   }
 
+  // TF2 buffer and listener for odom→map frame transforms (geofence checks).
+  tfBuffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+  tfListener_ = std::make_shared<tf2_ros::TransformListener>(*tfBuffer_);
+
   // Subscriptions
   const auto qos = rclcpp::QoS(20).reliable();
   batterySub_ = this->create_subscription<sensor_msgs::msg::BatteryState>(
@@ -244,6 +250,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_cleanup(
   setModeClient_.reset();
   ruleEngine_.reset();
   actionExecutor_.reset();
+  tfListener_.reset();
+  tfBuffer_.reset();
 
   {
     std::scoped_lock lock(mutex_);
@@ -301,11 +309,33 @@ void SafetyMonitorNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::
 
 void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
 {
+  // Transform position from odom frame to map frame for geofence checking.
+  double px = msg->pose.pose.position.x;
+  double py = msg->pose.pose.position.y;
+  double pz = msg->pose.pose.position.z;
+
+  if (tfBuffer_ && !msg->header.frame_id.empty()) {
+    try {
+      geometry_msgs::msg::PointStamped odomPoint;
+      odomPoint.header = msg->header;
+      odomPoint.point = msg->pose.pose.position;
+      auto mapPoint = tfBuffer_->transform(odomPoint, mapFrame_, tf2::durationFromSec(0.0));
+      px = mapPoint.point.x;
+      py = mapPoint.point.y;
+      pz = mapPoint.point.z;
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 10000,
+        "TF2 odom->map lookup failed, using raw odom position for geofence: %s", ex.what());
+    }
+  }
+
   std::scoped_lock lock(mutex_);
   PositionData data;
-  data.x = msg->pose.pose.position.x;
-  data.y = msg->pose.pose.position.y;
-  data.z = msg->pose.pose.position.z;
+  data.x = px;
+  data.y = py;
+  data.z = pz;
+  // Velocity magnitude is frame-invariant; no rotation needed for envelope speed checks.
   data.vx = msg->twist.twist.linear.x;
   data.vy = msg->twist.twist.linear.y;
   data.vz = msg->twist.twist.linear.z;

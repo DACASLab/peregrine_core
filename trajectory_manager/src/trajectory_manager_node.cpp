@@ -300,6 +300,11 @@ void TrajectoryManagerNode::onEstimatedState(const peregrine_interfaces::msg::St
     lastStateTime_ = rclcpp::Time(msg->header.stamp);
   }
 
+  // Capture odom frame name from upstream estimated_state.
+  if (!msg->header.frame_id.empty()) {
+    odomFrame_ = msg->header.frame_id;
+  }
+
   // Lazy initialization: the hold generator is created on the first state message rather
   // than in on_configure. This avoids the need for state data during configuration and
   // guarantees the hold position is always a physically valid position (the vehicle's
@@ -418,7 +423,9 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
   }
 
   setpoint.header.stamp = now;
-  // Timestamp normalized at publish time so downstream controller sees consistent cadence.
+  setpoint.header.frame_id = odomFrame_;
+  // Timestamp and frame_id normalized at publish time so downstream controller sees
+  // consistent cadence and frame metadata.
   trajectorySetpointPub_->publish(setpoint);
 
   // Goal results (succeed/canceled) are resolved OUTSIDE the lock. Calling

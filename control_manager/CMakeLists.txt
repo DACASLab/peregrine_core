@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
@@ -23,6 +24,8 @@ target_include_directories(control_manager_component
 )
 
 target_compile_features(control_manager_component PUBLIC cxx_std_17)
+
+target_link_libraries(control_manager_component Eigen3::Eigen)
 
 ament_target_dependencies(control_manager_component
   peregrine_interfaces

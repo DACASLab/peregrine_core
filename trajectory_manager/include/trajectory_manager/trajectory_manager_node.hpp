@@ -221,6 +221,8 @@ private:
   std::shared_ptr<GoalHandleExecuteTrajectory> activeExecuteGoal_;
   /// ManagerStatus.active_module value for observability.
   std::string activeModuleName_{"hold_position"};
+  /// Odom frame name captured from first estimated_state message.
+  std::string odomFrame_{"odom"};
 
   /// Trajectory setpoint publication frequency.
   double publishRateHz_{50.0};

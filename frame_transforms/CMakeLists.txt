@@ -66,6 +66,16 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_conversions test/test_conversions.cpp)
+  target_include_directories(test_conversions PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_link_libraries(test_conversions Eigen3::Eigen)
+  ament_target_dependencies(test_conversions
+    geometry_msgs
+  )
 endif()
 
 ament_export_include_directories(include)

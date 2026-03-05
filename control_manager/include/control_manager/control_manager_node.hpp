@@ -156,6 +156,10 @@ private:
   /// Active controller backend implementation.
   std::unique_ptr<ControllerBase> controller_;
 
+  /// Frame names captured from first estimated_state message.
+  std::string odomFrame_{"odom"};
+  std::string baseLinkFrame_{"base_link"};
+
   /// Control output publication frequency.
   double publishRateHz_{250.0};
   /// Manager status publication frequency.
