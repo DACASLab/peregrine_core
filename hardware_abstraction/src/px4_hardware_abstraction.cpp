@@ -27,6 +27,8 @@
 
 namespace hardware_abstraction
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -216,19 +218,19 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   // the correct one at compile time based on the px4_msgs package version being built against.
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onVehicleOdometry, this, std::placeholders::_1));
+      [this](const auto & msg) { onVehicleOdometry(msg); });
   batteryStatusSub_ = this->create_subscription<px4_msgs::msg::BatteryStatus>(
       px4Topic("/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onBatteryStatus, this, std::placeholders::_1));
+      [this](const auto & msg) { onBatteryStatus(msg); });
   sensorGpsSub_ = this->create_subscription<px4_msgs::msg::SensorGps>(
       px4Topic(sensorGpsTopicSuffix_ + getMessageNameVersion<px4_msgs::msg::SensorGps>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onSensorGps, this, std::placeholders::_1));
+      [this](const auto & msg) { onSensorGps(msg); });
   vehicleStatusSub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
       px4Topic("/fmu/out/vehicle_status" + getMessageNameVersion<px4_msgs::msg::VehicleStatus>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onVehicleStatus, this, std::placeholders::_1));
+      [this](const auto & msg) { onVehicleStatus(msg); });
   // Manager command input.
   controlOutputSub_ = this->create_subscription<peregrine_interfaces::msg::ControlOutput>(
-      "control_output", rosInputQos, std::bind(&PX4HardwareAbstraction::onControlOutput, this, std::placeholders::_1));
+      "control_output", rosInputQos, [this](const auto & msg) { onControlOutput(msg); });
 
   // PX4 command/setpoint publishers.
   offboardControlModePub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>(
@@ -250,18 +252,18 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Service interface for manager/state-machine orchestration.
   armService_ = this->create_service<peregrine_interfaces::srv::Arm>(
-      "arm", std::bind(&PX4HardwareAbstraction::onArmService, this, std::placeholders::_1, std::placeholders::_2));
+      "arm", [this](const auto & req, auto resp) { onArmService(req, resp); });
   setModeService_ = this->create_service<peregrine_interfaces::srv::SetMode>(
       "set_mode",
-      std::bind(&PX4HardwareAbstraction::onSetModeService, this, std::placeholders::_1, std::placeholders::_2));
+      [this](const auto & req, auto resp) { onSetModeService(req, resp); });
 
   // Timers for offboard heartbeat and status publication.
   offboardModeTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / offboardRateHz_)),
-      std::bind(&PX4HardwareAbstraction::publishOffboardControlMode, this));
+      [this]() { publishOffboardControlMode(); });
   statusTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / statusRateHz_)),
-      std::bind(&PX4HardwareAbstraction::publishStatus, this));
+      [this]() { publishStatus(); });
 
   offboardModeFlags_.store(packOffboardModeFlags(peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY, true, false,
                                                  false));
