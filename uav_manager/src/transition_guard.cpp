@@ -77,6 +77,9 @@ GuardResult TransitionGuard::evaluate(const GuardId guard, const HealthSnapshot 
       if (!health.estimatedState.ready()) {
         return fail(health.estimatedState.reasonCode);
       }
+      if (!health.estimationManager.ready()) {
+        return fail(health.estimationManager.reasonCode);
+      }
       if (!health.controlManager.ready()) {
         return fail(health.controlManager.reasonCode);
       }
