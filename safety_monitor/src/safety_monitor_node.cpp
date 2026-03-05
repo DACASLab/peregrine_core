@@ -328,11 +328,11 @@ void SafetyMonitorNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::
 
 void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
 {
+  std::scoped_lock lock(mutex_);
   if (!msg->header.frame_id.empty()) {
     odomFrame_ = msg->header.frame_id;
   }
 
-  std::scoped_lock lock(mutex_);
   PositionData data;
   data.x = msg->pose.pose.position.x;
   data.y = msg->pose.pose.position.y;

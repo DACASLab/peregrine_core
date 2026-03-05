@@ -292,11 +292,10 @@ UavManagerNode::CallbackReturn UavManagerNode::on_activate(const rclcpp_lifecycl
     return CallbackReturn::FAILURE;
   }
 
-  active_.store(true, std::memory_order_release);
   if (!createActionServers()) {
-    active_.store(false, std::memory_order_release);
     return CallbackReturn::FAILURE;
   }
+  active_.store(true, std::memory_order_release);
 
   uavStatePub_->on_activate();
   statusTimer_->reset();
@@ -704,6 +703,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
   const auto preempted = [this, goalHandle]() {
     return !active_.load(std::memory_order_acquire) || goalHandle->is_canceling();
   };
+  const auto emergencyCb = [this]() { return isEmergency(); };
 
   auto failGoal = [&](const std::string & reason) {
     result->success = false;
@@ -717,6 +717,15 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     std::scoped_lock lock(mutex_);
     lastTransitionReason_ = reason;
   };
+
+  if (emergencyCb()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
 
   StepResult step = callSetModeService("land", preempted);
   if (!step.success) {
@@ -793,6 +802,14 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
     lastTransitionReason_ = reason;
   };
 
+  if (emergencyCb()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
   if (!dependenciesReady()) {
     failGoal(dependenciesReason());
     return;
@@ -879,6 +896,14 @@ void UavManagerNode::onExecuteAccepted(const std::shared_ptr<GoalHandleExecuteTr
     lastTransitionReason_ = reason;
   };
 
+  if (emergencyCb()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
   if (!dependenciesReady()) {
     failGoal(dependenciesReason());
     return;

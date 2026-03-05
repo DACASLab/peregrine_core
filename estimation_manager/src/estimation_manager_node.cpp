@@ -204,11 +204,23 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_cleanup(
   // of Python's `del self.timer` or `self.timer = None`. The underlying ROS2
   // object (subscription, publisher, timer) is immediately destroyed, which
   // unregisters it from the executor and frees all associated resources.
-  publishTimer_.reset();
-  statusTimer_.reset();
+  if (publishTimer_) {
+    publishTimer_->cancel();
+    publishTimer_.reset();
+  }
+  if (statusTimer_) {
+    statusTimer_->cancel();
+    statusTimer_.reset();
+  }
   stateSub_.reset();
-  estimatedStatePub_.reset();
-  statusPub_.reset();
+  if (estimatedStatePub_) {
+    estimatedStatePub_->on_deactivate();
+    estimatedStatePub_.reset();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
+    statusPub_.reset();
+  }
   estimator_.reset();
   RCLCPP_INFO(this->get_logger(), "Cleaned up estimation_manager");
   return CallbackReturn::SUCCESS;
@@ -231,6 +243,12 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_error(
   }
   if (statusTimer_) {
     statusTimer_->cancel();
+  }
+  if (estimatedStatePub_) {
+    estimatedStatePub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
   }
   RCLCPP_ERROR(this->get_logger(), "Error in estimation_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;
