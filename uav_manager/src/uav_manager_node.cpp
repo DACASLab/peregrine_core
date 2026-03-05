@@ -1019,6 +1019,15 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     }
   };
 
+  if (emergency()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
+
   const TransitionOutcome landStart = applyEvent(SupervisorEvent::LandRequested);
   if (!landStart.accepted) {
     failGoal(landStart.reasonCode);
@@ -1122,6 +1131,15 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
       goalHandle->abort(result);
     }
   };
+
+  if (emergency()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
 
   const TransitionOutcome flightStart = applyEvent(SupervisorEvent::FlightActionRequested);
   if (!flightStart.accepted) {
@@ -1230,6 +1248,15 @@ void UavManagerNode::onExecuteAccepted(
       goalHandle->abort(result);
     }
   };
+
+  if (emergency()) {
+    failGoal("EMERGENCY_PREEMPT");
+    return;
+  }
+  if (preempted()) {
+    failGoal("GOAL_PREEMPTED");
+    return;
+  }
 
   const TransitionOutcome flightStart = applyEvent(SupervisorEvent::FlightActionRequested);
   if (!flightStart.accepted) {

@@ -35,6 +35,7 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
   estimatedStateTopic_ =
     this->declare_parameter<std::string>("estimated_state_topic", "estimated_state");
   px4StatusTopic_ = this->declare_parameter<std::string>("px4_status_topic", "status");
+  mapFrame_ = this->declare_parameter<std::string>("map_frame", "map");
 
   // Battery checker params
   this->declare_parameter<bool>("battery.enabled", true);

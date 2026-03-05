@@ -173,6 +173,7 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   }
   odomFrame_ = framePrefix.empty() ? std::string("odom") : framePrefix + "/odom";
   baseLinkFrame_ = framePrefix.empty() ? std::string("base_link") : framePrefix + "/base_link";
+  gpsFrame_ = framePrefix.empty() ? std::string("gps") : framePrefix + "/gps";
   sensorGpsTopicSuffix_ =
       normalizeTopicSuffix(
           this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/vehicle_gps_position"));
@@ -384,8 +385,16 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   odometry.pose.covariance[0] = msg->position_variance[1];
   odometry.pose.covariance[7] = msg->position_variance[0];
   odometry.pose.covariance[14] = msg->position_variance[2];
-  odometry.pose.covariance[21] = msg->orientation_variance[0];
-  odometry.pose.covariance[28] = msg->orientation_variance[1];
+  // Orientation covariance index swap: PX4 orientation_variance is ordered
+  // [roll_NED(about North), pitch_NED(about East), yaw_NED(about Down)].
+  // ROS pose.covariance orientation diagonal is [roll_ENU(about East=x),
+  // pitch_ENU(about North=y), yaw_ENU(about Up=z)]. The same x<->y axis swap
+  // that applies to position also applies to orientation:
+  //   orientation_variance[0] (NED roll, about North) -> covariance[28] (ENU pitch, about North=y)
+  //   orientation_variance[1] (NED pitch, about East)  -> covariance[21] (ENU roll, about East=x)
+  //   orientation_variance[2] (NED yaw, about Down)   -> covariance[35] (ENU yaw, about Up=z)
+  odometry.pose.covariance[21] = msg->orientation_variance[1];
+  odometry.pose.covariance[28] = msg->orientation_variance[0];
   odometry.pose.covariance[35] = msg->orientation_variance[2];
 
   writeLinearCovariance(velocityCovarianceFlu, odometry.twist.covariance);
@@ -450,7 +459,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   sensor_msgs::msg::NavSatFix gps;
   gps.header.stamp = this->now();
-  gps.header.frame_id = "gps";
+  gps.header.frame_id = gpsFrame_;
 
   gps.latitude = msg->latitude_deg;
   gps.longitude = msg->longitude_deg;
@@ -491,7 +500,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   peregrine_interfaces::msg::GpsStatus gpsStatus;
   gpsStatus.header.stamp = gps.header.stamp;
-  gpsStatus.header.frame_id = "gps";
+  gpsStatus.header.frame_id = gpsFrame_;
   gpsStatus.fix_type = msg->fix_type;
   gpsStatus.hdop = msg->hdop;
   gpsStatus.vdop = msg->vdop;

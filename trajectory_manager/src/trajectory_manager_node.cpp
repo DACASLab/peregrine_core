@@ -281,6 +281,12 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_error(
   if (statusTimer_) {
     statusTimer_->cancel();
   }
+  if (trajectorySetpointPub_) {
+    trajectorySetpointPub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
+  }
   RCLCPP_ERROR(this->get_logger(), "Error in trajectory_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;
 }

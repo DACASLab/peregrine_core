@@ -256,6 +256,12 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_error(
   if (statusTimer_) {
     statusTimer_->cancel();
   }
+  if (estimatedStatePub_) {
+    estimatedStatePub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
+  }
   RCLCPP_ERROR(this->get_logger(), "Error in estimation_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;
 }
