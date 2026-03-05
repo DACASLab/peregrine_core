@@ -1313,26 +1313,25 @@ void UavManagerNode::onExecuteAccepted(
   goalHandle->succeed(result);
 }
 
-// reserveActionSlot / releaseActionSlot implement a mutex-guarded boolean that
-// enforces single-flight policy: only one high-level action (takeoff, land,
-// go_to, execute_trajectory) may run at a time. This prevents conflicting PX4
-// commands -- e.g. a land goal arriving while takeoff is in progress. The slot
-// is reserved in onXxxGoal() and released via the RAII release guard in
-// onXxxAccepted().
+// reserveActionSlot / releaseActionSlot enforce the single-flight policy: only one
+// high-level action (takeoff, land, go_to, execute_trajectory) may run at a time.
+// This prevents conflicting PX4 commands -- e.g. a land goal arriving while takeoff
+// is in progress. The slot is reserved in onXxxGoal() and released via the RAII
+// release guard in onXxxAccepted().
+//
+// Implementation uses std::atomic<bool>::compare_exchange_strong() for a lock-free
+// test-and-set. This is correct because the operation is a single boolean flag with
+// no compound state to protect. The previous mutex + bool pattern was also correct
+// but incurred unnecessary lock overhead for what is inherently an atomic operation.
 bool UavManagerNode::reserveActionSlot()
 {
-  std::scoped_lock lock(actionSlotMutex_);
-  if (actionSlotReserved_) {
-    return false;
-  }
-  actionSlotReserved_ = true;
-  return true;
+  bool expected = false;
+  return actionSlotReserved_.compare_exchange_strong(expected, true);
 }
 
 void UavManagerNode::releaseActionSlot()
 {
-  std::scoped_lock lock(actionSlotMutex_);
-  actionSlotReserved_ = false;
+  actionSlotReserved_.store(false);
 }
 
 TransitionOutcome UavManagerNode::applyEvent(const SupervisorEvent event)
