@@ -203,6 +203,12 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_error(const rclcpp_lif
   if (statusTimer_) {
     statusTimer_->cancel();
   }
+  if (controlOutputPub_) {
+    controlOutputPub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
+  }
 
   RCLCPP_ERROR(this->get_logger(), "Error in control_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;

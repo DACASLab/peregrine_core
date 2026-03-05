@@ -436,7 +436,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   sensor_msgs::msg::NavSatFix gps;
   gps.header.stamp = this->now();
-  gps.header.frame_id = "gps";
+  gps.header.frame_id = baseLinkFrame_;
 
   gps.latitude = msg->latitude_deg;
   gps.longitude = msg->longitude_deg;
@@ -477,7 +477,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   peregrine_interfaces::msg::GpsStatus gpsStatus;
   gpsStatus.header.stamp = gps.header.stamp;
-  gpsStatus.header.frame_id = "gps";
+  gpsStatus.header.frame_id = baseLinkFrame_;
   gpsStatus.fix_type = msg->fix_type;
   gpsStatus.hdop = msg->hdop;
   gpsStatus.vdop = msg->vdop;
