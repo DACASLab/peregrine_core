@@ -83,9 +83,15 @@ void SafetyActionExecutor::sendLandCommand()
       pendingResponse_ = false;
       try {
         auto response = future.get();
-        if (response->success) {
+        using SetModeResponse = peregrine_interfaces::srv::SetMode::Response;
+        if (response->result_code == SetModeResponse::RESULT_ACCEPTED || response->success) {
           state_ = LandCommandState::Sent;
           RCLCPP_WARN(logger_, "Safety land command accepted");
+        } else if (response->result_code == SetModeResponse::RESULT_TEMPORARILY_REJECTED &&
+          retryCount_ < config_.land_command_retry_count)
+        {
+          RCLCPP_WARN(logger_, "Safety land command temporarily rejected: %s", response->message.c_str());
+          sendLandCommand();
         } else {
           RCLCPP_WARN(logger_, "Safety land command rejected: %s", response->message.c_str());
           if (retryCount_ < config_.land_command_retry_count) {

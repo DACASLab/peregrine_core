@@ -3,6 +3,7 @@
 #include <safety_monitor/rule_engine.hpp>
 #include <safety_monitor/safety_action_executor.hpp>
 #include <safety_monitor/safety_checker.hpp>
+#include <safety_monitor/geofence_checker.hpp>
 
 #include <peregrine_interfaces/msg/gps_status.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
@@ -44,6 +45,7 @@ private:
   void onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg);
 
   void evaluateAndPublish();
+  void updateGeofenceCache();
 
   CheckerContext buildContext() const;
 
@@ -74,12 +76,17 @@ private:
   rclcpp::Client<peregrine_interfaces::srv::SetMode>::SharedPtr setModeClient_;
 
   rclcpp::TimerBase::SharedPtr evaluateTimer_;
+  rclcpp::TimerBase::SharedPtr geofenceCacheTimer_;
 
   /// TF2 buffer and listener for odom→map frame transforms.
   std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
   std::shared_ptr<tf2_ros::TransformListener> tfListener_;
   /// Target frame for geofence checks (global map frame).
   std::string mapFrame_{"map"};
+  /// Local odometry frame for fast-path safety checks.
+  std::string odomFrame_{"odom"};
+
+  std::shared_ptr<GeofenceChecker> geofenceChecker_;
 
   bool autoStart_{true};
   rclcpp::TimerBase::SharedPtr startupTimer_;

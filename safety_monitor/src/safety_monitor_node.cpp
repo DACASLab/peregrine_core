@@ -11,11 +11,15 @@
 #include <rclcpp_components/register_node_macro.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <map>
 
 namespace safety_monitor
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -26,58 +30,62 @@ constexpr char kNodeName[] = "safety_monitor";
 SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kNodeName, options)
 {
-  evaluateRateHz_ = this->declare_parameter<double>("evaluate_rate_hz", 2.0);
-  commandLandEnabled_ = this->declare_parameter<bool>("command_land_enabled", true);
-  gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps.freshness_timeout_s", 2.0);
-  autoStart_ = this->declare_parameter<bool>("auto_start", true);
-  batteryTopic_ = this->declare_parameter<std::string>("battery_topic", "battery");
-  gpsStatusTopic_ = this->declare_parameter<std::string>("gps_status_topic", "gps_status");
-  estimatedStateTopic_ =
-    this->declare_parameter<std::string>("estimated_state_topic", "estimated_state");
-  px4StatusTopic_ = this->declare_parameter<std::string>("px4_status_topic", "status");
+  const std::map<std::string, rclcpp::ParameterValue> parameterDefaults = {
+    {"evaluate_rate_hz", rclcpp::ParameterValue(2.0)},
+    {"command_land_enabled", rclcpp::ParameterValue(true)},
+    {"gps.freshness_timeout_s", rclcpp::ParameterValue(2.0)},
+    {"auto_start", rclcpp::ParameterValue(true)},
+    {"battery_topic", rclcpp::ParameterValue(std::string("battery"))},
+    {"gps_status_topic", rclcpp::ParameterValue(std::string("gps_status"))},
+    {"estimated_state_topic", rclcpp::ParameterValue(std::string("estimated_state"))},
+    {"px4_status_topic", rclcpp::ParameterValue(std::string("status"))},
+    {"battery.enabled", rclcpp::ParameterValue(true)},
+    {"battery.warn_pct", rclcpp::ParameterValue(0.25)},
+    {"battery.critical_pct", rclcpp::ParameterValue(0.15)},
+    {"battery.emergency_pct", rclcpp::ParameterValue(0.10)},
+    {"battery.min_voltage", rclcpp::ParameterValue(10.0)},
+    {"battery.warn_grace_s", rclcpp::ParameterValue(5.0)},
+    {"battery.critical_grace_s", rclcpp::ParameterValue(2.0)},
+    {"gps.enabled", rclcpp::ParameterValue(true)},
+    {"gps.min_fix_type", rclcpp::ParameterValue(3)},
+    {"gps.max_hdop", rclcpp::ParameterValue(5.0)},
+    {"gps.max_vdop", rclcpp::ParameterValue(5.0)},
+    {"gps.min_satellites", rclcpp::ParameterValue(6)},
+    {"gps.warn_grace_s", rclcpp::ParameterValue(5.0)},
+    {"gps.critical_grace_s", rclcpp::ParameterValue(3.0)},
+    {"geofence.enabled", rclcpp::ParameterValue(true)},
+    {"geofence.max_radius_m", rclcpp::ParameterValue(500.0)},
+    {"geofence.max_altitude_m", rclcpp::ParameterValue(120.0)},
+    {"geofence.min_altitude_m", rclcpp::ParameterValue(-5.0)},
+    {"geofence.warn_grace_s", rclcpp::ParameterValue(3.0)},
+    {"geofence.critical_grace_s", rclcpp::ParameterValue(1.0)},
+    {"envelope.enabled", rclcpp::ParameterValue(true)},
+    {"envelope.max_velocity_ms", rclcpp::ParameterValue(15.0)},
+    {"envelope.max_altitude_m", rclcpp::ParameterValue(120.0)},
+    {"envelope.max_tilt_rad", rclcpp::ParameterValue(0.7)},
+    {"envelope.warn_grace_s", rclcpp::ParameterValue(3.0)},
+    {"envelope.critical_grace_s", rclcpp::ParameterValue(1.0)},
+    {"healthy_auto_clear_s", rclcpp::ParameterValue(3.0)},
+    {"land_command_timeout_s", rclcpp::ParameterValue(5.0)},
+    {"land_command_retry_count", rclcpp::ParameterValue(3)},
+  };
 
-  // Battery checker params
-  this->declare_parameter<bool>("battery.enabled", true);
-  this->declare_parameter<double>("battery.warn_pct", 0.25);
-  this->declare_parameter<double>("battery.critical_pct", 0.15);
-  this->declare_parameter<double>("battery.emergency_pct", 0.10);
-  this->declare_parameter<double>("battery.min_voltage", 10.0);
-  this->declare_parameter<double>("battery.warn_grace_s", 5.0);
-  this->declare_parameter<double>("battery.critical_grace_s", 2.0);
+  for (const auto & [name, value] : parameterDefaults) {
+    this->declare_parameter(name, value);
+  }
 
-  // GPS checker params
-  this->declare_parameter<bool>("gps.enabled", true);
-  this->declare_parameter<int>("gps.min_fix_type", 3);
-  this->declare_parameter<double>("gps.max_hdop", 5.0);
-  this->declare_parameter<double>("gps.max_vdop", 5.0);
-  this->declare_parameter<int>("gps.min_satellites", 6);
-  this->declare_parameter<double>("gps.warn_grace_s", 5.0);
-  this->declare_parameter<double>("gps.critical_grace_s", 3.0);
-
-  // Geofence checker params
-  this->declare_parameter<bool>("geofence.enabled", true);
-  this->declare_parameter<double>("geofence.max_radius_m", 500.0);
-  this->declare_parameter<double>("geofence.max_altitude_m", 120.0);
-  this->declare_parameter<double>("geofence.min_altitude_m", -5.0);
-  this->declare_parameter<double>("geofence.warn_grace_s", 3.0);
-  this->declare_parameter<double>("geofence.critical_grace_s", 1.0);
-
-  // Envelope checker params
-  this->declare_parameter<bool>("envelope.enabled", true);
-  this->declare_parameter<double>("envelope.max_velocity_ms", 15.0);
-  this->declare_parameter<double>("envelope.max_altitude_m", 120.0);
-  this->declare_parameter<double>("envelope.max_tilt_rad", 0.7);
-  this->declare_parameter<double>("envelope.warn_grace_s", 3.0);
-  this->declare_parameter<double>("envelope.critical_grace_s", 1.0);
-
-  // Cross-checker action/recovery params
-  this->declare_parameter<double>("healthy_auto_clear_s", 3.0);
-  this->declare_parameter<double>("land_command_timeout_s", 5.0);
-  this->declare_parameter<int>("land_command_retry_count", 3);
+  evaluateRateHz_ = this->get_parameter("evaluate_rate_hz").as_double();
+  commandLandEnabled_ = this->get_parameter("command_land_enabled").as_bool();
+  gpsFreshnessTimeoutS_ = this->get_parameter("gps.freshness_timeout_s").as_double();
+  autoStart_ = this->get_parameter("auto_start").as_bool();
+  batteryTopic_ = this->get_parameter("battery_topic").as_string();
+  gpsStatusTopic_ = this->get_parameter("gps_status_topic").as_string();
+  estimatedStateTopic_ = this->get_parameter("estimated_state_topic").as_string();
+  px4StatusTopic_ = this->get_parameter("px4_status_topic").as_string();
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();
         RCLCPP_INFO(get_logger(), "Auto-start: triggering configure");
@@ -107,6 +115,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
     RCLCPP_ERROR(get_logger(), "evaluate_rate_hz must be > 0");
     return CallbackReturn::FAILURE;
   }
+
+  geofenceChecker_.reset();
 
   // Build rule engine
   RuleEngineConfig engineConfig;
@@ -151,7 +161,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
     rule.enabled = true;
     rule.warn_grace_s = this->get_parameter("geofence.warn_grace_s").as_double();
     rule.critical_grace_s = this->get_parameter("geofence.critical_grace_s").as_double();
-    ruleEngine_->addChecker(std::make_shared<GeofenceChecker>(cfg), rule);
+    geofenceChecker_ = std::make_shared<GeofenceChecker>(cfg);
+    ruleEngine_->addChecker(geofenceChecker_, rule);
   }
 
   // Envelope checker
@@ -174,15 +185,14 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   // Subscriptions
   const auto qos = rclcpp::QoS(20).reliable();
   batterySub_ = this->create_subscription<sensor_msgs::msg::BatteryState>(
-    batteryTopic_, qos, std::bind(&SafetyMonitorNode::onBattery, this, std::placeholders::_1));
+    batteryTopic_, qos, [this](const sensor_msgs::msg::BatteryState::SharedPtr msg) { onBattery(msg); });
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    gpsStatusTopic_, qos, std::bind(&SafetyMonitorNode::onGpsStatus, this, std::placeholders::_1));
+    gpsStatusTopic_, qos, [this](const peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    estimatedStateTopic_, qos,
-    std::bind(&SafetyMonitorNode::onEstimatedState, this, std::placeholders::_1));
+    estimatedStateTopic_, qos, [this](const peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
     px4StatusTopic_, rclcpp::QoS(10).reliable(),
-    std::bind(&SafetyMonitorNode::onPx4Status, this, std::placeholders::_1));
+    [this](const peregrine_interfaces::msg::PX4Status::SharedPtr msg) { onPx4Status(msg); });
 
   // Publisher
   safetyStatusPub_ = this->create_publisher<peregrine_interfaces::msg::SafetyStatus>(
@@ -200,9 +210,11 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   // Evaluation timer (created but not started until activate)
   const auto period = std::chrono::duration<double>(1.0 / evaluateRateHz_);
   evaluateTimer_ = this->create_wall_timer(
-    std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-    std::bind(&SafetyMonitorNode::evaluateAndPublish, this));
+    period, [this]() { evaluateAndPublish(); });
+  geofenceCacheTimer_ = this->create_wall_timer(1s, [this]() { updateGeofenceCache(); });
+
   evaluateTimer_->cancel();
+  geofenceCacheTimer_->cancel();
 
   RCLCPP_INFO(
     get_logger(),
@@ -216,11 +228,13 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
 SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_activate(
   const rclcpp_lifecycle::State &)
 {
-  if (!safetyStatusPub_ || !evaluateTimer_) {
+  if (!safetyStatusPub_ || !evaluateTimer_ || !geofenceCacheTimer_) {
     return CallbackReturn::FAILURE;
   }
   safetyStatusPub_->on_activate();
   evaluateTimer_->reset();
+  geofenceCacheTimer_->reset();
+  updateGeofenceCache();
   RCLCPP_INFO(get_logger(), "Activated safety_monitor");
   return CallbackReturn::SUCCESS;
 }
@@ -230,6 +244,9 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_deactivate(
 {
   if (evaluateTimer_) {
     evaluateTimer_->cancel();
+  }
+  if (geofenceCacheTimer_) {
+    geofenceCacheTimer_->cancel();
   }
   if (safetyStatusPub_) {
     safetyStatusPub_->on_deactivate();
@@ -242,6 +259,7 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_cleanup(
   const rclcpp_lifecycle::State &)
 {
   evaluateTimer_.reset();
+  geofenceCacheTimer_.reset();
   batterySub_.reset();
   gpsStatusSub_.reset();
   estimatedStateSub_.reset();
@@ -249,6 +267,7 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_cleanup(
   safetyStatusPub_.reset();
   setModeClient_.reset();
   ruleEngine_.reset();
+  geofenceChecker_.reset();
   actionExecutor_.reset();
   tfListener_.reset();
   tfBuffer_.reset();
@@ -309,32 +328,15 @@ void SafetyMonitorNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::
 
 void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
 {
-  // Transform position from odom frame to map frame for geofence checking.
-  double px = msg->pose.pose.position.x;
-  double py = msg->pose.pose.position.y;
-  double pz = msg->pose.pose.position.z;
-
-  if (tfBuffer_ && !msg->header.frame_id.empty()) {
-    try {
-      geometry_msgs::msg::PointStamped odomPoint;
-      odomPoint.header = msg->header;
-      odomPoint.point = msg->pose.pose.position;
-      auto mapPoint = tfBuffer_->transform(odomPoint, mapFrame_, tf2::durationFromSec(0.0));
-      px = mapPoint.point.x;
-      py = mapPoint.point.y;
-      pz = mapPoint.point.z;
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 10000,
-        "TF2 odom->map lookup failed, using raw odom position for geofence: %s", ex.what());
-    }
+  if (!msg->header.frame_id.empty()) {
+    odomFrame_ = msg->header.frame_id;
   }
 
   std::scoped_lock lock(mutex_);
   PositionData data;
-  data.x = px;
-  data.y = py;
-  data.z = pz;
+  data.x = msg->pose.pose.position.x;
+  data.y = msg->pose.pose.position.y;
+  data.z = msg->pose.pose.position.z;
   // Velocity magnitude is frame-invariant; no rotation needed for envelope speed checks.
   data.vx = msg->twist.twist.linear.x;
   data.vy = msg->twist.twist.linear.y;
@@ -381,6 +383,43 @@ CheckerContext SafetyMonitorNode::buildContext() const
   }
 
   return ctx;
+}
+
+void SafetyMonitorNode::updateGeofenceCache()
+{
+  if (!geofenceChecker_ || !tfBuffer_ || odomFrame_.empty()) {
+    return;
+  }
+
+  try {
+    geometry_msgs::msg::PointStamped centerMap;
+    centerMap.header.stamp = this->now();
+    centerMap.header.frame_id = mapFrame_;
+    centerMap.point.x = 0.0;
+    centerMap.point.y = 0.0;
+    centerMap.point.z = 0.0;
+
+    geometry_msgs::msg::PointStamped minAltMap = centerMap;
+    geometry_msgs::msg::PointStamped maxAltMap = centerMap;
+    minAltMap.point.z = this->get_parameter("geofence.min_altitude_m").as_double();
+    maxAltMap.point.z = this->get_parameter("geofence.max_altitude_m").as_double();
+
+    const auto centerOdom = tfBuffer_->transform(centerMap, odomFrame_, tf2::durationFromSec(0.0));
+    const auto minAltOdom = tfBuffer_->transform(minAltMap, odomFrame_, tf2::durationFromSec(0.0));
+    const auto maxAltOdom = tfBuffer_->transform(maxAltMap, odomFrame_, tf2::durationFromSec(0.0));
+
+    GeofenceBoundary boundary;
+    boundary.center_x_m = centerOdom.point.x;
+    boundary.center_y_m = centerOdom.point.y;
+    boundary.max_radius_m = this->get_parameter("geofence.max_radius_m").as_double();
+    boundary.min_altitude_m = std::min(minAltOdom.point.z, maxAltOdom.point.z);
+    boundary.max_altitude_m = std::max(minAltOdom.point.z, maxAltOdom.point.z);
+    geofenceChecker_->updateBoundary(boundary);
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "Failed to refresh geofence map->%s transform: %s", odomFrame_.c_str(), ex.what());
+  }
 }
 
 void SafetyMonitorNode::evaluateAndPublish()

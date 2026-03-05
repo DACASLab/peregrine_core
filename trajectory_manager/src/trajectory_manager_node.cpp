@@ -15,13 +15,15 @@
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>
 
 namespace trajectory_manager
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -41,7 +43,7 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();  // one-shot
 
@@ -78,23 +80,6 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
     return CallbackReturn::FAILURE;
   }
 
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  // Deterministic startup gate: trajectory generation requires estimated_state input.
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-
-  if (this->get_publishers_info_by_topic("estimated_state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure trajectory_manager: upstream topic 'estimated_state' not available");
-    return CallbackReturn::FAILURE;
-  }
-
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
@@ -103,7 +88,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // subscription type at compile time. This gives zero runtime type dispatch overhead.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
-    std::bind(&TrajectoryManagerNode::onEstimatedState, this, std::placeholders::_1));
+    [this](const peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   trajectorySetpointPub_ = this->create_publisher<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
@@ -118,30 +103,30 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // accepted callbacks block for the duration of the goal).
   goToServer_ = rclcpp_action::create_server<GoTo>(
     this, "~/go_to",
-    std::bind(
-      &TrajectoryManagerNode::onGoToGoal, this, std::placeholders::_1,
-      std::placeholders::_2),
-    std::bind(&TrajectoryManagerNode::onGoToCancel, this, std::placeholders::_1),
-    std::bind(&TrajectoryManagerNode::onGoToAccepted, this, std::placeholders::_1));
+    [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const GoTo::Goal> goal) {
+      return onGoToGoal(uuid, std::move(goal));
+    },
+    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { return onGoToCancel(goalHandle); },
+    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { onGoToAccepted(goalHandle); });
 
   executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
     this, "~/execute_trajectory",
-    std::bind(
-      &TrajectoryManagerNode::onExecuteGoal, this, std::placeholders::_1,
-      std::placeholders::_2),
-    std::bind(&TrajectoryManagerNode::onExecuteCancel, this, std::placeholders::_1),
-    std::bind(&TrajectoryManagerNode::onExecuteAccepted, this, std::placeholders::_1));
+    [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const ExecuteTrajectory::Goal> goal) {
+      return onExecuteGoal(uuid, std::move(goal));
+    },
+    [this](const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle) { return onExecuteCancel(goalHandle); },
+    [this](const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle) { onExecuteAccepted(goalHandle); });
 
   // Create-then-cancel pattern: timers must exist before on_activate, but should not
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.
   // This is the same lifecycle gate used by other managers in the peregrine stack.
   publishTimer_ = this->create_wall_timer(
     periodFromHz(publishRateHz_),
-    std::bind(&TrajectoryManagerNode::publishTrajectorySetpoint, this));
+    [this]() { publishTrajectorySetpoint(); });
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-    std::bind(&TrajectoryManagerNode::publishStatus, this));
+    [this]() { publishStatus(); });
 
   publishTimer_->cancel();
   statusTimer_->cancel();
@@ -329,14 +314,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
     return;
   }
 
-  // Goal handle copies are staged here so that succeed()/canceled() can be called OUTSIDE
-  // the lock. See the comment near the end of this function for the deadlock rationale.
-  std::shared_ptr<GoalHandleGoTo> goToGoalToSucceed;
-  std::shared_ptr<GoalHandleGoTo> goToGoalToCancel;
-  std::shared_ptr<GoalHandleExecuteTrajectory> executeGoalToSucceed;
-  std::shared_ptr<GoalHandleExecuteTrajectory> executeGoalToCancel;
-  std::shared_ptr<GoTo::Result> goToResult;
-  std::shared_ptr<ExecuteTrajectory::Result> executeResult;
+  std::optional<std::function<void()>> deferredAction;
 
   peregrine_interfaces::msg::TrajectorySetpoint setpoint;
   const auto now = this->now();
@@ -358,19 +336,21 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
       if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_ &&
         activeGoToGoal_->is_canceling())
       {
-        goToGoalToCancel = activeGoToGoal_;
-        goToResult = std::make_shared<GoTo::Result>();
-        goToResult->success = false;
-        goToResult->message = "GOAL_CANCELED";
-        goToResult->final_position = latestState_->pose.pose.position;
+        auto goalHandle = activeGoToGoal_;
+        auto result = std::make_shared<GoTo::Result>();
+        result->success = false;
+        result->message = "GOAL_CANCELED";
+        result->final_position = latestState_->pose.pose.position;
+        deferredAction = [goalHandle, result]() { goalHandle->canceled(result); };
         switchToHoldFromState(*latestState_);
       } else if (activeGoalType_ == ActiveGoalType::ExecuteTrajectory && activeExecuteGoal_ &&
         activeExecuteGoal_->is_canceling())
       {
-        executeGoalToCancel = activeExecuteGoal_;
-        executeResult = std::make_shared<ExecuteTrajectory::Result>();
-        executeResult->success = false;
-        executeResult->message = "GOAL_CANCELED";
+        auto goalHandle = activeExecuteGoal_;
+        auto result = std::make_shared<ExecuteTrajectory::Result>();
+        result->success = false;
+        result->message = "GOAL_CANCELED";
+        deferredAction = [goalHandle, result]() { goalHandle->canceled(result); };
         switchToHoldFromState(*latestState_);
       }
     }
@@ -393,16 +373,18 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
       if (sample.completed) {
         // Latch terminal result first, then switch back to hold generator.
         if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
-          goToGoalToSucceed = activeGoToGoal_;
-          goToResult = std::make_shared<GoTo::Result>();
-          goToResult->success = true;
-          goToResult->message = "GOAL_REACHED";
-          goToResult->final_position = sample.setpoint.position;
+          auto goalHandle = activeGoToGoal_;
+          auto result = std::make_shared<GoTo::Result>();
+          result->success = true;
+          result->message = "GOAL_REACHED";
+          result->final_position = sample.setpoint.position;
+          deferredAction = [goalHandle, result]() { goalHandle->succeed(result); };
         } else if (activeGoalType_ == ActiveGoalType::ExecuteTrajectory && activeExecuteGoal_) {
-          executeGoalToSucceed = activeExecuteGoal_;
-          executeResult = std::make_shared<ExecuteTrajectory::Result>();
-          executeResult->success = true;
-          executeResult->message = "TRAJECTORY_COMPLETED";
+          auto goalHandle = activeExecuteGoal_;
+          auto result = std::make_shared<ExecuteTrajectory::Result>();
+          result->success = true;
+          result->message = "TRAJECTORY_COMPLETED";
+          deferredAction = [goalHandle, result]() { goalHandle->succeed(result); };
         }
 
         const double holdYaw = sample.setpoint.yaw;
@@ -428,22 +410,8 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
   // consistent cadence and frame metadata.
   trajectorySetpointPub_->publish(setpoint);
 
-  // Goal results (succeed/canceled) are resolved OUTSIDE the lock. Calling
-  // goalHandle->succeed() or goalHandle->canceled() may synchronously invoke the action
-  // server's goal or cancel callbacks (onGoToGoal, onGoToCancel, etc.), which themselves
-  // acquire mutex_. If we called succeed() while holding the lock, the re-entrant lock
-  // attempt would deadlock (std::mutex is non-recursive).
-  if (goToGoalToCancel && goToResult) {
-    goToGoalToCancel->canceled(goToResult);
-  }
-  if (executeGoalToCancel && executeResult) {
-    executeGoalToCancel->canceled(executeResult);
-  }
-  if (goToGoalToSucceed && goToResult) {
-    goToGoalToSucceed->succeed(goToResult);
-  }
-  if (executeGoalToSucceed && executeResult) {
-    executeGoalToSucceed->succeed(executeResult);
+  if (deferredAction.has_value()) {
+    (*deferredAction)();
   }
 }
 

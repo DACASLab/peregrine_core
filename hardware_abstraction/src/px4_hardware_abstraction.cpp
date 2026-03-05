@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -27,6 +28,8 @@
 
 namespace hardware_abstraction
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -81,69 +84,42 @@ std::string toLower(std::string input)
   return input;
 }
 
-// Offboard mode flags are bit-packed into a single uint32_t so the offboard heartbeat timer
-// can atomically load the latest control mode without a mutex. The heartbeat timer and the
-// control_output subscription callback may run concurrently on the same executor, and a
-// lock-free atomic store/load keeps the heartbeat in sync with the most recent control mode.
-//
-// Bit layout:
-//   [0:7]  = control mode enum (e.g. MODE_TRAJECTORY, MODE_BODY_RATE, etc.)
-//   bit 8  = use position (trajectory mode only)
-//   bit 9  = use velocity (trajectory mode only)
-//   bit 10 = use acceleration (trajectory mode only)
-// Bitwise constants for packing multiple boolean flags into a single integer.
-// This is a common C/C++ pattern for lock-free atomic data exchange; Python
-// rarely uses bit manipulation directly, preferring named fields or dictionaries.
-//
-// `0xFFu` is a hexadecimal literal (255 in decimal); the `u` suffix marks it
-// as unsigned. `1u << 8` shifts the bit pattern 1 left by 8 positions,
-// producing 256 (binary: 100000000). The `|=` operator below ORs these flags
-// together, and `& mask` extracts them.
-//
-// `std::array<double, 36>` (used below) is a fixed-size array, equivalent to
-// a Python tuple of exactly 36 doubles. Unlike Python lists, the size is known
-// at compile time and cannot change.
-constexpr uint32_t kModeMask = 0xFFu;
-constexpr uint32_t kTrajectoryPositionBit = 1u << 8;
-constexpr uint32_t kTrajectoryVelocityBit = 1u << 9;
-constexpr uint32_t kTrajectoryAccelerationBit = 1u << 10;
+constexpr uint8_t kMavResultAccepted = 0;
+constexpr uint8_t kMavResultTemporarilyRejected = 1;
+constexpr uint8_t kMavResultDenied = 2;
+constexpr uint8_t kMavResultFailed = 4;
 
-uint32_t packOffboardModeFlags(uint8_t controlMode, bool usePosition, bool useVelocity, bool useAcceleration)
+uint8_t mapAckToResultCode(const uint8_t ackResult)
 {
-  uint32_t flags = static_cast<uint32_t>(controlMode) & kModeMask;
-  if (usePosition)
+  using ArmResponse = peregrine_interfaces::srv::Arm::Response;
+  switch (ackResult)
   {
-    flags |= kTrajectoryPositionBit;
+    case kMavResultAccepted:
+      return ArmResponse::RESULT_ACCEPTED;
+    case kMavResultTemporarilyRejected:
+      return ArmResponse::RESULT_TEMPORARILY_REJECTED;
+    case kMavResultDenied:
+      return ArmResponse::RESULT_DENIED;
+    default:
+      return ArmResponse::RESULT_FAILED;
   }
-  if (useVelocity)
+}
+
+std::string describeAckResult(const uint8_t ackResult)
+{
+  switch (ackResult)
   {
-    flags |= kTrajectoryVelocityBit;
+    case kMavResultAccepted:
+      return "ACCEPTED";
+    case kMavResultTemporarilyRejected:
+      return "TEMPORARILY_REJECTED";
+    case kMavResultDenied:
+      return "DENIED";
+    case kMavResultFailed:
+      return "FAILED";
+    default:
+      return "ACK_" + std::to_string(ackResult);
   }
-  if (useAcceleration)
-  {
-    flags |= kTrajectoryAccelerationBit;
-  }
-  return flags;
-}
-
-uint8_t unpackControlMode(const uint32_t flags)
-{
-  return static_cast<uint8_t>(flags & kModeMask);
-}
-
-bool hasTrajectoryPosition(const uint32_t flags)
-{
-  return (flags & kTrajectoryPositionBit) != 0u;
-}
-
-bool hasTrajectoryVelocity(const uint32_t flags)
-{
-  return (flags & kTrajectoryVelocityBit) != 0u;
-}
-
-bool hasTrajectoryAcceleration(const uint32_t flags)
-{
-  return (flags & kTrajectoryAccelerationBit) != 0u;
 }
 
 void writeLinearCovariance(const Eigen::Matrix3d& covariance, std::array<double, 36>& target)
@@ -215,19 +191,23 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   // the correct one at compile time based on the px4_msgs package version being built against.
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onVehicleOdometry, this, std::placeholders::_1));
+      [this](const px4_msgs::msg::VehicleOdometry::SharedPtr msg) { onVehicleOdometry(msg); });
   batteryStatusSub_ = this->create_subscription<px4_msgs::msg::BatteryStatus>(
       px4Topic("/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onBatteryStatus, this, std::placeholders::_1));
+      [this](const px4_msgs::msg::BatteryStatus::SharedPtr msg) { onBatteryStatus(msg); });
   sensorGpsSub_ = this->create_subscription<px4_msgs::msg::SensorGps>(
       px4Topic(sensorGpsTopicSuffix_ + getMessageNameVersion<px4_msgs::msg::SensorGps>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onSensorGps, this, std::placeholders::_1));
+      [this](const px4_msgs::msg::SensorGps::SharedPtr msg) { onSensorGps(msg); });
   vehicleStatusSub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
       px4Topic("/fmu/out/vehicle_status" + getMessageNameVersion<px4_msgs::msg::VehicleStatus>()), px4InputQos,
-      std::bind(&PX4HardwareAbstraction::onVehicleStatus, this, std::placeholders::_1));
+      [this](const px4_msgs::msg::VehicleStatus::SharedPtr msg) { onVehicleStatus(msg); });
+  vehicleCommandAckSub_ = this->create_subscription<px4_msgs::msg::VehicleCommandAck>(
+      px4Topic("/fmu/out/vehicle_command_ack" + getMessageNameVersion<px4_msgs::msg::VehicleCommandAck>()), px4InputQos,
+      [this](const px4_msgs::msg::VehicleCommandAck::SharedPtr msg) { onVehicleCommandAck(msg); });
   // Manager command input.
   controlOutputSub_ = this->create_subscription<peregrine_interfaces::msg::ControlOutput>(
-      "control_output", rosInputQos, std::bind(&PX4HardwareAbstraction::onControlOutput, this, std::placeholders::_1));
+      "control_output", rosInputQos,
+      [this](const peregrine_interfaces::msg::ControlOutput::SharedPtr msg) { onControlOutput(msg); });
 
   // PX4 command/setpoint publishers.
   offboardControlModePub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>(
@@ -249,21 +229,27 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Service interface for manager/state-machine orchestration.
   armService_ = this->create_service<peregrine_interfaces::srv::Arm>(
-      "arm", std::bind(&PX4HardwareAbstraction::onArmService, this, std::placeholders::_1, std::placeholders::_2));
+      "arm",
+      [this](const std::shared_ptr<peregrine_interfaces::srv::Arm::Request> request,
+             std::shared_ptr<peregrine_interfaces::srv::Arm::Response> response)
+      {
+        onArmService(request, response);
+      });
   setModeService_ = this->create_service<peregrine_interfaces::srv::SetMode>(
       "set_mode",
-      std::bind(&PX4HardwareAbstraction::onSetModeService, this, std::placeholders::_1, std::placeholders::_2));
+      [this](const std::shared_ptr<peregrine_interfaces::srv::SetMode::Request> request,
+             std::shared_ptr<peregrine_interfaces::srv::SetMode::Response> response)
+      {
+        onSetModeService(request, response);
+      });
 
   // Timers for offboard heartbeat and status publication.
-  offboardModeTimer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / offboardRateHz_)),
-      std::bind(&PX4HardwareAbstraction::publishOffboardControlMode, this));
-  statusTimer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / statusRateHz_)),
-      std::bind(&PX4HardwareAbstraction::publishStatus, this));
+  offboardModeTimer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / offboardRateHz_),
+                                                [this]() { publishOffboardControlMode(); });
+  statusTimer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / statusRateHz_),
+                                         [this]() { publishStatus(); });
 
-  offboardModeFlags_.store(packOffboardModeFlags(peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY, true, false,
-                                                 false));
+  offboardIntent_.store(OffboardIntent{}, std::memory_order_release);
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
 
   RCLCPP_INFO(this->get_logger(), "px4_hardware_abstraction started. px4_namespace='%s', sensor_gps_topic='%s'",
@@ -313,7 +299,7 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   //        heading reference that we don't have here.
   Eigen::Vector3d velocityBodyFrd = Eigen::Vector3d::Zero();
   Eigen::Matrix3d velocityCovarianceFlu = Eigen::Matrix3d::Zero();
-  const Eigen::Matrix3d rotationFluFrd = frame_transforms::frdToFluMatrix();
+  static const Eigen::Matrix3d rotationFluFrd = frame_transforms::frdToFluMatrix();
   switch (msg->velocity_frame)
   {
     case px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_BODY_FRD:
@@ -524,14 +510,9 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
 // heartbeat hasn't been accepted yet).
 void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg)
 {
-  // Track the latest requested control mode flags so OffboardControlMode heartbeat stays valid
-  // during mode transitions, even when commands are intentionally gated below.
-  // Memory ordering:
-  // - `release` on store here pairs with `acquire` loads in heartbeat/publication paths.
-  // - This guarantees readers observe a fully-written flag value.
-  offboardModeFlags_.store(
-      packOffboardModeFlags(msg->control_mode, msg->use_position, msg->use_velocity, msg->use_acceleration),
-      std::memory_order_release);
+  // Track the latest requested control intent so the offboard heartbeat stays coherent.
+  offboardIntent_.store(OffboardIntent{msg->control_mode, msg->use_position, msg->use_velocity, msg->use_acceleration},
+                        std::memory_order_release);
 
   // Validate frame_id matches expectation for the control mode.
   if (!msg->header.frame_id.empty()) {
@@ -728,28 +709,54 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
 void PX4HardwareAbstraction::onArmService(const std::shared_ptr<peregrine_interfaces::srv::Arm::Request> request,
                                           std::shared_ptr<peregrine_interfaces::srv::Arm::Response> response)
 {
+  using ArmResponse = peregrine_interfaces::srv::Arm::Response;
   if (!isConnected())
   {
     response->success = false;
+    response->result_code = ArmResponse::RESULT_FAILED;
     response->message = "PX4 is not connected.";
     return;
   }
 
-  // Manager requests are translated into MAVLink-compatible VehicleCommand fields.
+  // Manager requests are translated into MAVLink-compatible VehicleCommand fields and
+  // acknowledged deterministically through VehicleCommandAck.
   const float armValue = request->arm ? 1.0f : 0.0f;
-  vehicleCommandPub_->publish(
-      makeVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, armValue, 0.0f));
+  const uint32_t command = px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM;
+  auto vehicleCommand = makeVehicleCommand(command, armValue, 0.0f);
 
-  response->success = true;
-  response->message = request->arm ? "Arm command sent." : "Disarm command sent.";
+  std::promise<uint8_t> commandPromise;
+  auto commandFuture = commandPromise.get_future();
+  {
+    std::scoped_lock lock(pendingCommandsMutex_);
+    pendingCommands_.erase(command);
+    pendingCommands_.emplace(command, std::move(commandPromise));
+  }
+  vehicleCommandPub_->publish(vehicleCommand);
+
+  if (commandFuture.wait_for(500ms) != std::future_status::ready)
+  {
+    std::scoped_lock lock(pendingCommandsMutex_);
+    pendingCommands_.erase(command);
+    response->success = false;
+    response->result_code = ArmResponse::RESULT_TIMEOUT;
+    response->message = request->arm ? "Arm command ACK timeout." : "Disarm command ACK timeout.";
+    return;
+  }
+
+  const uint8_t ackResult = commandFuture.get();
+  response->result_code = mapAckToResultCode(ackResult);
+  response->success = response->result_code == ArmResponse::RESULT_ACCEPTED;
+  response->message = (request->arm ? "Arm" : "Disarm") + std::string(" ACK: ") + describeAckResult(ackResult);
 }
 
 void PX4HardwareAbstraction::onSetModeService(const std::shared_ptr<peregrine_interfaces::srv::SetMode::Request> request,
                                               std::shared_ptr<peregrine_interfaces::srv::SetMode::Response> response)
 {
+  using SetModeResponse = peregrine_interfaces::srv::SetMode::Response;
   if (!isConnected())
   {
     response->success = false;
+    response->result_code = SetModeResponse::RESULT_FAILED;
     response->message = "PX4 is not connected.";
     return;
   }
@@ -760,21 +767,73 @@ void PX4HardwareAbstraction::onSetModeService(const std::shared_ptr<peregrine_in
   if (!valid)
   {
     response->success = false;
+    response->result_code = SetModeResponse::RESULT_DENIED;
     response->message = "Unknown mode. Valid: manual, altitude, position, offboard, loiter, mission, land";
     return;
   }
 
-  vehicleCommandPub_->publish(
-      makeVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_SET_NAV_STATE, static_cast<float>(navState), 0.0f));
+  const uint32_t command = px4_msgs::msg::VehicleCommand::VEHICLE_CMD_SET_NAV_STATE;
+  auto vehicleCommand = makeVehicleCommand(command, static_cast<float>(navState), 0.0f);
 
-  response->success = true;
-  response->message = "Mode command sent: " + request->mode;
+  std::promise<uint8_t> commandPromise;
+  auto commandFuture = commandPromise.get_future();
+  {
+    std::scoped_lock lock(pendingCommandsMutex_);
+    pendingCommands_.erase(command);
+    pendingCommands_.emplace(command, std::move(commandPromise));
+  }
+  vehicleCommandPub_->publish(vehicleCommand);
+
+  if (commandFuture.wait_for(500ms) != std::future_status::ready)
+  {
+    std::scoped_lock lock(pendingCommandsMutex_);
+    pendingCommands_.erase(command);
+    response->success = false;
+    response->result_code = SetModeResponse::RESULT_TIMEOUT;
+    response->message = "Mode command ACK timeout: " + request->mode;
+    return;
+  }
+
+  const uint8_t ackResult = commandFuture.get();
+  response->result_code = mapAckToResultCode(ackResult);
+  response->success = response->result_code == SetModeResponse::RESULT_ACCEPTED;
+  response->message = "Mode " + request->mode + " ACK: " + describeAckResult(ackResult);
+}
+
+void PX4HardwareAbstraction::onVehicleCommandAck(const px4_msgs::msg::VehicleCommandAck::SharedPtr msg)
+{
+  lastPx4RxTimeNs_.store(this->now().nanoseconds());
+
+  std::promise<uint8_t> ackPromise;
+  bool hasPending = false;
+  {
+    std::scoped_lock lock(pendingCommandsMutex_);
+    const auto it = pendingCommands_.find(msg->command);
+    if (it != pendingCommands_.end())
+    {
+      ackPromise = std::move(it->second);
+      pendingCommands_.erase(it);
+      hasPending = true;
+    }
+  }
+
+  if (hasPending)
+  {
+    try
+    {
+      ackPromise.set_value(msg->result);
+    }
+    catch (const std::future_error&)
+    {
+      // Promise already satisfied by timeout path; nothing to do.
+    }
+  }
 }
 
 // This is the REQUIRED periodic heartbeat for PX4 offboard mode. PX4 will reject entry
 // into offboard mode -- or revert to its configured failsafe -- if this OffboardControlMode
 // message stops arriving (default timeout ~500ms). The heartbeat flags must match the
-// control mode of the setpoints being sent, so we unpack them from the atomic snapshot
+// control mode of the setpoints being sent, so we read the atomic intent snapshot
 // that was stored by the most recent onControlOutput callback.
 void PX4HardwareAbstraction::publishOffboardControlMode()
 {
@@ -782,14 +841,14 @@ void PX4HardwareAbstraction::publishOffboardControlMode()
   mode.timestamp = nowMicros();
 
   // Acquire pairs with release-store in onControlOutput() to read a coherent snapshot.
-  const uint32_t flags = offboardModeFlags_.load(std::memory_order_acquire);
-  const auto activeMode = unpackControlMode(flags);
+  const OffboardIntent intent = offboardIntent_.load(std::memory_order_acquire);
+  const auto activeMode = intent.control_mode;
   const bool trajectoryMode = activeMode == peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY;
 
   // Keep offboard heartbeat coherent with whichever manager output mode is active.
-  mode.position = trajectoryMode && hasTrajectoryPosition(flags);
-  mode.velocity = trajectoryMode && hasTrajectoryVelocity(flags);
-  mode.acceleration = trajectoryMode && hasTrajectoryAcceleration(flags);
+  mode.position = trajectoryMode && intent.use_pos;
+  mode.velocity = trajectoryMode && intent.use_vel;
+  mode.acceleration = trajectoryMode && intent.use_accel;
   mode.attitude = activeMode == peregrine_interfaces::msg::ControlOutput::MODE_ATTITUDE;
   mode.body_rate = activeMode == peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE;
   mode.thrust_and_torque = false;

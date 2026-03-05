@@ -16,10 +16,11 @@
 
 #include <chrono>
 #include <stdexcept>
-#include <thread>
 
 namespace estimation_manager
 {
+using namespace std::chrono_literals;
+
 // An unnamed namespace (no name after `namespace`) makes its contents visible only
 // within this .cpp file. This is the C++ equivalent of Python's module-level
 // variables that aren't exported — other files cannot see or reference these constants.
@@ -58,7 +59,7 @@ EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();  // one-shot
 
@@ -95,27 +96,6 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
     return CallbackReturn::FAILURE;
   }
 
-  // Startup gate: block the configure callback until the upstream "state" topic has at
-  // least one publisher (i.e. hardware_abstraction is running). get_publishers_info_by_topic()
-  // queries the ROS2 graph API to discover live publishers without subscribing. This
-  // creates a deterministic dependency chain: hardware_abstraction must be running before
-  // estimation_manager can complete configuration.
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-
-  if (this->get_publishers_info_by_topic("state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure estimation_manager: upstream topic 'state' not available");
-    return CallbackReturn::FAILURE;
-  }
-
   // `std::make_unique<T>(args...)` creates a heap-allocated object wrapped in a
   // std::unique_ptr<T>. A unique_ptr is a "smart pointer" that automatically
   // deletes the object when the unique_ptr goes out of scope or is reset.
@@ -133,18 +113,14 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
-  // `std::bind` creates a callable object (similar to Python's functools.partial).
-  // `&EstimationManagerNode::onState` is a pointer to the member function.
-  // `this` binds the object instance (like Python's implicit `self`).
-  // `std::placeholders::_1` is a placeholder for the first argument (the message).
-  //
-  // Equivalent Python would be:  lambda msg: self.on_state(msg)
+  // A lambda captures `this` and forwards the message to the member callback.
+  // Equivalent Python would be: `lambda msg: self.on_state(msg)`.
   //
   // The `<peregrine_interfaces::msg::State>` in angle brackets is a template
   // parameter — it tells create_subscription which message type to expect.
   // Templates are C++'s version of Python generics (List[int], Dict[str, float]).
   stateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    "state", qos, std::bind(&EstimationManagerNode::onState, this, std::placeholders::_1));
+    "state", qos, [this](const peregrine_interfaces::msg::State::SharedPtr msg) { onState(msg); });
   estimatedStatePub_ = this->create_publisher<peregrine_interfaces::msg::State>(
     "estimated_state",
     qos);
@@ -160,11 +136,11 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   publishTimer_ =
     this->create_wall_timer(
     periodFromHz(publishRateHz_),
-    std::bind(&EstimationManagerNode::publishEstimatedState, this));
+    [this]() { publishEstimatedState(); });
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-      std::bind(&EstimationManagerNode::publishStatus, this));
+      [this]() { publishStatus(); });
 
   // Timers are armed only in lifecycle ACTIVE state.
   publishTimer_->cancel();

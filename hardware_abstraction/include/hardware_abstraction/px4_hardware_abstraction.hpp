@@ -52,6 +52,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_attitude_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <px4_msgs/msg/vehicle_rates_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
@@ -61,9 +62,12 @@
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 
 #include <atomic>
+#include <future>
 #include <cstdint>
 #include <cmath>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace hardware_abstraction
 {
@@ -124,6 +128,10 @@ private:
    */
   void onSetModeService(const std::shared_ptr<peregrine_interfaces::srv::SetMode::Request> request,
                         std::shared_ptr<peregrine_interfaces::srv::SetMode::Response> response);
+  /**
+   * @brief Receives PX4 command acknowledgements and resolves pending service promises.
+   */
+  void onVehicleCommandAck(const px4_msgs::msg::VehicleCommandAck::SharedPtr msg);
 
   /**
    * @brief Publishes OffboardControlMode at a fixed periodic rate.
@@ -195,9 +203,16 @@ private:
   std::atomic<float> motorOutput1_{0.0f};
   std::atomic<float> motorOutput2_{0.0f};
   std::atomic<float> motorOutput3_{0.0f};
-  /// Packed snapshot of control mode + trajectory flags for coherent offboard heartbeat publication.
-  /// See packOffboardModeFlags() in the .cpp for the bit layout.
-  std::atomic<uint32_t> offboardModeFlags_{0};
+  struct OffboardIntent
+  {
+    uint8_t control_mode{peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY};
+    bool use_pos{true};
+    bool use_vel{false};
+    bool use_accel{false};
+  };
+  std::atomic<OffboardIntent> offboardIntent_{OffboardIntent{}};
+  std::mutex pendingCommandsMutex_;
+  std::unordered_map<uint32_t, std::promise<uint8_t>> pendingCommands_;
 
   rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr statePub_;
   rclcpp::Publisher<peregrine_interfaces::msg::PX4Status>::SharedPtr statusPub_;
@@ -210,6 +225,7 @@ private:
   rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr batteryStatusSub_;
   rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr sensorGpsSub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicleStatusSub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleCommandAck>::SharedPtr vehicleCommandAckSub_;
 
   rclcpp::Subscription<peregrine_interfaces::msg::ControlOutput>::SharedPtr controlOutputSub_;
 
