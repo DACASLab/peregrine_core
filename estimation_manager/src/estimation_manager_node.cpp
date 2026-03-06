@@ -20,6 +20,8 @@
 
 namespace estimation_manager
 {
+using namespace std::chrono_literals;
+
 // An unnamed namespace (no name after `namespace`) makes its contents visible only
 // within this .cpp file. This is the C++ equivalent of Python's module-level
 // variables that aren't exported — other files cannot see or reference these constants.
@@ -58,7 +60,7 @@ EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();  // one-shot
 
@@ -106,7 +108,7 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
     if (!this->get_publishers_info_by_topic("state").empty()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(100ms);
   }
 
   if (this->get_publishers_info_by_topic("state").empty()) {
@@ -133,18 +135,14 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
-  // `std::bind` creates a callable object (similar to Python's functools.partial).
-  // `&EstimationManagerNode::onState` is a pointer to the member function.
-  // `this` binds the object instance (like Python's implicit `self`).
-  // `std::placeholders::_1` is a placeholder for the first argument (the message).
-  //
-  // Equivalent Python would be:  lambda msg: self.on_state(msg)
+  // The lambda `[this](const auto & msg) { ... }` captures `this` and forwards the
+  // message to the member function (like Python's `lambda msg: self.on_state(msg)`).
   //
   // The `<peregrine_interfaces::msg::State>` in angle brackets is a template
   // parameter — it tells create_subscription which message type to expect.
   // Templates are C++'s version of Python generics (List[int], Dict[str, float]).
   stateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    "state", qos, std::bind(&EstimationManagerNode::onState, this, std::placeholders::_1));
+    "state", qos, [this](const auto & msg) { onState(msg); });
   estimatedStatePub_ = this->create_publisher<peregrine_interfaces::msg::State>(
     "estimated_state",
     qos);
@@ -160,11 +158,11 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   publishTimer_ =
     this->create_wall_timer(
     periodFromHz(publishRateHz_),
-    std::bind(&EstimationManagerNode::publishEstimatedState, this));
+    [this]() { publishEstimatedState(); });
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-      std::bind(&EstimationManagerNode::publishStatus, this));
+      [this]() { publishStatus(); });
 
   // Timers are armed only in lifecycle ACTIVE state.
   publishTimer_->cancel();
@@ -255,6 +253,12 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_error(
   }
   if (statusTimer_) {
     statusTimer_->cancel();
+  }
+  if (estimatedStatePub_) {
+    estimatedStatePub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
   }
   RCLCPP_ERROR(this->get_logger(), "Error in estimation_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;

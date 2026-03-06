@@ -8,6 +8,8 @@
 
 namespace tui_status
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -67,38 +69,38 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
   const auto qos = rclcpp::QoS(10).reliable();
 
   uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
-    topicName("uav_state"), qos, std::bind(&TuiNode::onUavState, this, std::placeholders::_1));
+    topicName("uav_state"), qos, [this](const auto & msg) { onUavState(msg); });
 
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     topicName("estimated_state"), qos,
-    std::bind(&TuiNode::onEstimatedState, this, std::placeholders::_1));
+    [this](const auto & msg) { onEstimatedState(msg); });
 
   safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
     topicName("safety_status"), qos,
-    std::bind(&TuiNode::onSafetyStatus, this, std::placeholders::_1));
+    [this](const auto & msg) { onSafetyStatus(msg); });
 
   estimationStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("estimation_status"), qos,
-    std::bind(&TuiNode::onEstimationStatus, this, std::placeholders::_1));
+    [this](const auto & msg) { onEstimationStatus(msg); });
 
   controlStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("control_status"), qos,
-    std::bind(&TuiNode::onControlStatus, this, std::placeholders::_1));
+    [this](const auto & msg) { onControlStatus(msg); });
 
   trajectoryStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("trajectory_status"), qos,
-    std::bind(&TuiNode::onTrajectoryStatus, this, std::placeholders::_1));
+    [this](const auto & msg) { onTrajectoryStatus(msg); });
 
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
-    topicName("status"), qos, std::bind(&TuiNode::onPx4Status, this, std::placeholders::_1));
+    topicName("status"), qos, [this](const auto & msg) { onPx4Status(msg); });
 
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    topicName("gps_status"), qos, std::bind(&TuiNode::onGpsStatus, this, std::placeholders::_1));
+    topicName("gps_status"), qos, [this](const auto & msg) { onGpsStatus(msg); });
 
   const auto period = std::chrono::duration<double>(1.0 / std::max(1.0, refreshRateHz));
   refreshTimer_ = this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-    std::bind(&TuiNode::onTimer, this));
+    [this]() { onTimer(); });
 
   RCLCPP_INFO(
     this->get_logger(),

@@ -22,6 +22,8 @@
 
 namespace trajectory_manager
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -41,7 +43,7 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();  // one-shot
 
@@ -85,7 +87,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
     if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(100ms);
   }
 
   if (this->get_publishers_info_by_topic("estimated_state").empty()) {
@@ -103,7 +105,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // subscription type at compile time. This gives zero runtime type dispatch overhead.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
-    std::bind(&TrajectoryManagerNode::onEstimatedState, this, std::placeholders::_1));
+    [this](const auto & msg) { onEstimatedState(msg); });
   trajectorySetpointPub_ = this->create_publisher<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
@@ -118,30 +120,26 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // accepted callbacks block for the duration of the goal).
   goToServer_ = rclcpp_action::create_server<GoTo>(
     this, "~/go_to",
-    std::bind(
-      &TrajectoryManagerNode::onGoToGoal, this, std::placeholders::_1,
-      std::placeholders::_2),
-    std::bind(&TrajectoryManagerNode::onGoToCancel, this, std::placeholders::_1),
-    std::bind(&TrajectoryManagerNode::onGoToAccepted, this, std::placeholders::_1));
+    [this](const auto & uuid, const auto & goal) { return onGoToGoal(uuid, goal); },
+    [this](const auto & goalHandle) { return onGoToCancel(goalHandle); },
+    [this](const auto & goalHandle) { onGoToAccepted(goalHandle); });
 
   executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
     this, "~/execute_trajectory",
-    std::bind(
-      &TrajectoryManagerNode::onExecuteGoal, this, std::placeholders::_1,
-      std::placeholders::_2),
-    std::bind(&TrajectoryManagerNode::onExecuteCancel, this, std::placeholders::_1),
-    std::bind(&TrajectoryManagerNode::onExecuteAccepted, this, std::placeholders::_1));
+    [this](const auto & uuid, const auto & goal) { return onExecuteGoal(uuid, goal); },
+    [this](const auto & goalHandle) { return onExecuteCancel(goalHandle); },
+    [this](const auto & goalHandle) { onExecuteAccepted(goalHandle); });
 
   // Create-then-cancel pattern: timers must exist before on_activate, but should not
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.
   // This is the same lifecycle gate used by other managers in the peregrine stack.
   publishTimer_ = this->create_wall_timer(
     periodFromHz(publishRateHz_),
-    std::bind(&TrajectoryManagerNode::publishTrajectorySetpoint, this));
+    [this]() { publishTrajectorySetpoint(); });
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-    std::bind(&TrajectoryManagerNode::publishStatus, this));
+    [this]() { publishStatus(); });
 
   publishTimer_->cancel();
   statusTimer_->cancel();
@@ -280,6 +278,12 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_error(
   }
   if (statusTimer_) {
     statusTimer_->cancel();
+  }
+  if (trajectorySetpointPub_) {
+    trajectorySetpointPub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
   }
   RCLCPP_ERROR(this->get_logger(), "Error in trajectory_manager lifecycle; timers canceled");
   return CallbackReturn::SUCCESS;

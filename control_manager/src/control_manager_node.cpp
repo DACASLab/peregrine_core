@@ -20,6 +20,8 @@
 
 namespace control_manager
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -42,7 +44,7 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      std::chrono::milliseconds(200),
+      200ms,
       [this]() {
         startupTimer_->cancel();  // one-shot
 
@@ -85,7 +87,7 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
     if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(100ms);
   }
 
   if (this->get_publishers_info_by_topic("estimated_state").empty()) {
@@ -101,15 +103,15 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   const auto statusQos = rclcpp::QoS(10).reliable();
 
   // Data inputs: estimator state and trajectory manager intent.
-  // `std::bind(&Class::method, this, _1)` adapts a member function into the callback
-  // signature expected by create_subscription. In Python, this is analogous to passing
+  // The lambda `[this](const auto & msg) { ... }` captures `this` and forwards the
+  // message to the member function. In Python, this is analogous to passing
   // a bound method like `self.on_estimated_state`.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
-    std::bind(&ControlManagerNode::onEstimatedState, this, std::placeholders::_1));
+    [this](const auto & msg) { onEstimatedState(msg); });
   trajectorySetpointSub_ = this->create_subscription<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos,
-    std::bind(&ControlManagerNode::onTrajectorySetpoint, this, std::placeholders::_1));
+    [this](const auto & msg) { onTrajectorySetpoint(msg); });
 
   // Outputs: control envelope for hardware bridge + manager health.
   controlOutputPub_ = this->create_publisher<peregrine_interfaces::msg::ControlOutput>(
@@ -121,11 +123,11 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   publishTimer_ =
     this->create_wall_timer(
     periodFromHz(publishRateHz_),
-    std::bind(&ControlManagerNode::publishControlOutput, this));
+    [this]() { publishControlOutput(); });
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-    std::bind(&ControlManagerNode::publishStatus, this));
+    [this]() { publishStatus(); });
 
   // Timers are armed only in lifecycle ACTIVE state.
   publishTimer_->cancel();
@@ -218,6 +220,12 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_error(const rclcpp_lif
   }
   if (statusTimer_) {
     statusTimer_->cancel();
+  }
+  if (controlOutputPub_) {
+    controlOutputPub_->on_deactivate();
+  }
+  if (statusPub_) {
+    statusPub_->on_deactivate();
   }
 
   RCLCPP_ERROR(this->get_logger(), "Error in control_manager lifecycle; timers canceled");

@@ -16,6 +16,8 @@
 
 namespace rviz_plugins
 {
+using namespace std::chrono_literals;
+
 namespace
 {
 
@@ -169,16 +171,16 @@ FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
 
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     topicName("estimated_state"), streamQos,
-    std::bind(&FlightVisualizerNode::onEstimatedState, this, std::placeholders::_1));
+    [this](const auto & msg) { onEstimatedState(msg); });
   trajectorySetpointSub_ = this->create_subscription<peregrine_interfaces::msg::TrajectorySetpoint>(
     topicName("trajectory_setpoint"), streamQos,
-    std::bind(&FlightVisualizerNode::onTrajectorySetpoint, this, std::placeholders::_1));
+    [this](const auto & msg) { onTrajectorySetpoint(msg); });
   uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
     topicName("uav_state"), rclcpp::QoS(10).reliable(),
-    std::bind(&FlightVisualizerNode::onUavState, this, std::placeholders::_1));
+    [this](const auto & msg) { onUavState(msg); });
   safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
     topicName("safety_status"), rclcpp::QoS(10).reliable(),
-    std::bind(&FlightVisualizerNode::onSafetyStatus, this, std::placeholders::_1));
+    [this](const auto & msg) { onSafetyStatus(msg); });
 
   actualPathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(actualPathTopic), vizQos);
   referencePathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(referencePathTopic), vizQos);
@@ -187,7 +189,7 @@ FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
   const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
   publishTimer_ = this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-    std::bind(&FlightVisualizerNode::onPublishTimer, this));
+    [this]() { onPublishTimer(); });
 
   actualPath_.header.frame_id = fixedFrame_;
   referencePath_.header.frame_id = fixedFrame_;
