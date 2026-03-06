@@ -8,8 +8,6 @@
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-using namespace std::chrono_literals;
-
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
@@ -27,7 +25,7 @@ int main(int argc, char ** argv)
 
   while (rclcpp::ok() && !node->shouldExit()) {
     executor.spin_some();
-    std::this_thread::sleep_for(20ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
 
   executor.remove_node(node);

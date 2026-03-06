@@ -16,8 +16,6 @@
 
 namespace safety_monitor
 {
-using namespace std::chrono_literals;
-
 namespace
 {
 
@@ -37,7 +35,6 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
   estimatedStateTopic_ =
     this->declare_parameter<std::string>("estimated_state_topic", "estimated_state");
   px4StatusTopic_ = this->declare_parameter<std::string>("px4_status_topic", "status");
-  mapFrame_ = this->declare_parameter<std::string>("map_frame", "map");
 
   // Battery checker params
   this->declare_parameter<bool>("battery.enabled", true);
@@ -80,7 +77,7 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      200ms,
+      std::chrono::milliseconds(200),
       [this]() {
         startupTimer_->cancel();
         RCLCPP_INFO(get_logger(), "Auto-start: triggering configure");
@@ -177,15 +174,15 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   // Subscriptions
   const auto qos = rclcpp::QoS(20).reliable();
   batterySub_ = this->create_subscription<sensor_msgs::msg::BatteryState>(
-    batteryTopic_, qos, [this](const auto & msg) { onBattery(msg); });
+    batteryTopic_, qos, std::bind(&SafetyMonitorNode::onBattery, this, std::placeholders::_1));
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    gpsStatusTopic_, qos, [this](const auto & msg) { onGpsStatus(msg); });
+    gpsStatusTopic_, qos, std::bind(&SafetyMonitorNode::onGpsStatus, this, std::placeholders::_1));
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     estimatedStateTopic_, qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    std::bind(&SafetyMonitorNode::onEstimatedState, this, std::placeholders::_1));
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
     px4StatusTopic_, rclcpp::QoS(10).reliable(),
-    [this](const auto & msg) { onPx4Status(msg); });
+    std::bind(&SafetyMonitorNode::onPx4Status, this, std::placeholders::_1));
 
   // Publisher
   safetyStatusPub_ = this->create_publisher<peregrine_interfaces::msg::SafetyStatus>(
@@ -204,7 +201,7 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   const auto period = std::chrono::duration<double>(1.0 / evaluateRateHz_);
   evaluateTimer_ = this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-    [this]() { evaluateAndPublish(); });
+    std::bind(&SafetyMonitorNode::evaluateAndPublish, this));
   evaluateTimer_->cancel();
 
   RCLCPP_INFO(

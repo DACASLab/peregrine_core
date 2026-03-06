@@ -161,8 +161,6 @@ private:
   std::string odomFrame_;
   /// Frame used for published odometry child.
   std::string baseLinkFrame_;
-  /// Frame used for published GPS messages.
-  std::string gpsFrame_;
   /// PX4 SensorGps topic suffix under px4_namespace.
   std::string sensorGpsTopicSuffix_;
   /// Periodic offboard mode publication rate.

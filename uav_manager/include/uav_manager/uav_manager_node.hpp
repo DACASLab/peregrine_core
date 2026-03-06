@@ -290,12 +290,10 @@ private:
   /// Last transition reason exported in UAVState.detail.
   std::string lastTransitionReason_{"BOOT"};
 
-  // `std::atomic<bool>` provides a lock-free test-and-set via compare_exchange_strong(),
-  // replacing the previous mutex + bool pattern. This is correct because the only
-  // operations are atomic test-and-set (reserve) and atomic store (release) — no
-  // compound reads or multi-field consistency is required.
-  /// True when any high-level action is currently executing (lock-free).
-  std::atomic<bool> actionSlotReserved_{false};
+  /// Protects the single-flight action slot.
+  mutable std::mutex actionSlotMutex_;
+  /// True when any high-level action is currently executing.
+  bool actionSlotReserved_{false};
 
   /// Freshness thresholds for dependency/readiness evaluation.
   FreshnessConfig freshnessConfig_;

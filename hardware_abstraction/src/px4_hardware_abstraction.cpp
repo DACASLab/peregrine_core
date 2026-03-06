@@ -27,8 +27,6 @@
 
 namespace hardware_abstraction
 {
-using namespace std::chrono_literals;
-
 namespace
 {
 
@@ -175,7 +173,6 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   }
   odomFrame_ = framePrefix.empty() ? std::string("odom") : framePrefix + "/odom";
   baseLinkFrame_ = framePrefix.empty() ? std::string("base_link") : framePrefix + "/base_link";
-  gpsFrame_ = framePrefix.empty() ? std::string("gps") : framePrefix + "/gps";
   sensorGpsTopicSuffix_ =
       normalizeTopicSuffix(
           this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/vehicle_gps_position"));
@@ -218,19 +215,19 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   // the correct one at compile time based on the px4_msgs package version being built against.
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
-      [this](const auto & msg) { onVehicleOdometry(msg); });
+      std::bind(&PX4HardwareAbstraction::onVehicleOdometry, this, std::placeholders::_1));
   batteryStatusSub_ = this->create_subscription<px4_msgs::msg::BatteryStatus>(
       px4Topic("/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>()), px4InputQos,
-      [this](const auto & msg) { onBatteryStatus(msg); });
+      std::bind(&PX4HardwareAbstraction::onBatteryStatus, this, std::placeholders::_1));
   sensorGpsSub_ = this->create_subscription<px4_msgs::msg::SensorGps>(
       px4Topic(sensorGpsTopicSuffix_ + getMessageNameVersion<px4_msgs::msg::SensorGps>()), px4InputQos,
-      [this](const auto & msg) { onSensorGps(msg); });
+      std::bind(&PX4HardwareAbstraction::onSensorGps, this, std::placeholders::_1));
   vehicleStatusSub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
       px4Topic("/fmu/out/vehicle_status" + getMessageNameVersion<px4_msgs::msg::VehicleStatus>()), px4InputQos,
-      [this](const auto & msg) { onVehicleStatus(msg); });
+      std::bind(&PX4HardwareAbstraction::onVehicleStatus, this, std::placeholders::_1));
   // Manager command input.
   controlOutputSub_ = this->create_subscription<peregrine_interfaces::msg::ControlOutput>(
-      "control_output", rosInputQos, [this](const auto & msg) { onControlOutput(msg); });
+      "control_output", rosInputQos, std::bind(&PX4HardwareAbstraction::onControlOutput, this, std::placeholders::_1));
 
   // PX4 command/setpoint publishers.
   offboardControlModePub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>(
@@ -252,18 +249,18 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Service interface for manager/state-machine orchestration.
   armService_ = this->create_service<peregrine_interfaces::srv::Arm>(
-      "arm", [this](const auto & req, const auto & resp) { onArmService(req, resp); });
+      "arm", std::bind(&PX4HardwareAbstraction::onArmService, this, std::placeholders::_1, std::placeholders::_2));
   setModeService_ = this->create_service<peregrine_interfaces::srv::SetMode>(
       "set_mode",
-      [this](const auto & req, const auto & resp) { onSetModeService(req, resp); });
+      std::bind(&PX4HardwareAbstraction::onSetModeService, this, std::placeholders::_1, std::placeholders::_2));
 
   // Timers for offboard heartbeat and status publication.
   offboardModeTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / offboardRateHz_)),
-      [this]() { publishOffboardControlMode(); });
+      std::bind(&PX4HardwareAbstraction::publishOffboardControlMode, this));
   statusTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / statusRateHz_)),
-      [this]() { publishStatus(); });
+      std::bind(&PX4HardwareAbstraction::publishStatus, this));
 
   offboardModeFlags_.store(packOffboardModeFlags(peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY, true, false,
                                                  false));
@@ -387,16 +384,8 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   odometry.pose.covariance[0] = msg->position_variance[1];
   odometry.pose.covariance[7] = msg->position_variance[0];
   odometry.pose.covariance[14] = msg->position_variance[2];
-  // Orientation covariance index swap: PX4 orientation_variance is ordered
-  // [roll_NED(about North), pitch_NED(about East), yaw_NED(about Down)].
-  // ROS pose.covariance orientation diagonal is [roll_ENU(about East=x),
-  // pitch_ENU(about North=y), yaw_ENU(about Up=z)]. The same x<->y axis swap
-  // that applies to position also applies to orientation:
-  //   orientation_variance[0] (NED roll, about North) -> covariance[28] (ENU pitch, about North=y)
-  //   orientation_variance[1] (NED pitch, about East)  -> covariance[21] (ENU roll, about East=x)
-  //   orientation_variance[2] (NED yaw, about Down)   -> covariance[35] (ENU yaw, about Up=z)
-  odometry.pose.covariance[21] = msg->orientation_variance[1];
-  odometry.pose.covariance[28] = msg->orientation_variance[0];
+  odometry.pose.covariance[21] = msg->orientation_variance[0];
+  odometry.pose.covariance[28] = msg->orientation_variance[1];
   odometry.pose.covariance[35] = msg->orientation_variance[2];
 
   writeLinearCovariance(velocityCovarianceFlu, odometry.twist.covariance);
@@ -461,7 +450,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   sensor_msgs::msg::NavSatFix gps;
   gps.header.stamp = this->now();
-  gps.header.frame_id = gpsFrame_;
+  gps.header.frame_id = "gps";
 
   gps.latitude = msg->latitude_deg;
   gps.longitude = msg->longitude_deg;
@@ -502,7 +491,7 @@ void PX4HardwareAbstraction::onSensorGps(const px4_msgs::msg::SensorGps::SharedP
 
   peregrine_interfaces::msg::GpsStatus gpsStatus;
   gpsStatus.header.stamp = gps.header.stamp;
-  gpsStatus.header.frame_id = gpsFrame_;
+  gpsStatus.header.frame_id = "gps";
   gpsStatus.fix_type = msg->fix_type;
   gpsStatus.hdop = msg->hdop;
   gpsStatus.vdop = msg->vdop;

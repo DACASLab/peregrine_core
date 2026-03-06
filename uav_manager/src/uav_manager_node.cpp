@@ -19,8 +19,6 @@
 
 namespace uav_manager
 {
-using namespace std::chrono_literals;
-
 namespace
 {
 
@@ -158,7 +156,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
-      200ms,
+      std::chrono::milliseconds(200),
       [this]() {
         startupTimer_->cancel();
 
@@ -259,22 +257,23 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   // Subscriptions and timer use the default MutuallyExclusive callback group (no group specified).
   // They are all non-blocking and can safely share a single executor thread.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    "estimated_state", qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    "estimated_state", qos, std::bind(
+      &UavManagerNode::onEstimatedState, this,
+      std::placeholders::_1));
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
-    "status", statusQos, [this](const auto & msg) { onPx4Status(msg); });
+    "status", statusQos, std::bind(&UavManagerNode::onPx4Status, this, std::placeholders::_1));
   estimationStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     "estimation_status", statusQos,
-    [this](const auto & msg) { onEstimationStatus(msg); });
+    std::bind(&UavManagerNode::onEstimationStatus, this, std::placeholders::_1));
   controlStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     "control_status", statusQos,
-    [this](const auto & msg) { onControlStatus(msg); });
+    std::bind(&UavManagerNode::onControlStatus, this, std::placeholders::_1));
   trajectoryStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     "trajectory_status", statusQos,
-    [this](const auto & msg) { onTrajectoryStatus(msg); });
+    std::bind(&UavManagerNode::onTrajectoryStatus, this, std::placeholders::_1));
   safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
     "safety_status", statusQos,
-    [this](const auto & msg) { onSafetyStatus(msg); });
+    std::bind(&UavManagerNode::onSafetyStatus, this, std::placeholders::_1));
 
   uavStatePub_ =
     this->create_publisher<peregrine_interfaces::msg::UAVState>("uav_state", statusQos);
@@ -293,7 +292,7 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   statusTimer_ =
     this->create_wall_timer(
     periodFromHz(statusRateHz_),
-    [this]() { publishUavState(); });
+    std::bind(&UavManagerNode::publishUavState, this));
   statusTimer_->cancel();
 
   // Defensive reset: clear all cached data and re-initialize the FSM to ensure clean
@@ -348,30 +347,30 @@ bool UavManagerNode::createActionServers()
 
     takeoffServer_ = rclcpp_action::create_server<Takeoff>(
       this, "~/takeoff",
-      [this](const auto & uuid, const auto & goal) { return onTakeoffGoal(uuid, goal); },
-      [this](const auto & goalHandle) { return onTakeoffCancel(goalHandle); },
-      [this](const auto & goalHandle) { onTakeoffAccepted(goalHandle); },
+      std::bind(&UavManagerNode::onTakeoffGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onTakeoffCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onTakeoffAccepted, this, std::placeholders::_1),
       actionOpts, actionCbGroup_);
 
     landServer_ = rclcpp_action::create_server<Land>(
       this, "~/land",
-      [this](const auto & uuid, const auto & goal) { return onLandGoal(uuid, goal); },
-      [this](const auto & goalHandle) { return onLandCancel(goalHandle); },
-      [this](const auto & goalHandle) { onLandAccepted(goalHandle); },
+      std::bind(&UavManagerNode::onLandGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onLandCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onLandAccepted, this, std::placeholders::_1),
       actionOpts, actionCbGroup_);
 
     goToServer_ = rclcpp_action::create_server<GoTo>(
       this, "~/go_to",
-      [this](const auto & uuid, const auto & goal) { return onGoToGoal(uuid, goal); },
-      [this](const auto & goalHandle) { return onGoToCancel(goalHandle); },
-      [this](const auto & goalHandle) { onGoToAccepted(goalHandle); },
+      std::bind(&UavManagerNode::onGoToGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onGoToCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onGoToAccepted, this, std::placeholders::_1),
       actionOpts, actionCbGroup_);
 
     executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
       this, "~/execute_trajectory",
-      [this](const auto & uuid, const auto & goal) { return onExecuteGoal(uuid, goal); },
-      [this](const auto & goalHandle) { return onExecuteCancel(goalHandle); },
-      [this](const auto & goalHandle) { onExecuteAccepted(goalHandle); },
+      std::bind(&UavManagerNode::onExecuteGoal, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&UavManagerNode::onExecuteCancel, this, std::placeholders::_1),
+      std::bind(&UavManagerNode::onExecuteAccepted, this, std::placeholders::_1),
       actionOpts, actionCbGroup_);
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to create action servers: %s", e.what());
@@ -890,7 +889,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
     }
   }
 
-  StepResult step = waitForControlSetpointFlow(4s);
+  StepResult step = waitForControlSetpointFlow(std::chrono::seconds(4));
   if (!step.success) {
     failGoal(step.describe());
     return;
@@ -1020,15 +1019,6 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     }
   };
 
-  if (emergency()) {
-    failGoal("EMERGENCY_PREEMPT");
-    return;
-  }
-  if (preempted()) {
-    failGoal("GOAL_PREEMPTED");
-    return;
-  }
-
   const TransitionOutcome landStart = applyEvent(SupervisorEvent::LandRequested);
   if (!landStart.accepted) {
     failGoal(landStart.reasonCode);
@@ -1045,7 +1035,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
   }
 
   step = orchestrator_->waitForCondition(
-    "LAND_MODE_TIMEOUT", 5s,
+    "LAND_MODE_TIMEOUT", std::chrono::seconds(5),
     [this]()
     {
       std::scoped_lock lock(mutex_);
@@ -1059,7 +1049,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
   }
 
   step = orchestrator_->waitForCondition(
-    "AUTO_DISARM_TIMEOUT", 90s,
+    "AUTO_DISARM_TIMEOUT", std::chrono::seconds(90),
     [this]()
     {
       std::scoped_lock lock(mutex_);
@@ -1132,15 +1122,6 @@ void UavManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHa
       goalHandle->abort(result);
     }
   };
-
-  if (emergency()) {
-    failGoal("EMERGENCY_PREEMPT");
-    return;
-  }
-  if (preempted()) {
-    failGoal("GOAL_PREEMPTED");
-    return;
-  }
 
   const TransitionOutcome flightStart = applyEvent(SupervisorEvent::FlightActionRequested);
   if (!flightStart.accepted) {
@@ -1250,15 +1231,6 @@ void UavManagerNode::onExecuteAccepted(
     }
   };
 
-  if (emergency()) {
-    failGoal("EMERGENCY_PREEMPT");
-    return;
-  }
-  if (preempted()) {
-    failGoal("GOAL_PREEMPTED");
-    return;
-  }
-
   const TransitionOutcome flightStart = applyEvent(SupervisorEvent::FlightActionRequested);
   if (!flightStart.accepted) {
     failGoal(flightStart.reasonCode);
@@ -1313,25 +1285,26 @@ void UavManagerNode::onExecuteAccepted(
   goalHandle->succeed(result);
 }
 
-// reserveActionSlot / releaseActionSlot enforce the single-flight policy: only one
-// high-level action (takeoff, land, go_to, execute_trajectory) may run at a time.
-// This prevents conflicting PX4 commands -- e.g. a land goal arriving while takeoff
-// is in progress. The slot is reserved in onXxxGoal() and released via the RAII
-// release guard in onXxxAccepted().
-//
-// Implementation uses std::atomic<bool>::compare_exchange_strong() for a lock-free
-// test-and-set. This is correct because the operation is a single boolean flag with
-// no compound state to protect. The previous mutex + bool pattern was also correct
-// but incurred unnecessary lock overhead for what is inherently an atomic operation.
+// reserveActionSlot / releaseActionSlot implement a mutex-guarded boolean that
+// enforces single-flight policy: only one high-level action (takeoff, land,
+// go_to, execute_trajectory) may run at a time. This prevents conflicting PX4
+// commands -- e.g. a land goal arriving while takeoff is in progress. The slot
+// is reserved in onXxxGoal() and released via the RAII release guard in
+// onXxxAccepted().
 bool UavManagerNode::reserveActionSlot()
 {
-  bool expected = false;
-  return actionSlotReserved_.compare_exchange_strong(expected, true);
+  std::scoped_lock lock(actionSlotMutex_);
+  if (actionSlotReserved_) {
+    return false;
+  }
+  actionSlotReserved_ = true;
+  return true;
 }
 
 void UavManagerNode::releaseActionSlot()
 {
-  actionSlotReserved_.store(false);
+  std::scoped_lock lock(actionSlotMutex_);
+  actionSlotReserved_ = false;
 }
 
 TransitionOutcome UavManagerNode::applyEvent(const SupervisorEvent event)
@@ -1405,7 +1378,7 @@ StepResult UavManagerNode::ensureArmableMode()
     return StepResult::fail(StepCode::SetPositionFailed, step.describe());
   }
 
-  step = waitForNavState(kNavStatePosCtl, 6s);
+  step = waitForNavState(kNavStatePosCtl, std::chrono::seconds(6));
   if (!step.success) {
     return StepResult::fail(StepCode::PositionModeTimeout, step.describe());
   }
@@ -1431,7 +1404,7 @@ StepResult UavManagerNode::callArmService(const bool arm)
       if (!active_ || isEmergency()) {
         return StepResult::fail(StepCode::EmergencyPreempt);
       }
-      if (armClient_->wait_for_service(200ms)) {
+      if (armClient_->wait_for_service(std::chrono::milliseconds(200))) {
         break;
       }
     }
@@ -1448,7 +1421,7 @@ StepResult UavManagerNode::callArmService(const bool arm)
 
   // Poll the future with emergency/active checks.
   const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
-  while (future.wait_for(50ms) != std::future_status::ready) {
+  while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= deadline) {
       return StepResult::fail(StepCode::ArmServiceTimeout);
     }
@@ -1481,7 +1454,7 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
       if (!active_ || isEmergency()) {
         return StepResult::fail(StepCode::EmergencyPreempt);
       }
-      if (setModeClient_->wait_for_service(200ms)) {
+      if (setModeClient_->wait_for_service(std::chrono::milliseconds(200))) {
         break;
       }
     }
@@ -1495,7 +1468,7 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   auto future = setModeClient_->async_send_request(request);
 
   const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
-  while (future.wait_for(50ms) != std::future_status::ready) {
+  while (future.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= deadline) {
       return StepResult::fail(StepCode::SetModeServiceTimeout);
     }
@@ -1602,7 +1575,7 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
       return StepResult::fail(StepCode::GoalPreempted);
     }
     if (trajectoryExecuteClient_ &&
-      trajectoryExecuteClient_->wait_for_action_server(200ms))
+      trajectoryExecuteClient_->wait_for_action_server(std::chrono::milliseconds(200)))
     {
       break;
     }
@@ -1628,7 +1601,7 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
   // Wait for goal acceptance using bounded polling to keep callback interruptible.
   const auto goalDeadline = this->now() +
     rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
-  while (goalHandleFuture.wait_for(50ms) != std::future_status::ready) {
+  while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= goalDeadline) {
       return StepResult::fail(StepCode::TrajectoryExecuteGoalTimeout);
     }
@@ -1649,7 +1622,7 @@ StepResult UavManagerNode::forwardExecuteTrajectory(
   // While waiting for result, propagate local preemption to downstream cancel.
   const auto resultDeadline = this->now() +
     rclcpp::Duration(secondsToMillis(actionResultWaitS_));
-  while (resultFuture.wait_for(50ms) != std::future_status::ready) {
+  while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= resultDeadline) {
       return StepResult::fail(StepCode::TrajectoryExecuteResultTimeout);
     }
@@ -1695,7 +1668,7 @@ StepResult UavManagerNode::forwardGoTo(
       return StepResult::fail(StepCode::GoalPreempted);
     }
     if (trajectoryGoToClient_ &&
-      trajectoryGoToClient_->wait_for_action_server(200ms))
+      trajectoryGoToClient_->wait_for_action_server(std::chrono::milliseconds(200)))
     {
       break;
     }
@@ -1719,7 +1692,7 @@ StepResult UavManagerNode::forwardGoTo(
   // Wait for goal acceptance using bounded polling to keep callback interruptible.
   const auto goalDeadline = this->now() +
     rclcpp::Duration(secondsToMillis(serviceResponseWaitS_));
-  while (goalHandleFuture.wait_for(50ms) != std::future_status::ready) {
+  while (goalHandleFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= goalDeadline) {
       return StepResult::fail(StepCode::TrajectoryGotoGoalTimeout);
     }
@@ -1740,7 +1713,7 @@ StepResult UavManagerNode::forwardGoTo(
   // While waiting for result, propagate local preemption to downstream cancel.
   const auto resultDeadline = this->now() +
     rclcpp::Duration(secondsToMillis(actionResultWaitS_));
-  while (resultFuture.wait_for(50ms) != std::future_status::ready) {
+  while (resultFuture.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
     if (this->now() >= resultDeadline) {
       return StepResult::fail(StepCode::TrajectoryGotoResultTimeout);
     }

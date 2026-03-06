@@ -42,7 +42,6 @@
 
 namespace uav_manager
 {
-using namespace std::chrono_literals;
 
 /**
  * @enum ReadinessCode
@@ -83,13 +82,13 @@ enum class ReadinessCode : uint8_t
 struct FreshnessConfig
 {
   /// Maximum age for PX4 status input.
-  std::chrono::milliseconds px4StatusTimeout{1000ms};
+  std::chrono::milliseconds px4StatusTimeout{1000};
   /// Maximum age for manager status inputs.
-  std::chrono::milliseconds managerStatusTimeout{1000ms};
+  std::chrono::milliseconds managerStatusTimeout{1000};
   /// Maximum age for estimated_state input.
-  std::chrono::milliseconds estimatedStateTimeout{1000ms};
+  std::chrono::milliseconds estimatedStateTimeout{1000};
   /// Maximum age for safety_status input.
-  std::chrono::milliseconds safetyStatusTimeout{2000ms};
+  std::chrono::milliseconds safetyStatusTimeout{2000};
 };
 
 /**

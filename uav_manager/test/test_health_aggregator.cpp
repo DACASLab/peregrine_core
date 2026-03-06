@@ -32,8 +32,6 @@
 #include <chrono>
 #include <thread>
 
-using namespace std::chrono_literals;
-
 // Verifies that a freshly constructed aggregator (no updates received) reports
 // all dependencies as MISSING. This is the initial state at node startup before
 // any PX4/manager messages arrive.
@@ -42,9 +40,9 @@ using namespace std::chrono_literals;
 TEST(HealthAggregatorTest, MissingInputsAreNotReady)
 {
   uav_manager::FreshnessConfig config;
-  config.px4StatusTimeout = 100ms;
-  config.managerStatusTimeout = 100ms;
-  config.estimatedStateTimeout = 100ms;
+  config.px4StatusTimeout = std::chrono::milliseconds(100);
+  config.managerStatusTimeout = std::chrono::milliseconds(100);
+  config.estimatedStateTimeout = std::chrono::milliseconds(100);
 
   uav_manager::HealthAggregator agg(config);
   const auto snap = agg.snapshot(std::chrono::steady_clock::now());
@@ -60,9 +58,9 @@ TEST(HealthAggregatorTest, MissingInputsAreNotReady)
 TEST(HealthAggregatorTest, ReadyWhenAllDependenciesPresentAndFresh)
 {
   uav_manager::FreshnessConfig config;
-  config.px4StatusTimeout = 1000ms;
-  config.managerStatusTimeout = 1000ms;
-  config.estimatedStateTimeout = 1000ms;
+  config.px4StatusTimeout = std::chrono::milliseconds(1000);
+  config.managerStatusTimeout = std::chrono::milliseconds(1000);
+  config.estimatedStateTimeout = std::chrono::milliseconds(1000);
 
   uav_manager::HealthAggregator agg(config);
   const auto now = std::chrono::steady_clock::now();
@@ -98,9 +96,9 @@ TEST(HealthAggregatorTest, ReadyWhenAllDependenciesPresentAndFresh)
 TEST(HealthAggregatorTest, MarksStaleInputs)
 {
   uav_manager::FreshnessConfig config;
-  config.px4StatusTimeout = 20ms;
-  config.managerStatusTimeout = 20ms;
-  config.estimatedStateTimeout = 20ms;
+  config.px4StatusTimeout = std::chrono::milliseconds(20);
+  config.managerStatusTimeout = std::chrono::milliseconds(20);
+  config.estimatedStateTimeout = std::chrono::milliseconds(20);
 
   uav_manager::HealthAggregator agg(config);
   const auto now = std::chrono::steady_clock::now();
@@ -117,7 +115,7 @@ TEST(HealthAggregatorTest, MarksStaleInputs)
   agg.updateTrajectoryStatus(now, status);
   agg.updateEstimatedState(now);
 
-  std::this_thread::sleep_for(30ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
   const auto staleSnap = agg.snapshot(std::chrono::steady_clock::now());
 
   EXPECT_FALSE(staleSnap.dependenciesReady());

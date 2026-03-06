@@ -46,7 +46,6 @@
 
 namespace uav_manager
 {
-using namespace std::chrono_literals;
 
 /**
  * @enum StepCode
@@ -236,7 +235,7 @@ struct StepResult
 struct OrchestratorConfig
 {
   /// Poll period used by wait loops.
-  std::chrono::milliseconds pollPeriod{50ms};
+  std::chrono::milliseconds pollPeriod{50};
 };
 
 /**

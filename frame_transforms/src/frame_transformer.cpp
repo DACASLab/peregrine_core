@@ -23,8 +23,6 @@
 
 namespace frame_transforms
 {
-using namespace std::chrono_literals;
-
 namespace
 {
 
@@ -131,7 +129,7 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 
   odometrySub_ = this->create_subscription<nav_msgs::msg::Odometry>(
       odometryTopic_, rclcpp::SensorDataQoS(),
-      [this](const auto & msg) { odometryCallback(msg); });
+      std::bind(&FrameTransformer::odometryCallback, this, std::placeholders::_1));
 
   // Home GPS origin parameters
   homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397971);
@@ -148,16 +146,16 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   // GNSS and GPS status subscriptions for home origin initialization
   gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       "gnss", rclcpp::QoS(10).reliable(),
-      [this](const auto & msg) { onGnss(msg); });
+      std::bind(&FrameTransformer::onGnss, this, std::placeholders::_1));
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
       "gps_status", rclcpp::QoS(10).reliable(),
-      [this](const auto & msg) { onGpsStatus(msg); });
+      std::bind(&FrameTransformer::onGpsStatus, this, std::placeholders::_1));
 
   // Timer periodically emits the latest odom->base_link transform.
   const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
   dynamicTfTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-      [this]() { publishDynamicTransforms(); });
+      std::bind(&FrameTransformer::publishDynamicTransforms, this));
 
   RCLCPP_INFO(this->get_logger(), "frame_transformer started: odometry_topic=%s", odometryTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "frames: world=%s map=%s odom=%s base_link=%s base_link_frd=%s",
