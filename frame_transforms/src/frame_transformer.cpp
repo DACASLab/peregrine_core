@@ -131,7 +131,7 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 
   odometrySub_ = this->create_subscription<nav_msgs::msg::Odometry>(
       odometryTopic_, rclcpp::SensorDataQoS(),
-      [this](const auto & msg) { odometryCallback(msg); });
+      [this](nav_msgs::msg::Odometry::SharedPtr msg) { odometryCallback(msg); });
 
   // Home GPS origin parameters
   homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397971);
@@ -148,10 +148,10 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   // GNSS and GPS status subscriptions for home origin initialization
   gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       "gnss", rclcpp::QoS(10).reliable(),
-      [this](const auto & msg) { onGnss(msg); });
+      [this](sensor_msgs::msg::NavSatFix::SharedPtr msg) { onGnss(msg); });
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
       "gps_status", rclcpp::QoS(10).reliable(),
-      [this](const auto & msg) { onGpsStatus(msg); });
+      [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
 
   // Timer periodically emits the latest odom->base_link transform.
   const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);

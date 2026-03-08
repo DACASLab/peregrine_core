@@ -69,33 +69,33 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
   const auto qos = rclcpp::QoS(10).reliable();
 
   uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
-    topicName("uav_state"), qos, [this](const auto & msg) { onUavState(msg); });
+    topicName("uav_state"), qos, [this](peregrine_interfaces::msg::UAVState::SharedPtr msg) { onUavState(msg); });
 
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     topicName("estimated_state"), qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
 
   safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
     topicName("safety_status"), qos,
-    [this](const auto & msg) { onSafetyStatus(msg); });
+    [this](peregrine_interfaces::msg::SafetyStatus::SharedPtr msg) { onSafetyStatus(msg); });
 
   estimationStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("estimation_status"), qos,
-    [this](const auto & msg) { onEstimationStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onEstimationStatus(msg); });
 
   controlStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("control_status"), qos,
-    [this](const auto & msg) { onControlStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onControlStatus(msg); });
 
   trajectoryStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("trajectory_status"), qos,
-    [this](const auto & msg) { onTrajectoryStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onTrajectoryStatus(msg); });
 
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
-    topicName("status"), qos, [this](const auto & msg) { onPx4Status(msg); });
+    topicName("status"), qos, [this](peregrine_interfaces::msg::PX4Status::SharedPtr msg) { onPx4Status(msg); });
 
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    topicName("gps_status"), qos, [this](const auto & msg) { onGpsStatus(msg); });
+    topicName("gps_status"), qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
 
   const auto period = std::chrono::duration<double>(1.0 / std::max(1.0, refreshRateHz));
   refreshTimer_ = this->create_wall_timer(

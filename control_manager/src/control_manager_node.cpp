@@ -103,15 +103,15 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   const auto statusQos = rclcpp::QoS(10).reliable();
 
   // Data inputs: estimator state and trajectory manager intent.
-  // The lambda `[this](const auto & msg) { ... }` captures `this` and forwards the
+  // The typed lambda `[this](peregrine_interfaces::msg::State::SharedPtr msg) { ... }` captures `this` and forwards the
   // message to the member function. In Python, this is analogous to passing
   // a bound method like `self.on_estimated_state`.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   trajectorySetpointSub_ = this->create_subscription<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos,
-    [this](const auto & msg) { onTrajectorySetpoint(msg); });
+    [this](peregrine_interfaces::msg::TrajectorySetpoint::SharedPtr msg) { onTrajectorySetpoint(msg); });
 
   // Outputs: control envelope for hardware bridge + manager health.
   controlOutputPub_ = this->create_publisher<peregrine_interfaces::msg::ControlOutput>(

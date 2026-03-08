@@ -105,7 +105,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // subscription type at compile time. This gives zero runtime type dispatch overhead.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   trajectorySetpointPub_ = this->create_publisher<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
@@ -120,15 +120,23 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // accepted callbacks block for the duration of the goal).
   goToServer_ = rclcpp_action::create_server<GoTo>(
     this, "~/go_to",
-    [this](const auto & uuid, const auto & goal) { return onGoToGoal(uuid, goal); },
-    [this](const auto & goalHandle) { return onGoToCancel(goalHandle); },
-    [this](const auto & goalHandle) { onGoToAccepted(goalHandle); });
+    [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const GoTo::Goal> goal) {
+      return onGoToGoal(uuid, goal);
+    },
+    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { return onGoToCancel(goalHandle); },
+    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { onGoToAccepted(goalHandle); });
 
   executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
     this, "~/execute_trajectory",
-    [this](const auto & uuid, const auto & goal) { return onExecuteGoal(uuid, goal); },
-    [this](const auto & goalHandle) { return onExecuteCancel(goalHandle); },
-    [this](const auto & goalHandle) { onExecuteAccepted(goalHandle); });
+    [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const ExecuteTrajectory::Goal> goal) {
+      return onExecuteGoal(uuid, goal);
+    },
+    [this](const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle) {
+      return onExecuteCancel(goalHandle);
+    },
+    [this](const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle) {
+      onExecuteAccepted(goalHandle);
+    });
 
   // Create-then-cancel pattern: timers must exist before on_activate, but should not
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.

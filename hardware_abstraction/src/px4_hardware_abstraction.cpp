@@ -218,19 +218,19 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   // the correct one at compile time based on the px4_msgs package version being built against.
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
-      [this](const auto & msg) { onVehicleOdometry(msg); });
+      [this](px4_msgs::msg::VehicleOdometry::SharedPtr msg) { onVehicleOdometry(msg); });
   batteryStatusSub_ = this->create_subscription<px4_msgs::msg::BatteryStatus>(
       px4Topic("/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>()), px4InputQos,
-      [this](const auto & msg) { onBatteryStatus(msg); });
+      [this](px4_msgs::msg::BatteryStatus::SharedPtr msg) { onBatteryStatus(msg); });
   sensorGpsSub_ = this->create_subscription<px4_msgs::msg::SensorGps>(
       px4Topic(sensorGpsTopicSuffix_ + getMessageNameVersion<px4_msgs::msg::SensorGps>()), px4InputQos,
-      [this](const auto & msg) { onSensorGps(msg); });
+      [this](px4_msgs::msg::SensorGps::SharedPtr msg) { onSensorGps(msg); });
   vehicleStatusSub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
       px4Topic("/fmu/out/vehicle_status" + getMessageNameVersion<px4_msgs::msg::VehicleStatus>()), px4InputQos,
-      [this](const auto & msg) { onVehicleStatus(msg); });
+      [this](px4_msgs::msg::VehicleStatus::SharedPtr msg) { onVehicleStatus(msg); });
   // Manager command input.
   controlOutputSub_ = this->create_subscription<peregrine_interfaces::msg::ControlOutput>(
-      "control_output", rosInputQos, [this](const auto & msg) { onControlOutput(msg); });
+      "control_output", rosInputQos, [this](peregrine_interfaces::msg::ControlOutput::SharedPtr msg) { onControlOutput(msg); });
 
   // PX4 command/setpoint publishers.
   offboardControlModePub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>(
@@ -252,10 +252,15 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Service interface for manager/state-machine orchestration.
   armService_ = this->create_service<peregrine_interfaces::srv::Arm>(
-      "arm", [this](const auto & req, const auto & resp) { onArmService(req, resp); });
+      "arm",
+      [this](
+        const std::shared_ptr<peregrine_interfaces::srv::Arm::Request> req,
+        std::shared_ptr<peregrine_interfaces::srv::Arm::Response> resp) { onArmService(req, resp); });
   setModeService_ = this->create_service<peregrine_interfaces::srv::SetMode>(
       "set_mode",
-      [this](const auto & req, const auto & resp) { onSetModeService(req, resp); });
+      [this](
+        const std::shared_ptr<peregrine_interfaces::srv::SetMode::Request> req,
+        std::shared_ptr<peregrine_interfaces::srv::SetMode::Response> resp) { onSetModeService(req, resp); });
 
   // Timers for offboard heartbeat and status publication.
   offboardModeTimer_ = this->create_wall_timer(

@@ -171,16 +171,16 @@ FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
 
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     topicName("estimated_state"), streamQos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   trajectorySetpointSub_ = this->create_subscription<peregrine_interfaces::msg::TrajectorySetpoint>(
     topicName("trajectory_setpoint"), streamQos,
-    [this](const auto & msg) { onTrajectorySetpoint(msg); });
+    [this](peregrine_interfaces::msg::TrajectorySetpoint::SharedPtr msg) { onTrajectorySetpoint(msg); });
   uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
     topicName("uav_state"), rclcpp::QoS(10).reliable(),
-    [this](const auto & msg) { onUavState(msg); });
+    [this](peregrine_interfaces::msg::UAVState::SharedPtr msg) { onUavState(msg); });
   safetyStatusSub_ = this->create_subscription<peregrine_interfaces::msg::SafetyStatus>(
     topicName("safety_status"), rclcpp::QoS(10).reliable(),
-    [this](const auto & msg) { onSafetyStatus(msg); });
+    [this](peregrine_interfaces::msg::SafetyStatus::SharedPtr msg) { onSafetyStatus(msg); });
 
   actualPathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(actualPathTopic), vizQos);
   referencePathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(referencePathTopic), vizQos);

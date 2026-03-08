@@ -177,15 +177,15 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   // Subscriptions
   const auto qos = rclcpp::QoS(20).reliable();
   batterySub_ = this->create_subscription<sensor_msgs::msg::BatteryState>(
-    batteryTopic_, qos, [this](const auto & msg) { onBattery(msg); });
+    batteryTopic_, qos, [this](sensor_msgs::msg::BatteryState::SharedPtr msg) { onBattery(msg); });
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    gpsStatusTopic_, qos, [this](const auto & msg) { onGpsStatus(msg); });
+    gpsStatusTopic_, qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     estimatedStateTopic_, qos,
-    [this](const auto & msg) { onEstimatedState(msg); });
+    [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
     px4StatusTopic_, rclcpp::QoS(10).reliable(),
-    [this](const auto & msg) { onPx4Status(msg); });
+    [this](peregrine_interfaces::msg::PX4Status::SharedPtr msg) { onPx4Status(msg); });
 
   // Publisher
   safetyStatusPub_ = this->create_publisher<peregrine_interfaces::msg::SafetyStatus>(

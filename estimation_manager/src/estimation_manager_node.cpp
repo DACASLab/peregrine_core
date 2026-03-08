@@ -135,14 +135,14 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
-  // The lambda `[this](const auto & msg) { ... }` captures `this` and forwards the
+  // The typed lambda `[this](peregrine_interfaces::msg::State::SharedPtr msg) { ... }` captures `this` and forwards the
   // message to the member function (like Python's `lambda msg: self.on_state(msg)`).
   //
   // The `<peregrine_interfaces::msg::State>` in angle brackets is a template
   // parameter — it tells create_subscription which message type to expect.
   // Templates are C++'s version of Python generics (List[int], Dict[str, float]).
   stateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    "state", qos, [this](const auto & msg) { onState(msg); });
+    "state", qos, [this](peregrine_interfaces::msg::State::SharedPtr msg) { onState(msg); });
   estimatedStatePub_ = this->create_publisher<peregrine_interfaces::msg::State>(
     "estimated_state",
     qos);
