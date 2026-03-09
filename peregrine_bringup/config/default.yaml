@@ -1,6 +1,7 @@
 /**:
   ros__parameters:
-    # Centered on the current multi-UAV SITL fleet GNSS centroid (4-UAV square spawn).
-    home_lat_deg: 47.397971
-    home_lon_deg: 8.546164
+    # Hardware home location (Bangalore, India).
+    # UPDATE to your exact test field GPS coordinates before flight.
+    home_lat_deg: 12.9716
+    home_lon_deg: 77.5946
     home_init_timeout_s: 90.0
