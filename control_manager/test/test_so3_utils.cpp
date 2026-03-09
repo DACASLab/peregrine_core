@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <random>
 
 namespace
