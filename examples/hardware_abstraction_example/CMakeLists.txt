@@ -17,7 +17,9 @@ install(DIRECTORY config
 
 install(PROGRAMS
   scripts/circle_figure8_demo.py
+  scripts/circle_tracking_evaluator.py
   scripts/multi_cycle_demo.py
+  scripts/se3_circle_sweep.py
   scripts/safety_fault_injector.py
   scripts/safety_regression_demo.py
   scripts/safety_takeoff_hold_demo.py

@@ -48,6 +48,7 @@ class CircleFigure8Demo(Node):
         self.figure8_angular_velocity_radps = float(self.declare_parameter("figure8_angular_velocity_radps", 0.6).value)
         self.figure8_loops = float(self.declare_parameter("figure8_loops", 1.0).value)
         self.preflight_wait_s = float(self.declare_parameter("preflight_wait_s", 30.0).value)
+        self.post_ready_wait_s = float(self.declare_parameter("post_ready_wait_s", 5.0).value)
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 240.0).value)
 
@@ -117,6 +118,11 @@ class CircleFigure8Demo(Node):
             s = self.latest_uav_state
             if s is not None and s.dependencies_ready:
                 self.get_logger().info(f"Preflight ready: {s.readiness_detail}")
+                if self.post_ready_wait_s > 0.0:
+                    self.get_logger().info(
+                        f"Waiting an extra {self.post_ready_wait_s:.1f}s for PX4 pre-arm checks to settle"
+                    )
+                    time.sleep(self.post_ready_wait_s)
                 return True
 
         if self.latest_uav_state is None:

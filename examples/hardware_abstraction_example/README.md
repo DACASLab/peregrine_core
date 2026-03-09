@@ -11,6 +11,47 @@ and frame transform pipeline against PX4 SITL.
 
 `ros2 launch hardware_abstraction_example example10_circle_figure8_demo.launch.py`
 
+## Circle / Figure-8 Demo Launch (SE3)
+
+`ros2 launch hardware_abstraction_example example10_se3_circle_figure8_demo.launch.py`
+
+This SE(3) variant starts PX4 SITL itself and uses the minimal tuning path:
+
+- `example8` bridge stack (`MicroXRCEAgent`, `px4_hardware_abstraction`, `frame_transformer`)
+- SE(3) manager chain (`estimation_manager`, `control_manager`, `trajectory_manager`, `uav_manager`)
+- `circle_figure8_demo.py`
+
+It intentionally does not include `safety_monitor`.
+
+Accepted SITL tuning values for the default x500 validation path:
+
+- `se3.mass=2.0643`
+- `se3.max_thrust_N=28.0`
+- `se3.k_p=[8.0, 8.0, 8.0]`
+- `se3.k_v=[5.0, 5.0, 5.0]`
+- `se3.k_i=[0.2, 0.2, 0.6]`
+- `se3.k_R=[5.0, 5.0, 2.0]`
+- `se3.k_omega=[0.9, 0.9, 0.4]`
+- `se3.k_Ri=[0.05, 0.05, 0.03]`
+- `post_ready_wait_s=5.0`
+
+Trajectory improvements in this path:
+
+- circle and figure-8 publish acceleration feedforward
+- circle publishes yaw-rate feedforward
+- figure-8 publishes yaw-rate from path curvature
+
+Validated outcome:
+
+- takeoff
+- circle
+- figure-8
+- land
+
+Measured circle-only tracking at `2.0 m` radius and `0.6 rad/s`:
+
+- accepted tuning: `rms_xy ~= 0.31 m`, `max_xy ~= 0.59 m`
+
 ## Multi-Cycle Demo Launch
 
 `ros2 launch hardware_abstraction_example example11_multi_cycle_demo.launch.py`

@@ -281,6 +281,12 @@ TrajectorySample CircleGenerator::sample(
   sample.setpoint.velocity.x = -radius_ * angularVelocity_ * std::sin(theta);
   sample.setpoint.velocity.y = radius_ * angularVelocity_ * std::cos(theta);
   sample.setpoint.velocity.z = 0.0;
+  sample.setpoint.use_acceleration = true;
+  sample.setpoint.acceleration.x = -radius_ * angularVelocity_ * angularVelocity_ * std::cos(theta);
+  sample.setpoint.acceleration.y = -radius_ * angularVelocity_ * angularVelocity_ * std::sin(theta);
+  sample.setpoint.acceleration.z = 0.0;
+  sample.setpoint.use_yaw_rate = true;
+  sample.setpoint.yaw_rate = angularVelocity_;
 
   const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
   sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
@@ -326,16 +332,36 @@ TrajectorySample FigureEightGenerator::sample(
   const double thetaProgress =
     (std::abs(targetTheta) > 1e-6) ? clamp01(std::abs(theta) / std::abs(targetTheta)) : 1.0;
 
-  sample.setpoint.position.x = center_.x + (radius_ * std::sin(theta));
-  sample.setpoint.position.y = center_.y + (0.5 * radius_ * std::sin(2.0 * theta));
+  const double sinT = std::sin(theta);
+  const double cosT = std::cos(theta);
+  const double sin2T = std::sin(2.0 * theta);
+  const double cos2T = std::cos(2.0 * theta);
+  const double rw = radius_ * angularVelocity_;
+  const double rw2 = rw * angularVelocity_;
+
+  sample.setpoint.position.x = center_.x + (radius_ * sinT);
+  sample.setpoint.position.y = center_.y + (0.5 * radius_ * sin2T);
   sample.setpoint.position.z = altitude_;
 
   sample.setpoint.use_velocity = true;
-  sample.setpoint.velocity.x = radius_ * angularVelocity_ * std::cos(theta);
-  sample.setpoint.velocity.y = radius_ * angularVelocity_ * std::cos(2.0 * theta);
+  const double vx = rw * cosT;
+  const double vy = rw * cos2T;
+  sample.setpoint.velocity.x = vx;
+  sample.setpoint.velocity.y = vy;
   sample.setpoint.velocity.z = 0.0;
+
+  sample.setpoint.use_acceleration = true;
+  const double ax = -rw2 * sinT;
+  const double ay = -2.0 * rw2 * sin2T;
+  sample.setpoint.acceleration.x = ax;
+  sample.setpoint.acceleration.y = ay;
+  sample.setpoint.acceleration.z = 0.0;
+
   // Yaw follows instantaneous velocity direction for smooth heading behavior.
-  sample.setpoint.yaw = std::atan2(sample.setpoint.velocity.y, sample.setpoint.velocity.x);
+  sample.setpoint.yaw = std::atan2(vy, vx);
+  const double speedSq = (vx * vx) + (vy * vy);
+  sample.setpoint.use_yaw_rate = true;
+  sample.setpoint.yaw_rate = (speedSq > 1e-6) ? ((vx * ay) - (vy * ax)) / speedSq : 0.0;
 
   const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
   sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);

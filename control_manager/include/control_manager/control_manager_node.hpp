@@ -38,6 +38,7 @@
 #pragma once
 
 #include <control_manager/controller_base.hpp>
+#include <control_manager/se3_controller.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
@@ -155,6 +156,9 @@ private:
   // the `virtual` keyword on the base class method.
   /// Active controller backend implementation.
   std::unique_ptr<ControllerBase> controller_;
+
+  /// Selected controller type ("passthrough" or "se3").
+  std::string controllerType_{"passthrough"};
 
   /// Frame names captured from first estimated_state message.
   std::string odomFrame_{"odom"};

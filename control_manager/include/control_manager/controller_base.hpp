@@ -53,6 +53,14 @@ public:
   virtual peregrine_interfaces::msg::ControlOutput compute(
     const peregrine_interfaces::msg::State & state,
     const peregrine_interfaces::msg::TrajectorySetpoint & setpoint) const = 0;
+
+  /**
+   * @brief Resets internal controller state (e.g., integral accumulators).
+   *
+   * Called on lifecycle deactivation to prevent integral windup carryover.
+   * Default implementation is a no-op for stateless controllers.
+   */
+  virtual void reset() {}
 };
 
 }  // namespace control_manager
