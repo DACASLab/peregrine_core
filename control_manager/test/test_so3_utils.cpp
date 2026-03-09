@@ -58,12 +58,16 @@ TEST(So3Utils, HatImplementsCrossProduct)
   const Eigen::Vector3d v(1.0, 2.0, 3.0);
   const Eigen::Vector3d u(4.0, -5.0, 6.0);
 
-  const Eigen::Vector3d cross = v.cross(u);
+  // Manual cross product to avoid Eigen NEON linker issue on ARM
+  const Eigen::Vector3d expected(
+    v.y() * u.z() - v.z() * u.y(),
+    v.z() * u.x() - v.x() * u.z(),
+    v.x() * u.y() - v.y() * u.x());
   const Eigen::Vector3d hat_cross = control_manager::hat(v) * u;
 
-  EXPECT_NEAR(hat_cross.x(), cross.x(), kTol);
-  EXPECT_NEAR(hat_cross.y(), cross.y(), kTol);
-  EXPECT_NEAR(hat_cross.z(), cross.z(), kTol);
+  EXPECT_NEAR(hat_cross.x(), expected.x(), kTol);
+  EXPECT_NEAR(hat_cross.y(), expected.y(), kTol);
+  EXPECT_NEAR(hat_cross.z(), expected.z(), kTol);
 }
 
 TEST(So3Utils, HatOfZeroIsZeroMatrix)
