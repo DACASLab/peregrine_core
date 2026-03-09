@@ -632,6 +632,8 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
   //   land:     [descent_velocity_mps]
   //   circle:   [radius_m, angular_velocity_radps, num_loops]
   //   figure8:  [radius_m, angular_velocity_radps, num_loops]
+  //   step_response:
+  //             [dx_m, dy_m, dz_m, dyaw_rad, pre_step_hold_s, post_step_hold_s]
   if (goal.trajectory_type == "hold") {
     return std::make_unique<HoldPositionGenerator>(state);
   }
@@ -666,6 +668,18 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
     return std::make_unique<FigureEightGenerator>(
       state, goal.params[0], goal.params[1],
       goal.params[2], startTime);
+  }
+
+  if (goal.trajectory_type == "step_response") {
+    if (goal.params.size() != 6U) {
+      return nullptr;
+    }
+    geometry_msgs::msg::Point stepOffset;
+    stepOffset.x = goal.params[0];
+    stepOffset.y = goal.params[1];
+    stepOffset.z = goal.params[2];
+    return std::make_unique<StepResponseGenerator>(
+      state, stepOffset, goal.params[3], goal.params[4], goal.params[5], startTime);
   }
 
   // Returning nullptr is the C++ "no object" idiom for pointer-returning APIs.

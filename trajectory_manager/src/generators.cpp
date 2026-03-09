@@ -29,6 +29,11 @@ double clamp01(const double value)
   return std::clamp(value, 0.0, 1.0);
 }
 
+double wrapAngle(const double angle)
+{
+  return std::atan2(std::sin(angle), std::cos(angle));
+}
+
 // 2D distance (XY only) used by circle/figure8 generators where altitude is held constant
 // and completion should only consider horizontal tracking error.
 double norm2d(const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b)
@@ -367,6 +372,58 @@ TrajectorySample FigureEightGenerator::sample(
   sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
   sample.progress = static_cast<float>(thetaProgress);
   sample.completed = thetaProgress >= 1.0;
+  return sample;
+}
+
+StepResponseGenerator::StepResponseGenerator(
+  const peregrine_interfaces::msg::State & startState,
+  const geometry_msgs::msg::Point & stepOffset,
+  const double yawStepRad,
+  const double preStepHoldS,
+  const double postStepHoldS,
+  const rclcpp::Time & startTime)
+: startPosition_(startState.pose.pose.position),
+  targetPosition_(startState.pose.pose.position),
+  startYaw_(yawFromQuaternion(startState.pose.pose.orientation)),
+  targetYaw_(0.0),
+  preStepHoldS_(std::max(0.1, preStepHoldS)),
+  postStepHoldS_(std::max(1.0, postStepHoldS)),
+  startTime_(startTime)
+{
+  targetPosition_.x += stepOffset.x;
+  targetPosition_.y += stepOffset.y;
+  targetPosition_.z += stepOffset.z;
+  targetYaw_ = wrapAngle(startYaw_ + yawStepRad);
+}
+
+std::string StepResponseGenerator::name() const
+{
+  return "step_response";
+}
+
+TrajectorySample StepResponseGenerator::sample(
+  const peregrine_interfaces::msg::State & currentState,
+  const rclcpp::Time & now)
+{
+  TrajectorySample sample;
+  sample.setpoint = makeBaseSetpoint(now);
+
+  const double elapsedS = std::max(0.0, (now - startTime_).seconds());
+  const bool stepApplied = elapsedS >= preStepHoldS_;
+  const double totalDurationS = preStepHoldS_ + postStepHoldS_;
+
+  if (stepApplied) {
+    sample.setpoint.position = targetPosition_;
+    sample.setpoint.yaw = targetYaw_;
+    sample.distanceRemaining = norm3d(currentState.pose.pose.position, targetPosition_);
+  } else {
+    sample.setpoint.position = startPosition_;
+    sample.setpoint.yaw = startYaw_;
+    sample.distanceRemaining = 0.0;
+  }
+
+  sample.progress = static_cast<float>(clamp01(elapsedS / std::max(totalDurationS, 1e-6)));
+  sample.completed = elapsedS >= totalDurationS;
   return sample;
 }
 

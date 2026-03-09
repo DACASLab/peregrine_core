@@ -191,6 +191,49 @@ private:
 };
 
 /**
+ * @class StepResponseGenerator
+ * @brief Generates a piecewise-constant position/yaw step for response characterization.
+ *
+ * The generator holds the start reference for `preStepHoldS`, then applies a fixed
+ * position/yaw offset and holds it for `postStepHoldS`. Completion is time-based rather
+ * than state-based so poorly tuned responses still yield a finite observation window.
+ */
+class StepResponseGenerator : public TrajectoryGeneratorBase
+{
+public:
+  /**
+   * @brief Constructs a step-response generator.
+   *
+   * Parameter semantics:
+   *   - stepOffset: ENU position offset applied after the pre-step hold
+   *   - yawStepRad: ENU yaw offset applied after the pre-step hold
+   *   - preStepHoldS: duration before the step is applied
+   *   - postStepHoldS: duration to hold the stepped reference after the transition
+   */
+  StepResponseGenerator(
+    const peregrine_interfaces::msg::State & startState,
+    const geometry_msgs::msg::Point & stepOffset,
+    double yawStepRad,
+    double preStepHoldS,
+    double postStepHoldS,
+    const rclcpp::Time & startTime);
+
+  std::string name() const override;
+  TrajectorySample sample(
+    const peregrine_interfaces::msg::State & currentState,
+    const rclcpp::Time & now) override;
+
+private:
+  geometry_msgs::msg::Point startPosition_;
+  geometry_msgs::msg::Point targetPosition_;
+  double startYaw_{0.0};
+  double targetYaw_{0.0};
+  double preStepHoldS_{2.0};
+  double postStepHoldS_{8.0};
+  rclcpp::Time startTime_{0, 0, RCL_ROS_TIME};
+};
+
+/**
  * @class LandGenerator
  * @brief Generates a vertical descent trajectory to z=0.
  */

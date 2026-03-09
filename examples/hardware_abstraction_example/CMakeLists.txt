@@ -20,6 +20,9 @@ install(PROGRAMS
   scripts/circle_tracking_evaluator.py
   scripts/multi_cycle_demo.py
   scripts/se3_circle_sweep.py
+  scripts/se3_step_sweep.py
+  scripts/step_response_demo.py
+  scripts/step_response_evaluator.py
   scripts/safety_fault_injector.py
   scripts/safety_regression_demo.py
   scripts/safety_takeoff_hold_demo.py
