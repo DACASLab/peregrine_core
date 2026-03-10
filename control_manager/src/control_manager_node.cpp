@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <control_manager/control_manager_node.hpp>
 
 #include <control_manager/px4_passthrough_controller.hpp>
@@ -26,9 +16,6 @@ using namespace std::chrono_literals;
 namespace
 {
 
-// Internal-linkage constants:
-// Using an unnamed namespace makes these symbols file-local without using macros.
-// This is the C++ equivalent of private module-level constants in Python.
 constexpr char kManagerName[] = "control_manager";
 
 /// Reads a 3-element double vector parameter into an Eigen::Vector3d.
@@ -130,10 +117,6 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
-  // Data inputs: estimator state and trajectory manager intent.
-  // The typed lambda `[this](peregrine_interfaces::msg::State::SharedPtr msg) { ... }` captures `this` and forwards the
-  // message to the member function. In Python, this is analogous to passing
-  // a bound method like `self.on_estimated_state`.
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
     [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
@@ -320,10 +303,8 @@ void ControlManagerNode::onTrajectorySetpoint(
   latestSetpoint_ = *msg;
 }
 
-// Copy-then-compute pattern: shared state written by subscription callbacks is copied
-// under the mutex, then the controller runs entirely lock-free. This minimizes lock
-// hold time and prevents the controller's compute() from blocking the executor thread
-// that delivers subscription callbacks (onEstimatedState / onTrajectorySetpoint).
+/// Shared state is copied under the mutex so the controller runs lock-free,
+/// keeping subscription callbacks and the timer thread decoupled.
 void ControlManagerNode::publishControlOutput()
 {
   if (!active_ || !controller_ || !controlOutputPub_ || !controlOutputPub_->is_activated()) {
@@ -490,7 +471,6 @@ double ControlManagerNode::yawFromQuaternion(const geometry_msgs::msg::Quaternio
 
 }  // namespace control_manager
 
-// Register the class as a composable node component. When loaded into a
-// component_container process, all composable nodes share one process and can leverage
-// intra-process zero-copy communication, avoiding serialization overhead between managers.
+// Registers this node as a composable component so it can be loaded into a
+// component_container alongside other managers for intra-process communication.
 RCLCPP_COMPONENTS_REGISTER_NODE(control_manager::ControlManagerNode)

@@ -1,23 +1,8 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <control_manager/px4_passthrough_controller.hpp>
 
 namespace control_manager
 {
 
-// `/*state*/` is a commented-out parameter name. The parameter type is still declared
-// (const State &) so the function signature matches the base class, but the name is
-// commented out to suppress "unused parameter" compiler warnings. In Python, you'd
-// use `_` or `*args` for unused parameters; C++ uses this commenting convention or
-// the `[[maybe_unused]]` attribute.
 peregrine_interfaces::msg::ControlOutput Px4PassthroughController::compute(
   const peregrine_interfaces::msg::State & /*state*/,
   const peregrine_interfaces::msg::TrajectorySetpoint & setpoint) const

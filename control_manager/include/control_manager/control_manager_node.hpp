@@ -1,14 +1,4 @@
 /**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
-/**
  * @file control_manager_node.hpp
  * @brief Control manager ROS2 lifecycle component.
  *
@@ -141,20 +131,7 @@ private:
    */
   static double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q);
 
-  // `std::unique_ptr<ControllerBase>` holds a pointer to a ControllerBase-derived
-  // object (currently Px4PassthroughController). unique_ptr enforces single
-  // ownership: only one unique_ptr can own the object at a time. When the
-  // unique_ptr is destroyed (e.g., during on_cleanup), the controller is
-  // automatically deleted. This is equivalent to Python's typical ownership
-  // model where `self.controller = Px4PassthroughController()` holds the only
-  // reference and the GC cleans up when `self` dies.
-  //
-  // The pointer is to the BASE class (ControllerBase), but it points to a
-  // DERIVED object (Px4PassthroughController). This is "polymorphism" — calling
-  // `controller_->compute()` dispatches to the derived class's implementation.
-  // In Python, this happens automatically via duck typing; in C++, it requires
-  // the `virtual` keyword on the base class method.
-  /// Active controller backend implementation.
+  /// Active controller backend; swapped at configure time based on `controller_type` parameter.
   std::unique_ptr<ControllerBase> controller_;
 
   /// Selected controller type ("passthrough" or "se3").
@@ -181,13 +158,7 @@ private:
   /// Protects cached state/setpoint and last sample timestamps.
   mutable std::mutex dataMutex_;
 
-  // `std::optional<T>` is a container that either holds a value of type T or is
-  // empty (has no value). This is the C++ equivalent of Python's `Optional[T]`
-  // or a variable that can be `None`. You check if it has a value with
-  // `.has_value()` (like `x is not None` in Python) and access the value with
-  // `*opt` or `opt.value()`. Using optional makes it explicit that these fields
-  // start empty and are only populated once the first message arrives.
-  /// Latest estimated state sample.
+  /// Latest estimated state sample; empty until the first message arrives.
   std::optional<peregrine_interfaces::msg::State> latestState_;
   /// Latest desired trajectory setpoint.
   std::optional<peregrine_interfaces::msg::TrajectorySetpoint> latestSetpoint_;
