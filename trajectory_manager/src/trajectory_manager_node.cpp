@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <trajectory_manager/trajectory_manager_node.hpp>
 
 #include <trajectory_manager/generators.hpp>
@@ -682,8 +672,6 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
       state, stepOffset, goal.params[3], goal.params[4], goal.params[5], startTime);
   }
 
-  // Returning nullptr is the C++ "no object" idiom for pointer-returning APIs.
-  // This mirrors Python returning `None` for unsupported trajectory types.
   return nullptr;
 }
 

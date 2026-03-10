@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <trajectory_manager/generators.hpp>
 
 #include <algorithm>
@@ -22,8 +12,7 @@ namespace
 // This unnamed namespace keeps helper functions private to this .cpp translation unit.
 constexpr double kPi = 3.14159265358979323846;
 
-// `std::clamp(value, lo, hi)` returns value bounded to [lo, hi]. Equivalent to
-// Python's `max(lo, min(value, hi))` or numpy.clip(). Available since C++17.
+/// Clamps value to [0, 1].
 double clamp01(const double value)
 {
   return std::clamp(value, 0.0, 1.0);
@@ -89,18 +78,6 @@ double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q)
   return std::atan2(sinyCosp, cosyCosp);
 }
 
-// The member initializer list (after the `:`) initializes member variables BEFORE
-// the constructor body `{}` runs. This is the C++ equivalent of setting instance
-// variables in Python's __init__:
-//   def __init__(self, reference_state):
-//       self.hold_position = reference_state.pose.pose.position
-//       self.hold_yaw = yaw_from_quaternion(reference_state.pose.pose.orientation)
-//
-// In C++, using the initializer list is preferred over assignment inside the body
-// because it directly constructs the member with the given value (one operation),
-// whereas assignment inside the body would default-construct then overwrite (two
-// operations). For simple types like double, the difference is negligible; for
-// complex types, it can avoid unnecessary copies.
 HoldPositionGenerator::HoldPositionGenerator(const peregrine_interfaces::msg::State & referenceState)
 : holdPosition_(referenceState.pose.pose.position),
   holdYaw_(yawFromQuaternion(referenceState.pose.pose.orientation))
@@ -145,10 +122,6 @@ TakeoffGenerator::TakeoffGenerator(
   startYaw_(yawFromQuaternion(startState.pose.pose.orientation)),
   startAltitude_(startState.pose.pose.position.z),
   targetAltitude_(targetAltitudeM),
-  // `std::max(0.1, std::abs(...))` clamps the velocity to a minimum of 0.1 m/s.
-  // `std::abs` returns the absolute value (like Python's `abs()`). `std::max`
-  // returns the larger of two values (like Python's `max(a, b)`). These are in
-  // the `<cmath>` and `<algorithm>` headers respectively.
   climbVelocity_(std::max(0.1, std::abs(climbVelocityMps))),
   startTime_(startTime)
 {
