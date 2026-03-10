@@ -1,14 +1,4 @@
 /**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
-/**
  * @file uav_manager_node.hpp
  * @brief UAV manager ROS2 lifecycle component.
  *
@@ -84,12 +74,6 @@ namespace uav_manager
 class UavManagerNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
-  // `using` type aliases are the C++ equivalent of Python's type aliases:
-  //   Takeoff = peregrine_interfaces.action.Takeoff
-  // They shorten deeply nested template types that appear throughout action
-  // server/client code. Without these, signatures like
-  // rclcpp_action::ServerGoalHandle<peregrine_interfaces::action::Takeoff> would
-  // repeat in every goal/cancel/accepted callback declaration.
   using Takeoff = peregrine_interfaces::action::Takeoff;
   using Land = peregrine_interfaces::action::Land;
   using GoTo = peregrine_interfaces::action::GoTo;
@@ -308,14 +292,7 @@ private:
 
   /// True once lifecycle configure succeeded.
   bool configured_{false};
-  // `std::atomic<bool>` is a thread-safe boolean that can be read/written from
-  // multiple threads without a mutex. Normal booleans are NOT safe to share between
-  // threads in C++ (unlike Python, where the GIL serializes access). std::atomic
-  // provides lock-free, hardware-level synchronization for simple types. This is
-  // used for `active_` because it is read from many different callback threads
-  // (subscription callbacks, timer callbacks, action callbacks) and written
-  // during lifecycle transitions.
-  /// True while lifecycle state is active.
+  /// True while lifecycle state is active; read from multiple callback threads, so atomic.
   std::atomic<bool> active_{false};
 
   /// UAV state publication frequency.

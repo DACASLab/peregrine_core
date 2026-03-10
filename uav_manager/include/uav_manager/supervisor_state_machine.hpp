@@ -1,14 +1,4 @@
 /**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
-/**
  * @file supervisor_state_machine.hpp
  * @brief Deterministic table-driven supervisor FSM.
  *
@@ -136,22 +126,11 @@ private:
     SupervisorEvent event;
     GuardId guard;
     SupervisorState target;
-    // `const char *` is a pointer to a C-style string literal (a null-terminated
-    // array of characters). String literals like "TAKEOFF_STARTED" are stored in
-    // read-only memory by the compiler and live for the entire program duration.
-    // Using `const char *` instead of `std::string` avoids heap allocation for
-    // these static, compile-time-known strings.
+    /// Reason string logged on successful transition; points to a string literal.
     const char * successReason;
   };
 
-  // `static` on a member function means it belongs to the CLASS, not to any
-  // particular instance. It can be called as `SupervisorStateMachine::rules()`
-  // without creating an object. This is identical to Python's @staticmethod.
-  //
-  // Returns a `const std::vector<TransitionRule> &` — a reference to an
-  // immutable vector. The vector is created once (via a `static` local variable
-  // inside the function body) and reused for all subsequent calls.
-  /// Static transition table.
+  /// Static transition table; initialized once and shared across all instances.
   static const std::vector<TransitionRule> & rules();
 
   /// Current FSM state.

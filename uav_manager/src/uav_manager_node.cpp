@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <uav_manager/uav_manager_node.hpp>
 
 #include <rclcpp_components/register_node_macro.hpp>
@@ -244,12 +234,6 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   //    Used by service and action clients. This prevents deadlock where a
   //    service response callback cannot be delivered because the executor
   //    thread is blocked inside an action accepted callback from group 2.
-  // Callback groups control how the ROS2 executor schedules callbacks. In Python
-  // rclpy, the GIL naturally serializes callbacks. In C++ with a MultiThreadedExecutor,
-  // multiple callbacks can run truly in parallel on different OS threads. Callback
-  // groups let you control this:
-  //   - MutuallyExclusive: only one callback in this group runs at a time (like a lock)
-  //   - Reentrant: multiple callbacks in this group can run simultaneously
   actionCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   serviceCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
@@ -301,14 +285,7 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
   // Without this, stale messages from a previous activation could satisfy readiness
   // checks prematurely during the next on_activate.
   {
-    // The bare `{` opens a new scope block. When this block closes at `}`, any
-    // local variables (including `lock`) are destroyed. Since std::scoped_lock
-    // releases the mutex in its destructor, this pattern gives precise control over
-    // how long the lock is held. This is a common C++ idiom with no Python equivalent
-    // - Python's `with` block serves a similar purpose but is syntactically different.
     std::scoped_lock lock(mutex_);
-    // `.reset()` on std::optional clears the contained value, making it empty
-    // (equivalent to setting a Python variable to None).
     latestState_.reset();
     latestPx4Status_.reset();
     latestEstimationStatus_.reset();
@@ -796,26 +773,11 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
   // Runs on an executor thread from actionCbGroup_ (Reentrant).
   // No manual std::thread -- the MultiThreadedExecutor manages concurrency.
 
-  // RAII (Resource Acquisition Is Initialization) cleanup guard. This is a C++
-  // pattern with no direct Python equivalent, though Python's try/finally or
-  // contextlib.ExitStack serve a similar purpose.
-  //
-  // `std::shared_ptr<void>(nullptr, deleter)` creates a shared_ptr that owns
-  // nothing (nullptr) but has a custom "deleter" function. When this shared_ptr
-  // is destroyed (when `release` goes out of scope at the end of this function),
-  // the deleter runs - calling releaseActionSlot(). This guarantees the action
-  // slot is released on ANY exit path: normal return, early error return, or
-  // exception. The equivalent Python pattern would be:
-  //   try:
-  //       ... all the logic ...
-  //   finally:
-  //       self.release_action_slot()
-  //
-  // `(void)release;` suppresses the "unused variable" compiler warning. The
-  // variable IS used - its destructor side-effect is the entire point - but the
-  // compiler doesn't know that without the cast.
+  // RAII cleanup guard: ensures releaseActionSlot() is called on every exit path
+  // (normal return, early failure, or exception) without requiring explicit cleanup
+  // at each return site.
   const auto release = std::shared_ptr<void>(nullptr, [this](void *) {releaseActionSlot();});
-  (void)release;
+  (void)release;  // suppress unused-variable warning; the destructor side-effect is intentional
 
   auto result = std::make_shared<Takeoff::Result>();
   // These lambdas capture external variables for use inside the function body:

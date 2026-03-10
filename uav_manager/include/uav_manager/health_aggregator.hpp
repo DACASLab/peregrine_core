@@ -1,14 +1,4 @@
 /**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
-/**
  * @file health_aggregator.hpp
  * @brief Pure C++ readiness aggregation with freshness tracking.
  *
@@ -48,11 +38,6 @@ using namespace std::chrono_literals;
  * @enum ReadinessCode
  * @brief Normalized readiness classification for dependencies.
  */
-// `enum class` (scoped enumeration) is the C++ equivalent of Python's enum.Enum.
-// Values must be accessed as `ReadinessCode::Ok`, not just `Ok`. This prevents
-// name collisions (e.g., `Ok` won't conflict with other enums). The `: uint8_t`
-// specifies the underlying storage type (1 byte), equivalent to Python's
-// `class ReadinessCode(IntEnum)` with values fitting in a byte.
 enum class ReadinessCode : uint8_t
 {
   /// Dependency is present, fresh, and valid for use.
@@ -75,11 +60,6 @@ enum class ReadinessCode : uint8_t
  * @struct FreshnessConfig
  * @brief Per-signal freshness timeouts used by readiness evaluation.
  */
-// A `struct` in C++ is identical to a `class` except that members are `public` by
-// default (in a class, members are `private` by default). Structs are conventionally
-// used for plain data containers (like Python's @dataclass), while classes are used
-// for objects with behavior and invariants. FreshnessConfig is a pure data carrier
-// — it has no methods, so struct is the idiomatic choice.
 struct FreshnessConfig
 {
   /// Maximum age for PX4 status input.

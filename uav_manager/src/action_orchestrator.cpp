@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <uav_manager/action_orchestrator.hpp>
 
 #include <rclcpp/rclcpp.hpp>
@@ -50,11 +40,6 @@ StepResult ActionOrchestrator::callStep(
   return result;
 }
 
-// `const std::function<bool()> & condition` takes any callable (function pointer,
-// lambda, functor) that returns bool and accepts no arguments. `std::function` is
-// C++'s type-erased callable wrapper - similar to how Python treats all callables
-// uniformly (functions, lambdas, bound methods). The `&` means it's passed by
-// reference (no copy of the callable object).
 StepResult ActionOrchestrator::waitForCondition(
   const std::string & timeoutCode,
   const std::chrono::milliseconds timeout,
@@ -63,10 +48,6 @@ StepResult ActionOrchestrator::waitForCondition(
   const std::function<bool()> & emergency) const
 {
   // Polling keeps waits interruptible and reason-code deterministic.
-  //
-  // `rclcpp::Rate` is a timing helper that sleeps for the remainder of the period
-  // after work is done, similar to Python's `rospy.Rate(hz)`. The `sleep()` call
-  // at the bottom of the loop blocks the thread until the next tick.
   rclcpp::Rate rate(
     std::chrono::duration<double>(config_.pollPeriod).count() > 0.0
     ? 1.0 / std::chrono::duration<double>(config_.pollPeriod).count()
