@@ -1,13 +1,3 @@
-/**
- * @note C++ Primer for Python ROS2 readers
- *
- * This file follows a few recurring C++ patterns:
- * - Ownership is explicit: `std::unique_ptr` means single owner, `std::shared_ptr` means shared ownership.
- * - References (`T&`) and `const` are used to avoid unnecessary copies and make mutation intent explicit.
- * - RAII is used for resource safety: objects such as locks clean themselves up automatically at scope exit.
- * - ROS2 callbacks may run concurrently depending on executor/callback-group setup, so shared state is guarded.
- * - Templates (for example `create_subscription<MsgT>`) are compile-time type binding, not runtime reflection.
- */
 #include <hardware_abstraction/msg_version.hpp>
 #include <hardware_abstraction/px4_hardware_abstraction.hpp>
 
@@ -65,17 +55,7 @@ std::string normalizeTopicSuffix(std::string suffix)
   return suffix;
 }
 
-// Lowercase helper for case-insensitive mode string handling.
-//
-// Note that `input` is passed by VALUE (no `&`), meaning C++ copies the entire
-// string into this function. This is intentional - we modify the copy in-place
-// and return it. In Python, strings are immutable so `input.lower()` always
-// creates a new string; here we achieve the same result by modifying the copy.
-//
-// `std::transform` applies a function to each element of a range, similar to
-// Python's `map()`. `.begin()` and `.end()` are iterators - pointers to the
-// first element and one-past-the-last element. Iterators are the C++ equivalent
-// of Python iterables, used with algorithms from the `<algorithm>` header.
+/// Case-insensitive lowercase helper for mode string comparison.
 std::string toLower(std::string input)
 {
   std::transform(input.begin(), input.end(), input.begin(),
@@ -93,18 +73,6 @@ std::string toLower(std::string input)
 //   bit 8  = use position (trajectory mode only)
 //   bit 9  = use velocity (trajectory mode only)
 //   bit 10 = use acceleration (trajectory mode only)
-// Bitwise constants for packing multiple boolean flags into a single integer.
-// This is a common C/C++ pattern for lock-free atomic data exchange; Python
-// rarely uses bit manipulation directly, preferring named fields or dictionaries.
-//
-// `0xFFu` is a hexadecimal literal (255 in decimal); the `u` suffix marks it
-// as unsigned. `1u << 8` shifts the bit pattern 1 left by 8 positions,
-// producing 256 (binary: 100000000). The `|=` operator below ORs these flags
-// together, and `& mask` extracts them.
-//
-// `std::array<double, 36>` (used below) is a fixed-size array, equivalent to
-// a Python tuple of exactly 36 doubles. Unlike Python lists, the size is known
-// at compile time and cannot change.
 constexpr uint32_t kModeMask = 0xFFu;
 constexpr uint32_t kTrajectoryPositionBit = 1u << 8;
 constexpr uint32_t kTrajectoryVelocityBit = 1u << 9;
