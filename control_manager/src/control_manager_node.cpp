@@ -1,9 +1,7 @@
 #include <control_manager/control_manager_node.hpp>
 
-#include <control_manager/px4_passthrough_controller.hpp>
-#include <control_manager/se3_controller.hpp>
-
 #include <Eigen/Geometry>
+#include <pluginlib/class_loader.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
@@ -18,27 +16,21 @@ namespace
 
 constexpr char kManagerName[] = "control_manager";
 
-/// Reads a 3-element double vector parameter into an Eigen::Vector3d.
-Eigen::Vector3d getVector3Param(
-  rclcpp_lifecycle::LifecycleNode & node,
-  const std::string & name,
-  const std::vector<double> & default_val)
-{
-  const auto v = node.declare_parameter<std::vector<double>>(name, default_val);
-  return Eigen::Vector3d(v.at(0), v.at(1), v.at(2));
-}
-
 }  // namespace
 
 ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kManagerName, options)
 {
+  pluginLoader_ = std::make_unique<pluginlib::ClassLoader<ControllerBase>>(
+    "control_manager", "control_manager::ControllerBase");
+
   publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 250.0);
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
   dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
-  controllerType_ = this->declare_parameter<std::string>("controller_type", "passthrough");
+  controllerType_ = this->declare_parameter<std::string>(
+    "controller_type", "control_manager::Px4PassthroughController");
 
   if (autoStart_) {
     startupTimer_ = this->create_wall_timer(
@@ -69,6 +61,10 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
 
 ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp_lifecycle::State &)
 {
+  // Re-read controller_type in case it was changed between lifecycle transitions
+  // (e.g., set_parameters service called while the node was inactive).
+  controllerType_ = this->get_parameter("controller_type").as_string();
+
   if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
     dependencyStartupTimeoutS_ <= 0.0)
   {
@@ -95,24 +91,14 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
     return CallbackReturn::FAILURE;
   }
 
-  if (controllerType_ == "se3") {
-    Se3ControllerConfig config;
-    config.mass = this->declare_parameter<double>("se3.mass", 1.5);
-    config.gravity = this->declare_parameter<double>("se3.gravity", 9.81);
-    config.dt = 1.0 / publishRateHz_;
-    config.k_p = getVector3Param(*this, "se3.k_p", {6.0, 6.0, 8.0});
-    config.k_v = getVector3Param(*this, "se3.k_v", {4.0, 4.0, 5.0});
-    config.k_i = getVector3Param(*this, "se3.k_i", {0.5, 0.5, 0.8});
-    config.k_R = getVector3Param(*this, "se3.k_R", {3.0, 3.0, 1.5});
-    config.k_omega = getVector3Param(*this, "se3.k_omega", {0.5, 0.5, 0.3});
-    config.k_Ri = getVector3Param(*this, "se3.k_Ri", {0.1, 0.1, 0.05});
-    config.pos_int_limit = getVector3Param(*this, "se3.pos_int_limit", {2.0, 2.0, 3.0});
-    config.att_int_limit = getVector3Param(*this, "se3.att_int_limit", {0.5, 0.5, 0.3});
-    config.max_thrust_N = this->declare_parameter<double>("se3.max_thrust_N", 29.43);
-    controller_ = std::make_unique<Se3Controller>(config);
-  } else {
-    controller_ = std::make_unique<Px4PassthroughController>();
+  try {
+    controller_ = pluginLoader_->createUniqueInstance(controllerType_);
+  } catch (const pluginlib::PluginlibException & e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to load controller '%s': %s",
+                 controllerType_.c_str(), e.what());
+    return CallbackReturn::FAILURE;
   }
+  controller_->configure(*this, 1.0 / publishRateHz_);
 
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
@@ -398,7 +384,7 @@ void ControlManagerNode::publishStatus()
   peregrine_interfaces::msg::ManagerStatus status;
   status.header.stamp = this->now();
   status.manager_name = kManagerName;
-  status.active_module = controllerType_;
+  status.active_module = controller_ ? controller_->name() : controllerType_;
   // Explicit cast avoids implicit double->float narrowing warnings and documents the
   // precision boundary at the message interface.
   status.output_rate_hz = static_cast<float>(publishRateHz_);

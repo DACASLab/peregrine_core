@@ -25,6 +25,8 @@ install(PROGRAMS
   scripts/step_response_evaluator.py
   scripts/safety_fault_injector.py
   scripts/safety_regression_demo.py
+  scripts/controller_switch_demo.py
+  scripts/controller_switch_inflight_demo.py
   scripts/safety_takeoff_hold_demo.py
   DESTINATION lib/${PROJECT_NAME}
 )

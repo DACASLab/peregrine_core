@@ -55,7 +55,11 @@ struct Se3ControllerConfig
 class Se3Controller : public ControllerBase
 {
 public:
+  Se3Controller() = default;
   explicit Se3Controller(const Se3ControllerConfig & config);
+
+  std::string name() const override { return "se3"; }
+  void configure(rclcpp_lifecycle::LifecycleNode & node, double dt) override;
 
   peregrine_interfaces::msg::ControlOutput compute(
     const peregrine_interfaces::msg::State & state,

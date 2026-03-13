@@ -28,13 +28,13 @@
 #pragma once
 
 #include <control_manager/controller_base.hpp>
-#include <control_manager/se3_controller.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
+#include <pluginlib/class_loader.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
@@ -131,11 +131,14 @@ private:
    */
   static double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q);
 
-  /// Active controller backend; swapped at configure time based on `controller_type` parameter.
-  std::unique_ptr<ControllerBase> controller_;
+  /// Plugin loader for runtime controller selection.
+  std::unique_ptr<pluginlib::ClassLoader<ControllerBase>> pluginLoader_;
 
-  /// Selected controller type ("passthrough" or "se3").
-  std::string controllerType_{"passthrough"};
+  /// Active controller backend; swapped at configure time based on `controller_type` parameter.
+  pluginlib::UniquePtr<ControllerBase> controller_;
+
+  /// Selected controller type (fully-qualified class name).
+  std::string controllerType_{"control_manager::Px4PassthroughController"};
 
   /// Frame names captured from first estimated_state message.
   std::string odomFrame_{"odom"};

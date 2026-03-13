@@ -10,6 +10,7 @@ find_package(Eigen3 REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
 add_library(control_manager_component SHARED
@@ -30,6 +31,7 @@ target_link_libraries(control_manager_component Eigen3::Eigen)
 
 ament_target_dependencies(control_manager_component
   peregrine_interfaces
+  pluginlib
   rclcpp
   rclcpp_components
   rclcpp_lifecycle
@@ -71,7 +73,9 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_se3_controller peregrine_interfaces)
 endif()
 
+pluginlib_export_plugin_description_file(control_manager plugins.xml)
+
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle)
+ament_export_dependencies(peregrine_interfaces pluginlib rclcpp rclcpp_components rclcpp_lifecycle)
 
 ament_package()

@@ -5,10 +5,10 @@
     state_timeout_s: 0.5
     dependency_startup_timeout_s: 2.0
     auto_start: true
-    controller_type: "passthrough"
+    controller_type: "control_manager::Px4PassthroughController"
 
     se3:
-      mass: 1.5
+      mass: 2.0643
       gravity: 9.81
       k_p: [6.0, 6.0, 8.0]
       k_v: [4.0, 4.0, 5.0]
@@ -18,4 +18,4 @@
       k_Ri: [0.1, 0.1, 0.05]
       pos_int_limit: [2.0, 2.0, 3.0]
       att_int_limit: [0.5, 0.5, 0.3]
-      max_thrust_N: 29.43
+      max_thrust_N: 34.19432

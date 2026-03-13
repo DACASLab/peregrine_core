@@ -1,0 +1,23 @@
+/**:
+  ros__parameters:
+    # Example 16 overrides for manager nodes.
+    # Controller-switch demo needs generous timeouts to accommodate lifecycle
+    # transitions and preflight re-checks between flight cycles.
+    status_rate_hz: 10.0
+    dependency_startup_timeout_s: 10.0
+    data_readiness_timeout_s: 40.0
+
+    # SE(3) controller gains — loaded as parameter overrides so they're available
+    # when the demo switches controller_type to Se3Controller mid-mission.
+    se3:
+      mass: 2.0643
+      gravity: 9.81
+      k_p: [10.6, 10.6, 8.0]
+      k_v: [7.1, 7.1, 5.0]
+      k_i: [0.06, 0.06, 0.6]
+      k_R: [5.5, 5.5, 2.0]
+      k_omega: [1.10, 1.10, 0.4]
+      k_Ri: [0.05, 0.05, 0.03]
+      pos_int_limit: [2.0, 2.0, 3.0]
+      att_int_limit: [0.5, 0.5, 0.3]
+      max_thrust_N: 34.19432

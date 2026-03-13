@@ -1,0 +1,10 @@
+<library path="control_manager_component">
+  <class type="control_manager::Px4PassthroughController"
+         base_class_type="control_manager::ControllerBase">
+    <description>Passes trajectory setpoints to PX4 without modification.</description>
+  </class>
+  <class type="control_manager::Se3Controller"
+         base_class_type="control_manager::ControllerBase">
+    <description>SE(3) geometric tracking controller with integral augmentation.</description>
+  </class>
+</library>

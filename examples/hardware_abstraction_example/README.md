@@ -104,6 +104,20 @@ Example:
 ros2 launch hardware_abstraction_example example15_multi_uav_circle_figure8_9uav.launch.py
 ```
 
+## In-Flight Controller Switch Demo Launch
+
+`ros2 launch hardware_abstraction_example example17_controller_switch_inflight_demo.launch.py`
+
+Purpose:
+
+- Take off with passthrough controller.
+- Switch to SE3 while airborne and fly a trajectory.
+- Switch back to passthrough in-flight and fly another trajectory.
+- Optional third switch back to SE3, then land.
+
+This is a targeted diagnosis flow to separate in-flight switch behavior from
+SE3 takeoff behavior.
+
 This wraps Example 11 (multi-cycle mission) and adds optional monitoring:
 
 - `start_flight_visualizer:=true|false` (default `true`)

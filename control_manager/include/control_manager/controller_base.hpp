@@ -19,6 +19,9 @@
 #include <peregrine_interfaces/msg/control_output.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
+
+#include <string>
 
 namespace control_manager
 {
@@ -36,6 +39,14 @@ class ControllerBase
 {
 public:
   virtual ~ControllerBase() = default;
+
+  /// Returns the controller's string identifier for status reporting.
+  virtual std::string name() const = 0;
+
+  /// Declares ROS2 parameters and initializes internal state.
+  /// @param node  Lifecycle node to declare parameters on.
+  /// @param dt    Control loop timestep (1.0 / publish_rate_hz).
+  virtual void configure(rclcpp_lifecycle::LifecycleNode & node, double dt) = 0;
 
   /**
    * @brief Computes control output from the current state and trajectory setpoint.

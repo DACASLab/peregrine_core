@@ -28,3 +28,6 @@ peregrine_interfaces::msg::ControlOutput Px4PassthroughController::compute(
 }
 
 }  // namespace control_manager
+
+#include <pluginlib/class_list_macros.hpp>
+PLUGINLIB_EXPORT_CLASS(control_manager::Px4PassthroughController, control_manager::ControllerBase)

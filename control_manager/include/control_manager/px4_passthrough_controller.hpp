@@ -30,6 +30,9 @@ namespace control_manager
 class Px4PassthroughController : public ControllerBase
 {
 public:
+  std::string name() const override { return "passthrough"; }
+  void configure(rclcpp_lifecycle::LifecycleNode & /*node*/, double /*dt*/) override {}
+
   /**
    * @brief Produces a trajectory-mode control command from the input setpoint.
    */

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace control_manager
 {
@@ -186,4 +188,54 @@ peregrine_interfaces::msg::ControlOutput Se3Controller::compute(
   return output;
 }
 
+namespace
+{
+
+/// Declares a parameter if not yet declared, otherwise returns the current value.
+/// This allows Se3Controller::configure() to be called across multiple lifecycle
+/// configure/cleanup cycles without hitting ParameterAlreadyDeclaredException.
+template <typename T>
+T declareOrGet(
+  rclcpp_lifecycle::LifecycleNode & node,
+  const std::string & name,
+  const T & default_val)
+{
+  if (node.has_parameter(name)) {
+    return node.get_parameter(name).get_value<T>();
+  }
+  return node.declare_parameter<T>(name, default_val);
+}
+
+/// Reads a 3-element double vector parameter into an Eigen::Vector3d.
+Eigen::Vector3d getVector3Param(
+  rclcpp_lifecycle::LifecycleNode & node,
+  const std::string & name,
+  const std::vector<double> & default_val)
+{
+  const auto v = declareOrGet(node, name, default_val);
+  return Eigen::Vector3d(v.at(0), v.at(1), v.at(2));
+}
+
+}  // namespace
+
+void Se3Controller::configure(rclcpp_lifecycle::LifecycleNode & node, double dt)
+{
+  config_.mass = declareOrGet(node, std::string("se3.mass"), 1.5);
+  config_.gravity = declareOrGet(node, std::string("se3.gravity"), 9.81);
+  config_.dt = dt;
+  config_.k_p = getVector3Param(node, "se3.k_p", {6.0, 6.0, 8.0});
+  config_.k_v = getVector3Param(node, "se3.k_v", {4.0, 4.0, 5.0});
+  config_.k_i = getVector3Param(node, "se3.k_i", {0.5, 0.5, 0.8});
+  config_.k_R = getVector3Param(node, "se3.k_R", {3.0, 3.0, 1.5});
+  config_.k_omega = getVector3Param(node, "se3.k_omega", {0.5, 0.5, 0.3});
+  config_.k_Ri = getVector3Param(node, "se3.k_Ri", {0.1, 0.1, 0.05});
+  config_.pos_int_limit = getVector3Param(node, "se3.pos_int_limit", {2.0, 2.0, 3.0});
+  config_.att_int_limit = getVector3Param(node, "se3.att_int_limit", {0.5, 0.5, 0.3});
+  config_.max_thrust_N = declareOrGet(node, std::string("se3.max_thrust_N"), 29.43);
+  reset();
+}
+
 }  // namespace control_manager
+
+#include <pluginlib/class_list_macros.hpp>
+PLUGINLIB_EXPORT_CLASS(control_manager::Se3Controller, control_manager::ControllerBase)
