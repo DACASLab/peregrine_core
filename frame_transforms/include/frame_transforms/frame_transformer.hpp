@@ -123,10 +123,6 @@ private:
   bool homeInitialized_{false};
   Eigen::Vector3d mapToOdomOffset_{0.0, 0.0, 0.0};
 
-  /// When true, GPS subscriptions are created and map->odom offset is computed from GNSS.
-  /// When false (mocap mode), map->odom stays identity and no GPS subscriptions are created.
-  bool enableGpsAlignment_{true};
-
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gnssSub_;
   rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
 

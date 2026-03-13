@@ -29,7 +29,6 @@
 
 #pragma once
 
-#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
@@ -104,10 +103,6 @@ private:
    * @brief Routes manager command envelope into the selected PX4 input topic.
    */
   void onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg);
-  /**
-   * @brief Converts an ENU PoseStamped from mocap into NED VehicleOdometry for PX4 EKF2.
-   */
-  void onMocapPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
 
   /**
    * @brief Service callback to arm or disarm the vehicle.
@@ -222,9 +217,6 @@ private:
 
   rclcpp::TimerBase::SharedPtr offboardModeTimer_;
   rclcpp::TimerBase::SharedPtr statusTimer_;
-
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr mocapPoseSub_;
-  rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr visualOdometryPub_;
 };
 
 }  // namespace hardware_abstraction

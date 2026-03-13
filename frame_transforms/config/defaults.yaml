@@ -2,7 +2,6 @@
   ros__parameters:
     publish_rate_hz: 100.0
     odometry_topic: "odometry"
-    enable_gps_alignment: true
     home_lat_deg: 47.397971
     home_lon_deg: 8.546164
     home_init_timeout_s: 90.0
