@@ -242,6 +242,20 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
                                                  false));
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
 
+  // Optional mocap pose input. When a non-empty topic is configured, external pose data
+  // (e.g. from a Vicon/OptiTrack relay) is converted from ENU to NED and published to PX4
+  // as visual odometry so EKF2 can fuse it with IMU for indoor position estimation.
+  std::string mocapPoseTopic = this->declare_parameter<std::string>("mocap_pose_topic", "");
+  if (!mocapPoseTopic.empty()) {
+    mocapPoseSub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      mocapPoseTopic, rosInputQos,
+      [this](geometry_msgs::msg::PoseStamped::SharedPtr msg) { onMocapPose(msg); });
+    visualOdometryPub_ = this->create_publisher<px4_msgs::msg::VehicleOdometry>(
+      px4Topic("/fmu/in/vehicle_visual_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()),
+      px4OutputQos);
+    RCLCPP_INFO(this->get_logger(), "Mocap enabled: subscribing to '%s'", mocapPoseTopic.c_str());
+  }
+
   RCLCPP_INFO(this->get_logger(), "px4_hardware_abstraction started. px4_namespace='%s', sensor_gps_topic='%s'",
               px4Namespace_.c_str(), px4Topic(sensorGpsTopicSuffix_).c_str());
 }
@@ -877,6 +891,44 @@ bool PX4HardwareAbstraction::isConnected() const
 std::string PX4HardwareAbstraction::px4Topic(const std::string& suffix) const
 {
   return px4Namespace_ + suffix;
+}
+
+void PX4HardwareAbstraction::onMocapPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+  px4_msgs::msg::VehicleOdometry vio;
+  vio.timestamp = nowMicros();
+  vio.timestamp_sample = vio.timestamp;
+
+  // Position: ENU -> NED.
+  const auto nedPos = frame_transforms::enuToNed(msg->pose.position);
+  vio.position = {
+    static_cast<float>(nedPos.x),
+    static_cast<float>(nedPos.y),
+    static_cast<float>(nedPos.z)};
+
+  // Orientation: ENU/FLU quaternion -> NED/FRD quaternion.
+  const auto qNed = frame_transforms::orientationEnuFluToNedFrd(msg->pose.orientation);
+  vio.q = {
+    static_cast<float>(qNed.w),
+    static_cast<float>(qNed.x),
+    static_cast<float>(qNed.y),
+    static_cast<float>(qNed.z)};
+
+  vio.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED;
+
+  // Velocity not available from pose-only mocap -- set NaN so EKF2 ignores.
+  vio.velocity = {NAN, NAN, NAN};
+  vio.angular_velocity = {NAN, NAN, NAN};
+  vio.velocity_frame = px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_UNKNOWN;
+
+  // Variance: low defaults for mocap (sub-mm accuracy typical).
+  vio.position_variance = {0.001f, 0.001f, 0.001f};
+  vio.orientation_variance = {0.001f, 0.001f, 0.001f};
+  vio.velocity_variance = {NAN, NAN, NAN};
+
+  vio.quality = 100;
+
+  visualOdometryPub_->publish(vio);
 }
 
 }  // namespace hardware_abstraction

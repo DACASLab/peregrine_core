@@ -112,7 +112,13 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
       odometryTopic_, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::SharedPtr msg) { odometryCallback(msg); });
 
-  // Home GPS origin parameters
+  // GPS alignment toggle. When true (default), GPS subscriptions are created and the
+  // map->odom transform is computed from GNSS data. When false (mocap/indoor mode),
+  // no GPS subscriptions are created and map->odom stays identity.
+  enableGpsAlignment_ = this->declare_parameter<bool>("enable_gps_alignment", true);
+
+  // Home GPS origin parameters (declared unconditionally so parameter files don't need
+  // conditional sections, but only used when GPS alignment is enabled).
   homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397971);
   homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 8.546164);
   gpsMinFixType_ = this->declare_parameter<int>("gps_min_fix_type", 3);
@@ -124,13 +130,18 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 
   publishStaticTransforms();
 
-  // GNSS and GPS status subscriptions for home origin initialization
-  gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      "gnss", rclcpp::QoS(10).reliable(),
-      [this](sensor_msgs::msg::NavSatFix::SharedPtr msg) { onGnss(msg); });
-  gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-      "gps_status", rclcpp::QoS(10).reliable(),
-      [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
+  // GNSS and GPS status subscriptions for home origin initialization.
+  // Only created when GPS alignment is enabled; in mocap mode, map->odom stays identity.
+  if (enableGpsAlignment_) {
+    gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+        "gnss", rclcpp::QoS(10).reliable(),
+        [this](sensor_msgs::msg::NavSatFix::SharedPtr msg) { onGnss(msg); });
+    gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
+        "gps_status", rclcpp::QoS(10).reliable(),
+        [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
+  } else {
+    RCLCPP_INFO(this->get_logger(), "GPS alignment disabled; map->odom stays identity (mocap/indoor mode).");
+  }
 
   // Timer periodically emits the latest odom->base_link transform.
   const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
