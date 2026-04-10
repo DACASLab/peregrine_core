@@ -1,5 +1,8 @@
 # Hardware Flight Rundown
 
+For the validated demo networking and troubleshooting flow, see
+`HARDWARE_WIFI_DEMO_RUNBOOK.md`.
+
 ## 1. One-Time Setup (per drone)
 
 On the companion computer, create `docker/.env.local`:
