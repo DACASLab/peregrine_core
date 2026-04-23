@@ -501,6 +501,9 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
 
 
 // Control commands are ONLY forwarded to PX4 when the vehicle is in OFFBOARD nav_state.
+// This node is strictly a PX4 boundary/transport layer and intentionally not the
+// executive authority. It relies on upstream executive gating (uav_manager +
+// trajectory_manager) to decide *what* should be sent.
 // In other flight modes (MANUAL, POSCTL, etc.), PX4 runs its own internal controllers and
 // would ignore external setpoints anyway. The throttled warning below helps diagnose
 // situations where the control pipeline is producing outputs but the vehicle hasn't yet

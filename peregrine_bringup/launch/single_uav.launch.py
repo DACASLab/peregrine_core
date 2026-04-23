@@ -38,6 +38,8 @@ def generate_launch_description() -> LaunchDescription:
     start_visualizer = LaunchConfiguration("start_visualizer")
     start_rviz = LaunchConfiguration("start_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
+    start_mission_executor = LaunchConfiguration("start_mission_executor")
+    mission_tree_file = LaunchConfiguration("mission_tree_file")
 
     bringup_default_overrides = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
@@ -69,6 +71,9 @@ def generate_launch_description() -> LaunchDescription:
     )
     default_rviz_config = PathJoinSubstitution(
         [FindPackageShare("rviz_plugins"), "rviz", "flight_visualization.rviz"]
+    )
+    default_mission_tree = PathJoinSubstitution(
+        [FindPackageShare("mission_executor"), "trees", "example_mission.xml"]
     )
 
     return LaunchDescription(
@@ -142,6 +147,16 @@ def generate_launch_description() -> LaunchDescription:
                 "rviz_config",
                 default_value=default_rviz_config,
                 description="RViz config file to load when start_rviz:=true.",
+            ),
+            DeclareLaunchArgument(
+                "start_mission_executor",
+                default_value="false",
+                description="Start mission_executor BT application node.",
+            ),
+            DeclareLaunchArgument(
+                "mission_tree_file",
+                default_value=default_mission_tree,
+                description="Behavior Tree XML file used by mission_executor.",
             ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
@@ -251,6 +266,15 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 arguments=["-d", rviz_config],
                 parameters=[{"use_sim_time": use_sim_time}],
+            ),
+            Node(
+                condition=IfCondition(start_mission_executor),
+                package="mission_executor",
+                executable="mission_executor_node",
+                name="mission_executor",
+                namespace=uav_namespace,
+                output="screen",
+                parameters=[{"tree_file": mission_tree_file, "use_sim_time": use_sim_time}],
             ),
         ]
     )

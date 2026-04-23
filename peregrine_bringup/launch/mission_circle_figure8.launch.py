@@ -1,61 +1,44 @@
-"""@file
-@brief Hardware mission: circle and/or figure-eight trajectories.
-
-Launches ONLY the mission demo node. The full peregrine stack must already be
-running (via tmuxinator `flight` session or manual `single_uav.launch.py`).
-
-This is the hardware counterpart to example10_circle_figure8_demo.launch.py,
-which launches its own manager container (for SITL). On hardware the managers
-are already running, so we only need the mission script.
-
-Usage (from the shell pane in the tmuxinator flight session):
-
-  ros2 launch peregrine_bringup mission_circle_figure8.launch.py
-  ros2 launch peregrine_bringup mission_circle_figure8.launch.py mission_type:=circle
-  ros2 launch peregrine_bringup mission_circle_figure8.launch.py mission_type:=figure8
-  ros2 launch peregrine_bringup mission_circle_figure8.launch.py \\
-      mission_type:=circle_figure8 takeoff_altitude_m:=3.0 circle_radius_m:=1.5
-"""
+"""Launch single UAV stack plus mission_executor BT mission."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    """@brief Start mission demo node against an already-running stack."""
+    use_sim_time = LaunchConfiguration("use_sim_time")
     uav_namespace = LaunchConfiguration("uav_namespace")
-    mission_type = LaunchConfiguration("mission_type")
+    tree_file = LaunchConfiguration("tree_file")
 
-    mission_yaml = PathJoinSubstitution(
-        [FindPackageShare("peregrine_bringup"), "config", "hardware_mission.yaml"]
+    single_uav = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("peregrine_bringup"), "launch", "single_uav.launch.py"])
+        ),
+        launch_arguments={
+            "uav_namespace": uav_namespace,
+            "use_sim_time": use_sim_time,
+        }.items(),
     )
 
-    demo_node = Node(
-        package="hardware_abstraction_example",
-        executable="circle_figure8_demo.py",
-        namespace=uav_namespace,
-        output="screen",
-        parameters=[
-            mission_yaml,
-            {"mission_type": mission_type},
-        ],
+    mission = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("mission_executor"), "launch", "mission_executor.launch.py"])
+        ),
+        launch_arguments={
+            "uav_namespace": uav_namespace,
+            "use_sim_time": use_sim_time,
+            "tree_file": tree_file,
+        }.items(),
     )
 
-    return LaunchDescription(
-        [
-            DeclareLaunchArgument(
-                "uav_namespace",
-                default_value="",
-                description="Must match the namespace of the running stack.",
-            ),
-            DeclareLaunchArgument(
-                "mission_type",
-                default_value="circle_figure8",
-                description="circle, figure8, circle_figure8, or circle_land_figure8.",
-            ),
-            demo_node,
-        ]
-    )
+    default_tree = PathJoinSubstitution([FindPackageShare("mission_executor"), "trees", "example_mission.xml"])
+
+    return LaunchDescription([
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("uav_namespace", default_value=""),
+        DeclareLaunchArgument("tree_file", default_value=default_tree),
+        single_uav,
+        mission,
+    ])

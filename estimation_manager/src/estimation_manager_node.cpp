@@ -6,7 +6,6 @@
 
 #include <chrono>
 #include <stdexcept>
-#include <thread>
 
 namespace estimation_manager
 {
@@ -61,31 +60,11 @@ EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options
 EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
-    dependencyStartupTimeoutS_ <= 0.0)
+  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0)
   {
     RCLCPP_ERROR(
       this->get_logger(),
       "publish_rate_hz, status_rate_hz, state_timeout_s, and dependency_startup_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
-  // Startup gate: block until the upstream "state" topic has at least one publisher
-  // (i.e. hardware_abstraction is running). Creates a deterministic dependency chain
-  // without relying on launch ordering or fixed sleep durations.
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(100ms);
-  }
-
-  if (this->get_publishers_info_by_topic("state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure estimation_manager: upstream topic 'state' not available");
     return CallbackReturn::FAILURE;
   }
 

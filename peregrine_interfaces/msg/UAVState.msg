@@ -18,6 +18,13 @@ bool failsafe
 string mode
 string detail
 
+# Executive contract exposed to mission layer and motion layer.
+bool fault_latched
+bool motion_authorized
+bool takeoff_authorized
+bool landing_authorized
+string executive_reason
+
 # Aggregated readiness from HealthAggregator
 bool dependencies_ready
 bool px4_ready

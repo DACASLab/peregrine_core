@@ -5,7 +5,6 @@
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
-#include <thread>
 
 namespace control_manager
 {
@@ -65,29 +64,11 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   // (e.g., set_parameters service called while the node was inactive).
   controllerType_ = this->get_parameter("controller_type").as_string();
 
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
-    dependencyStartupTimeoutS_ <= 0.0)
+  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0)
   {
     RCLCPP_ERROR(
       this->get_logger(),
       "publish_rate_hz, status_rate_hz, state_timeout_s, and dependency_startup_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  // Deterministic startup gate: control_manager depends on estimated_state availability.
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(100ms);
-  }
-
-  if (this->get_publishers_info_by_topic("estimated_state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure control_manager: upstream topic 'estimated_state' not available");
     return CallbackReturn::FAILURE;
   }
 
@@ -111,6 +92,9 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
     [this](peregrine_interfaces::msg::TrajectorySetpoint::SharedPtr msg) { onTrajectorySetpoint(msg); });
 
   // Outputs: control envelope for hardware bridge + manager health.
+  // This node intentionally does NOT inspect executive authority directly; it trusts
+  // that upstream trajectory_setpoint publication is already gated by uav_manager +
+  // trajectory_manager executive policy.
   controlOutputPub_ = this->create_publisher<peregrine_interfaces::msg::ControlOutput>(
     "control_output", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
