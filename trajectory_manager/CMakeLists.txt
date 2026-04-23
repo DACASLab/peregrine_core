@@ -53,10 +53,17 @@ install(DIRECTORY config/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_executive_gate
+    test_executive_gate.cpp
+  )
+  target_include_directories(test_executive_gate PRIVATE include)
+  ament_target_dependencies(test_executive_gate peregrine_interfaces)
 endif()
 
 ament_export_include_directories(include)

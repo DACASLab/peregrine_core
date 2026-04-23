@@ -1,13 +1,13 @@
 #include <trajectory_manager/trajectory_manager_node.hpp>
 
 #include <trajectory_manager/generators.hpp>
+#include <trajectory_manager/executive_gate.hpp>
 
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>
 
 namespace trajectory_manager
@@ -61,29 +61,11 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
-    dependencyStartupTimeoutS_ <= 0.0)
+  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0)
   {
     RCLCPP_ERROR(
       this->get_logger(),
       "publish_rate_hz, status_rate_hz, state_timeout_s, and dependency_startup_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  // Deterministic startup gate: trajectory generation requires estimated_state input.
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(100ms);
-  }
-
-  if (this->get_publishers_info_by_topic("estimated_state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure trajectory_manager: upstream topic 'estimated_state' not available");
     return CallbackReturn::FAILURE;
   }
 
@@ -96,6 +78,9 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
     [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
+  uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
+    "uav_state", statusQos,
+    [this](peregrine_interfaces::msg::UAVState::SharedPtr msg) { onUavState(msg); });
   trajectorySetpointPub_ = this->create_publisher<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
@@ -145,6 +130,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   {
     std::scoped_lock lock(mutex_);
     latestState_.reset();
+    latestUavState_.reset();
     holdGenerator_.reset();
     activeGenerator_.reset();
     activeGoalType_ = ActiveGoalType::None;
@@ -238,6 +224,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_cleanup(
   publishTimer_.reset();
   statusTimer_.reset();
   estimatedStateSub_.reset();
+  uavStateSub_.reset();
   trajectorySetpointPub_.reset();
   statusPub_.reset();
   goToServer_.reset();
@@ -246,6 +233,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_cleanup(
   {
     std::scoped_lock lock(mutex_);
     latestState_.reset();
+    latestUavState_.reset();
     holdGenerator_.reset();
     activeGenerator_.reset();
     activeGoalType_ = ActiveGoalType::None;
@@ -317,6 +305,12 @@ void TrajectoryManagerNode::onEstimatedState(const peregrine_interfaces::msg::St
   }
 }
 
+void TrajectoryManagerNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)
+{
+  std::scoped_lock lock(mutex_);
+  latestUavState_ = *msg;
+}
+
 // Central trajectory tick: ALL trajectory computation, feedback, and goal lifecycle
 // management happens in this single timer callback -- not in the action accepted callbacks.
 // This design means: (1) setpoint publication cadence is owned by the timer, not the action
@@ -356,6 +350,49 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
 
     TrajectorySample sample;
     if (activeGenerator_) {
+      if (!latestUavState_.has_value()) {
+        if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
+          goToGoalToCancel = activeGoToGoal_;
+          goToResult = std::make_shared<GoTo::Result>();
+          goToResult->success = false;
+          goToResult->message = "EXECUTIVE_NOT_READY";
+          goToResult->final_position = latestState_->pose.pose.position;
+          switchToHoldFromState(*latestState_);
+        } else if (activeGoalType_ == ActiveGoalType::ExecuteTrajectory && activeExecuteGoal_) {
+          executeGoalToCancel = activeExecuteGoal_;
+          executeResult = std::make_shared<ExecuteTrajectory::Result>();
+          executeResult->success = false;
+          executeResult->message = "EXECUTIVE_NOT_READY";
+          switchToHoldFromState(*latestState_);
+        }
+      } else {
+        std::string reason;
+        const bool allowed = executiveAllowsMotion(latestUavState_, &reason);
+        if (!allowed) {
+        if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
+          goToGoalToCancel = activeGoToGoal_;
+          goToResult = std::make_shared<GoTo::Result>();
+          goToResult->success = false;
+          goToResult->message = reason;
+          goToResult->final_position = latestState_->pose.pose.position;
+          switchToHoldFromState(*latestState_);
+        } else if (activeGoalType_ == ActiveGoalType::ExecuteTrajectory && activeExecuteGoal_) {
+          executeGoalToCancel = activeExecuteGoal_;
+          executeResult = std::make_shared<ExecuteTrajectory::Result>();
+          executeResult->success = false;
+          executeResult->message = reason;
+          switchToHoldFromState(*latestState_);
+        }
+      }
+      }
+
+      if (!activeGenerator_) {
+        sample = holdGenerator_->sample(*latestState_, now);
+        setpoint = sample.setpoint;
+        activeModuleName_ = holdGenerator_->name();
+        goto publish_setpoint;
+      }
+
       // Cancellation is handled here so state switch and result reason are serialized.
       if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_ &&
         activeGoToGoal_->is_canceling())
@@ -422,6 +459,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
       setpoint = sample.setpoint;
       activeModuleName_ = holdGenerator_->name();
     }
+publish_setpoint:
   }
 
   setpoint.header.stamp = now;
@@ -492,9 +530,25 @@ rclcpp_action::GoalResponse TrajectoryManagerNode::onGoToGoal(
   // means another trajectory (GoTo or ExecuteTrajectory) is already running. New goals are
   // rejected rather than queued; the caller must wait or cancel the current goal first.
   if (!active_) {
+    RCLCPP_WARN(this->get_logger(), "Reject GoTo: LIFECYCLE_INACTIVE");
     return rclcpp_action::GoalResponse::REJECT;
   }
-  if (!latestState_.has_value() || activeGoalType_ != ActiveGoalType::None) {
+  if (!latestState_.has_value()) {
+    RCLCPP_WARN(this->get_logger(), "Reject GoTo: MISSING_ESTIMATED_STATE");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (activeGoalType_ != ActiveGoalType::None) {
+    RCLCPP_WARN(this->get_logger(), "Reject GoTo: ACTIVE_GOAL_PRESENT");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (!latestUavState_.has_value()) {
+    RCLCPP_WARN(this->get_logger(), "Reject GoTo: MISSING_EXECUTIVE_STATE");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  std::string reason;
+  if (!executiveAllowsMotion(latestUavState_, &reason)) {
+    RCLCPP_WARN(this->get_logger(), "Reject GoTo: EXECUTIVE_DENIED (%s)",
+      reason.c_str());
     return rclcpp_action::GoalResponse::REJECT;
   }
   if (goal->acceptance_radius_m <= 0.0) {
@@ -550,9 +604,29 @@ rclcpp_action::GoalResponse TrajectoryManagerNode::onExecuteGoal(
   std::scoped_lock lock(mutex_);
   // Single-goal policy: reject when another generator already owns execution.
   if (!active_) {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: LIFECYCLE_INACTIVE");
     return rclcpp_action::GoalResponse::REJECT;
   }
-  if (!latestState_.has_value() || activeGoalType_ != ActiveGoalType::None) {
+  if (!latestState_.has_value()) {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: MISSING_ESTIMATED_STATE");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (activeGoalType_ != ActiveGoalType::None) {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: ACTIVE_GOAL_PRESENT");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (!latestUavState_.has_value()) {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: MISSING_EXECUTIVE_STATE");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  std::string reason;
+  if (!executiveAllowsMotion(latestUavState_, &reason)) {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: EXECUTIVE_DENIED (%s)",
+      reason.c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (goal->trajectory_type == "takeoff" || goal->trajectory_type == "land") {
+    RCLCPP_WARN(this->get_logger(), "Reject ExecuteTrajectory: EXECUTIVE_TYPE_FORBIDDEN");
     return rclcpp_action::GoalResponse::REJECT;
   }
 
@@ -618,28 +692,12 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
   //
   // Parameter conventions:
   //   hold:     no params
-  //   takeoff:  [target_altitude_m, climb_velocity_mps]
-  //   land:     [descent_velocity_mps]
   //   circle:   [radius_m, angular_velocity_radps, num_loops]
   //   figure8:  [radius_m, angular_velocity_radps, num_loops]
   //   step_response:
   //             [dx_m, dy_m, dz_m, dyaw_rad, pre_step_hold_s, post_step_hold_s]
   if (goal.trajectory_type == "hold") {
     return std::make_unique<HoldPositionGenerator>(state);
-  }
-
-  if (goal.trajectory_type == "takeoff") {
-    if (goal.params.size() != 2U) {
-      return nullptr;
-    }
-    return std::make_unique<TakeoffGenerator>(state, goal.params[0], goal.params[1], startTime);
-  }
-
-  if (goal.trajectory_type == "land") {
-    if (goal.params.size() != 1U) {
-      return nullptr;
-    }
-    return std::make_unique<LandGenerator>(state, goal.params[0], startTime);
   }
 
   if (goal.trajectory_type == "circle") {

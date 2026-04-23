@@ -1,0 +1,18 @@
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Fallback>
+      <Sequence>
+        <WaitForReady timeout_s="30"/>
+        <TakeoffToAltitude altitude_m="3.0" climb_velocity_mps="1.0"/>
+        <GoToPose x="5.0" y="0.0" z="3.0" yaw="0.0" velocity_mps="1.0" acceptance_radius_m="0.3"/>
+        <ExecuteNamedTrajectory name="circle"/>
+        <LandVehicle descent_velocity_mps="0.8"/>
+      </Sequence>
+      <Sequence>
+        <IsFaultLatched/>
+        <ClearEmergency/>
+        <Wait seconds="1.0"/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+</root>

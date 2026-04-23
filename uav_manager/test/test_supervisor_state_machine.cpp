@@ -192,3 +192,22 @@ TEST(SupervisorStateMachineTest, EmergencyClearRequiresGuard)
   EXPECT_TRUE(out.accepted);
   EXPECT_EQ(fsm.state(), uav_manager::SupervisorState::Idle);
 }
+
+TEST(SupervisorStateMachineTest, EmergencyRemainsLatchedUntilExplicitClearEvent)
+{
+  uav_manager::SupervisorStateMachine fsm;
+  uav_manager::TransitionGuard guard;
+  auto snapshot = readySnapshot();
+
+  EXPECT_TRUE(fsm.apply(uav_manager::SupervisorEvent::FailsafeDetected, guard, snapshot).accepted);
+  EXPECT_EQ(fsm.state(), uav_manager::SupervisorState::Emergency);
+
+  snapshot.px4.failsafe = false;
+  snapshot.px4.connected = true;
+  snapshot.px4.present = true;
+  snapshot.px4.fresh = true;
+
+  const auto out = fsm.apply(uav_manager::SupervisorEvent::LandCompleted, guard, snapshot);
+  EXPECT_FALSE(out.accepted);
+  EXPECT_EQ(fsm.state(), uav_manager::SupervisorState::Emergency);
+}

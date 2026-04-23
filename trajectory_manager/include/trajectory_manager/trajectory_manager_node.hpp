@@ -38,6 +38,7 @@
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
+#include <peregrine_interfaces/msg/uav_state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
@@ -123,6 +124,7 @@ private:
    * @brief Stores latest estimated state and initializes hold mode when needed.
    */
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
+  void onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg);
 
   /**
    * @brief Publishes trajectory setpoint at fixed rate.
@@ -196,6 +198,7 @@ private:
   std::mutex mutex_;
   /// Latest estimated state sample from estimation_manager.
   std::optional<peregrine_interfaces::msg::State> latestState_;
+  std::optional<peregrine_interfaces::msg::UAVState> latestUavState_;
   /// Effective receive time used for freshness checks in status output.
   rclcpp::Time lastStateTime_{0, 0, RCL_ROS_TIME};
 
@@ -230,6 +233,7 @@ private:
 
   /// Estimated state input from estimation_manager.
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr estimatedStateSub_;
+  rclcpp::Subscription<peregrine_interfaces::msg::UAVState>::SharedPtr uavStateSub_;
   /// Lifecycle-gated trajectory setpoint output for control_manager.
   rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::TrajectorySetpoint>::SharedPtr
     trajectorySetpointPub_;
