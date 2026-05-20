@@ -32,6 +32,7 @@
 #include <uav_manager/health_aggregator.hpp>
 #include <uav_manager/supervisor_state_machine.hpp>
 #include <uav_manager/transition_guard.hpp>
+#include <uav_manager/uav_manager_parameters.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/action/execute_trajectory.hpp>
@@ -161,8 +162,8 @@ private:
   bool configured_{false};
   std::atomic<bool> active_{false};
 
-  double statusRateHz_{10.0};
-  double serviceTimeoutS_{3.0};
+  std::shared_ptr<uav_manager::ParamListener> paramListener_;
+  uav_manager::Params params_;
 
   rclcpp::CallbackGroup::SharedPtr actionCbGroup_;
   rclcpp::CallbackGroup::SharedPtr serviceCbGroup_;
@@ -189,11 +190,8 @@ private:
 
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
-  bool requireExternalSafety_{false};
   uint8_t latestSafetyLevel_{0};
 
-  bool autoStart_{true};
-  int dataReadinessPollMs_{200};
   rclcpp::TimerBase::SharedPtr startupTimer_;
   rclcpp::TimerBase::SharedPtr readinessTimer_;
 };

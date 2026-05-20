@@ -12,6 +12,12 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(generate_parameter_library REQUIRED)
+
+generate_parameter_library(
+  control_manager_parameters
+  src/control_manager_parameters.yaml
+)
 
 add_library(control_manager_component SHARED
   src/control_manager_node.cpp
@@ -27,7 +33,7 @@ target_include_directories(control_manager_component
 
 target_compile_features(control_manager_component PUBLIC cxx_std_17)
 
-target_link_libraries(control_manager_component Eigen3::Eigen)
+target_link_libraries(control_manager_component Eigen3::Eigen control_manager_parameters)
 
 ament_target_dependencies(control_manager_component
   peregrine_interfaces
@@ -76,6 +82,6 @@ endif()
 pluginlib_export_plugin_description_file(control_manager plugins.xml)
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces pluginlib rclcpp rclcpp_components rclcpp_lifecycle)
+ament_export_dependencies(peregrine_interfaces pluginlib rclcpp rclcpp_components rclcpp_lifecycle generate_parameter_library)
 
 ament_package()

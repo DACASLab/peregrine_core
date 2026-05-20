@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include <hardware_abstraction/hardware_abstraction_parameters.hpp>
+
 #include <nav_msgs/msg/odometry.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
@@ -149,6 +151,9 @@ private:
    */
   std::string px4Topic(const std::string& suffix) const;
 
+  std::shared_ptr<hardware_abstraction::ParamListener> paramListener_;
+  hardware_abstraction::Params params_;
+
   /// PX4 ROS namespace prefix (e.g. "/uav1"), empty for global topics.
   std::string px4Namespace_;
   /// MAV_SYS_ID of the PX4 instance this stack commands (instance N → N+1).
@@ -161,12 +166,6 @@ private:
   std::string gpsFrame_;
   /// PX4 SensorGps topic suffix under px4_namespace.
   std::string sensorGpsTopicSuffix_;
-  /// Periodic offboard mode publication rate.
-  double offboardRateHz_;
-  /// Periodic status publication rate.
-  double statusRateHz_;
-  /// Maximum allowed telemetry silence before marking disconnected.
-  double connectionTimeoutS_;
 
 
   // These members are std::atomic because they are written from PX4 subscription callbacks

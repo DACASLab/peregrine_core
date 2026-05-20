@@ -134,10 +134,13 @@ void writeLinearCovariance(const Eigen::Matrix3d& covariance, std::array<double,
 PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& options)
 : Node("px4_hardware_abstraction", options)
 {
-  // Names, rates, and command IDs are parameterized for single and multi-UAV deployments.
-  px4Namespace_ = normalizeNamespace(this->declare_parameter<std::string>("px4_namespace", ""));
-  targetSystemId_ = static_cast<uint8_t>(this->declare_parameter<int>("target_system_id", 1));
-  auto framePrefix = this->declare_parameter<std::string>("frame_prefix", "");
+  paramListener_ = std::make_shared<hardware_abstraction::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
+
+  px4Namespace_ = normalizeNamespace(params_.px4_namespace);
+  targetSystemId_ = static_cast<uint8_t>(params_.target_system_id);
+  auto framePrefix = params_.frame_prefix;
   if (!framePrefix.empty()) {
     if (framePrefix.front() == '/') framePrefix.erase(framePrefix.begin());
     while (!framePrefix.empty() && framePrefix.back() == '/') framePrefix.pop_back();
@@ -145,19 +148,7 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   odomFrame_ = framePrefix.empty() ? std::string("odom") : framePrefix + "/odom";
   baseLinkFrame_ = framePrefix.empty() ? std::string("base_link") : framePrefix + "/base_link";
   gpsFrame_ = framePrefix.empty() ? std::string("gps") : framePrefix + "/gps";
-  sensorGpsTopicSuffix_ =
-      normalizeTopicSuffix(
-          this->declare_parameter<std::string>("sensor_gps_topic_suffix", "/fmu/out/vehicle_gps_position"));
-
-  offboardRateHz_ = this->declare_parameter<double>("offboard_rate_hz", 20.0);
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
-  connectionTimeoutS_ = this->declare_parameter<double>("connection_timeout_s", 1.0);
-
-
-  if (offboardRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || connectionTimeoutS_ <= 0.0)
-  {
-    throw std::runtime_error("offboard_rate_hz, status_rate_hz and connection_timeout_s must all be > 0");
-  }
+  sensorGpsTopicSuffix_ = normalizeTopicSuffix(params_.sensor_gps_topic_suffix);
 
   // QoS split: PX4 topics use best_effort because the PX4 uXRCE-DDS bridge defaults to
   // best_effort, and a QoS mismatch (e.g. reliable subscriber vs best_effort publisher)
@@ -229,10 +220,10 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 
   // Timers for offboard heartbeat and status publication.
   offboardModeTimer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / offboardRateHz_)),
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / params_.offboard_rate_hz)),
       [this]() { publishOffboardControlMode(); });
   statusTimer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / statusRateHz_)),
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / params_.status_rate_hz)),
       [this]() { publishStatus(); });
 
   offboardModeFlags_.store(packOffboardModeFlags(peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY, true, false,
@@ -867,7 +858,7 @@ uint64_t PX4HardwareAbstraction::nowMicros() const
 bool PX4HardwareAbstraction::isConnected() const
 {
   const double dt = (static_cast<double>(this->now().nanoseconds() - lastPx4RxTimeNs_.load())) * 1e-9;
-  return dt <= connectionTimeoutS_;
+  return dt <= params_.connection_timeout_s;
 }
 
 std::string PX4HardwareAbstraction::px4Topic(const std::string& suffix) const

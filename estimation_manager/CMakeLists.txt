@@ -10,6 +10,12 @@ find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(generate_parameter_library REQUIRED)
+
+generate_parameter_library(
+  estimation_manager_parameters
+  src/estimation_manager_parameters.yaml
+)
 
 add_library(estimation_manager_component SHARED
   src/estimation_manager_node.cpp
@@ -21,6 +27,8 @@ target_include_directories(estimation_manager_component
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+
+target_link_libraries(estimation_manager_component estimation_manager_parameters)
 
 target_compile_features(estimation_manager_component PUBLIC cxx_std_17)
 
@@ -70,6 +78,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle)
+ament_export_dependencies(peregrine_interfaces rclcpp rclcpp_components rclcpp_lifecycle generate_parameter_library)
 
 ament_package()

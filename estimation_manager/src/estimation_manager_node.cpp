@@ -24,12 +24,11 @@ constexpr char kModuleName[] = "px4_passthrough";
 EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kManagerName, options)
 {
-  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 250.0);
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
-  stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
-  autoStart_ = this->declare_parameter<bool>("auto_start", true);
+  paramListener_ = std::make_shared<estimation_manager::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
 
-  if (autoStart_) {
+  if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
       200ms,
       [this]() {
@@ -59,13 +58,6 @@ EstimationManagerNode::EstimationManagerNode(const rclcpp::NodeOptions & options
 EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "publish_rate_hz, status_rate_hz, and state_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
   estimator_ = std::make_unique<Px4PassthroughEstimator>();
 
   // Reliable QoS with generous depth absorbs message bursts during startup when
@@ -87,11 +79,11 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
   // activate/deactivate cycle.
   publishTimer_ =
     this->create_wall_timer(
-    periodFromHz(publishRateHz_),
+    periodFromHz(params_.publish_rate_hz),
     [this]() { publishEstimatedState(); });
   statusTimer_ =
     this->create_wall_timer(
-    periodFromHz(statusRateHz_),
+    periodFromHz(params_.status_rate_hz),
       [this]() { publishStatus(); });
 
   // Timers are armed only in lifecycle ACTIVE state.
@@ -102,7 +94,7 @@ EstimationManagerNode::CallbackReturn EstimationManagerNode::on_configure(
 
   RCLCPP_INFO(
     this->get_logger(), "Configured estimation_manager: publish_rate_hz=%.1f status_rate_hz=%.1f",
-    publishRateHz_, statusRateHz_);
+    params_.publish_rate_hz, params_.status_rate_hz);
   return CallbackReturn::SUCCESS;
 }
 
@@ -218,7 +210,7 @@ void EstimationManagerNode::publishStatus()
   status.header.stamp = this->now();
   status.manager_name = kManagerName;
   status.active_module = kModuleName;
-  status.output_rate_hz = static_cast<float>(publishRateHz_);
+  status.output_rate_hz = static_cast<float>(params_.publish_rate_hz);
   status.active = active_;
 
   if (!active_) {
@@ -229,7 +221,7 @@ void EstimationManagerNode::publishStatus()
     status.message = "WAITING_FOR_STATE";
   } else {
     const double ageS = (this->now() - estimator_->lastUpdateTime()).seconds();
-    status.healthy = ageS <= stateTimeoutS_;
+    status.healthy = ageS <= params_.state_timeout_s;
     status.message = status.healthy ? "OK" : "STATE_STALE";
   }
 

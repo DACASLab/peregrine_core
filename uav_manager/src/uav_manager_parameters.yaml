@@ -1,0 +1,68 @@
+uav_manager:
+  status_rate_hz:
+    type: double
+    default_value: 5.0
+    description: "UAV state publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  px4_status_timeout_s:
+    type: double
+    default_value: 1.0
+    description: "PX4 status message staleness threshold"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  manager_status_timeout_s:
+    type: double
+    default_value: 1.0
+    description: "Manager status message staleness threshold"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  estimated_state_timeout_s:
+    type: double
+    default_value: 1.0
+    description: "Estimated state message staleness threshold"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  safety_status_timeout_s:
+    type: double
+    default_value: 2.0
+    description: "Safety status message staleness threshold"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  require_external_safety:
+    type: bool
+    default_value: false
+    description: "Require safety_monitor to be publishing before allowing flight"
+    read_only: true
+
+  service_timeout_s:
+    type: double
+    default_value: 3.0
+    description: "Timeout for PX4 service calls (arm, set_mode)"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  auto_start:
+    type: bool
+    default_value: true
+    description: "Auto-configure and activate on startup"
+    read_only: true
+
+  data_readiness_poll_ms:
+    type: int
+    default_value: 200
+    description: "Poll interval while waiting for dependency data"
+    read_only: true
+    validation:
+      gt<>: [0]

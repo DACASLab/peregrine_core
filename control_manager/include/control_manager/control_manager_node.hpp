@@ -28,6 +28,7 @@
 #pragma once
 
 #include <control_manager/controller_base.hpp>
+#include <control_manager/control_manager_parameters.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
@@ -87,11 +88,9 @@ private:
 
   std::unique_ptr<pluginlib::ClassLoader<ControllerBase>> pluginLoader_;
   pluginlib::UniquePtr<ControllerBase> controller_;
-  std::string controllerType_{"control_manager::Px4PassthroughController"};
 
-  double publishRateHz_{250.0};
-  double statusRateHz_{10.0};
-  double stateTimeoutS_{0.5};
+  std::shared_ptr<control_manager::ParamListener> paramListener_;
+  control_manager::Params params_;
 
   bool configured_{false};
   bool active_{false};
@@ -111,7 +110,6 @@ private:
   rclcpp::TimerBase::SharedPtr publishTimer_;
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
-  bool autoStart_{true};
   rclcpp::TimerBase::SharedPtr startupTimer_;
 };
 

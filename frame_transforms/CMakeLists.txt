@@ -16,6 +16,12 @@ find_package(rclcpp_components REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(generate_parameter_library REQUIRED)
+
+generate_parameter_library(
+  frame_transforms_parameters
+  src/frame_transforms_parameters.yaml
+)
 
 add_library(frame_transformer_component SHARED
   src/frame_transformer.cpp
@@ -26,6 +32,8 @@ target_include_directories(frame_transformer_component
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+
+target_link_libraries(frame_transformer_component frame_transforms_parameters)
 
 target_compile_features(frame_transformer_component PUBLIC cxx_std_17)
 
@@ -79,6 +87,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(Eigen3 geometry_msgs nav_msgs peregrine_interfaces rclcpp sensor_msgs tf2_ros)
+ament_export_dependencies(Eigen3 geometry_msgs nav_msgs peregrine_interfaces rclcpp sensor_msgs tf2_ros generate_parameter_library)
 
 ament_package()

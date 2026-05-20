@@ -94,27 +94,23 @@ std::chrono::milliseconds secondsToMillis(const double seconds)
 UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kNodeName, options)
 {
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
+  paramListener_ = std::make_shared<uav_manager::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
 
   freshnessConfig_.px4StatusTimeout =
-    secondsToMillis(this->declare_parameter<double>("px4_status_timeout_s", 1.0));
+    secondsToMillis(params_.px4_status_timeout_s);
   freshnessConfig_.managerStatusTimeout =
-    secondsToMillis(this->declare_parameter<double>("manager_status_timeout_s", 1.0));
+    secondsToMillis(params_.manager_status_timeout_s);
   freshnessConfig_.estimatedStateTimeout =
-    secondsToMillis(this->declare_parameter<double>("estimated_state_timeout_s", 1.0));
+    secondsToMillis(params_.estimated_state_timeout_s);
   freshnessConfig_.safetyStatusTimeout =
-    secondsToMillis(this->declare_parameter<double>("safety_status_timeout_s", 2.0));
-  requireExternalSafety_ = this->declare_parameter<bool>("require_external_safety", false);
-
-  serviceTimeoutS_ = this->declare_parameter<double>("service_timeout_s", 3.0);
-
-  autoStart_ = this->declare_parameter<bool>("auto_start", true);
-  dataReadinessPollMs_ = this->declare_parameter<int>("data_readiness_poll_ms", 200);
+    secondsToMillis(params_.safety_status_timeout_s);
 
   healthAggregator_ = std::make_unique<HealthAggregator>(freshnessConfig_);
-  healthAggregator_->setRequireExternalSafety(requireExternalSafety_);
+  healthAggregator_->setRequireExternalSafety(params_.require_external_safety);
 
-  if (autoStart_) {
+  if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
       200ms,
       [this]() {
@@ -132,7 +128,7 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
         RCLCPP_INFO(get_logger(), "Auto-start: waiting for data readiness");
 
         readinessTimer_ = this->create_wall_timer(
-          std::chrono::milliseconds(dataReadinessPollMs_),
+          std::chrono::milliseconds(params_.data_readiness_poll_ms),
           [this]() {
             auto snap = healthAggregator_->snapshot(nowSteady());
 
@@ -158,11 +154,6 @@ UavManagerNode::UavManagerNode(const rclcpp::NodeOptions & options)
 
 UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecycle::State &)
 {
-  if (statusRateHz_ <= 0.0 || serviceTimeoutS_ <= 0.0) {
-    RCLCPP_ERROR(this->get_logger(), "status_rate_hz and service_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
   actionCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   serviceCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
@@ -207,7 +198,7 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
 
   statusTimer_ =
     this->create_wall_timer(
-    periodFromHz(statusRateHz_),
+    periodFromHz(params_.status_rate_hz),
     [this]() { publishUavState(); });
   statusTimer_->cancel();
 
@@ -636,7 +627,7 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
     currentState = supervisor_.state();
   }
 
-  const auto svcTimeout = secondsToMillis(serviceTimeoutS_);
+  const auto svcTimeout = secondsToMillis(params_.service_timeout_s);
 
   if (currentState != SupervisorState::Armed) {
     const TransitionOutcome armTransition = applyEvent(SupervisorEvent::ArmRequested);
@@ -804,7 +795,7 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     return;
   }
 
-  const auto svcTimeout = secondsToMillis(serviceTimeoutS_);
+  const auto svcTimeout = secondsToMillis(params_.service_timeout_s);
 
   const TransitionOutcome landStart = applyEvent(SupervisorEvent::LandRequested);
   if (!landStart.accepted) {
@@ -930,7 +921,7 @@ StepResult UavManagerNode::callArmService(const bool arm)
   request->arm = arm;
   auto future = armClient_->async_send_request(request);
 
-  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceTimeoutS_));
+  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(params_.service_timeout_s));
   while (future.wait_for(50ms) != std::future_status::ready) {
     if (this->now() >= deadline) {
       return StepResult::fail(StepCode::ArmServiceTimeout);
@@ -960,7 +951,7 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   request->mode = mode;
   auto future = setModeClient_->async_send_request(request);
 
-  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(serviceTimeoutS_));
+  const auto deadline = this->now() + rclcpp::Duration(secondsToMillis(params_.service_timeout_s));
   while (future.wait_for(50ms) != std::future_status::ready) {
     if (this->now() >= deadline) {
       return StepResult::fail(StepCode::SetModeServiceTimeout);
@@ -1048,7 +1039,7 @@ StepResult UavManagerNode::forwardTakeoffTrajectory(
     };
 
   auto goalHandleFuture = trajectoryExecuteClient_->async_send_goal(goal, options);
-  const auto goalDeadline = this->now() + rclcpp::Duration(secondsToMillis(serviceTimeoutS_));
+  const auto goalDeadline = this->now() + rclcpp::Duration(secondsToMillis(params_.service_timeout_s));
   while (goalHandleFuture.wait_for(50ms) != std::future_status::ready) {
     if (this->now() >= goalDeadline) {
       return StepResult::fail(StepCode::TrajectoryExecuteGoalTimeout);

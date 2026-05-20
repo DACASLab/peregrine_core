@@ -1,0 +1,254 @@
+safety_monitor:
+  evaluate_rate_hz:
+    type: double
+    default_value: 2.0
+    description: "Safety rule evaluation frequency"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  command_land_enabled:
+    type: bool
+    default_value: true
+    description: "Enable autonomous land command on critical/emergency safety violations"
+    read_only: true
+
+  auto_start:
+    type: bool
+    default_value: true
+    description: "Auto-configure and activate on startup"
+    read_only: true
+
+  healthy_auto_clear_s:
+    type: double
+    default_value: 3.0
+    description: "Seconds of healthy readings before auto-clearing a warning"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  land_command_timeout_s:
+    type: double
+    default_value: 5.0
+    description: "Timeout for land command service call"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  land_command_retry_count:
+    type: int
+    default_value: 3
+    description: "Number of retries for land command"
+    read_only: true
+    validation:
+      gt_eq<>: [0]
+
+  battery:
+    enabled:
+      type: bool
+      default_value: true
+      description: "Enable battery safety checker"
+      read_only: true
+
+    warn_pct:
+      type: double
+      default_value: 0.25
+      description: "Battery percentage threshold for WARN level"
+      read_only: true
+      validation:
+        bounds<>: [0.0, 1.0]
+
+    critical_pct:
+      type: double
+      default_value: 0.15
+      description: "Battery percentage threshold for CRITICAL level"
+      read_only: true
+      validation:
+        bounds<>: [0.0, 1.0]
+
+    emergency_pct:
+      type: double
+      default_value: 0.10
+      description: "Battery percentage threshold for EMERGENCY level"
+      read_only: true
+      validation:
+        bounds<>: [0.0, 1.0]
+
+    min_voltage:
+      type: double
+      default_value: 10.0
+      description: "Minimum battery voltage before EMERGENCY"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    warn_grace_s:
+      type: double
+      default_value: 5.0
+      description: "Grace period before battery WARN escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+    critical_grace_s:
+      type: double
+      default_value: 2.0
+      description: "Grace period before battery CRITICAL escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+  gps:
+    enabled:
+      type: bool
+      default_value: true
+      description: "Enable GPS safety checker"
+      read_only: true
+
+    min_fix_type:
+      type: int
+      default_value: 3
+      description: "Minimum GPS fix type (3=3D fix)"
+      read_only: true
+      validation:
+        bounds<>: [0, 6]
+
+    max_hdop:
+      type: double
+      default_value: 5.0
+      description: "Maximum horizontal dilution of precision"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_vdop:
+      type: double
+      default_value: 5.0
+      description: "Maximum vertical dilution of precision"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    min_satellites:
+      type: int
+      default_value: 6
+      description: "Minimum satellite count"
+      read_only: true
+      validation:
+        gt_eq<>: [0]
+
+    freshness_timeout_s:
+      type: double
+      default_value: 2.0
+      description: "GPS message staleness threshold"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    warn_grace_s:
+      type: double
+      default_value: 5.0
+      description: "Grace period before GPS WARN escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+    critical_grace_s:
+      type: double
+      default_value: 3.0
+      description: "Grace period before GPS CRITICAL escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+  geofence:
+    enabled:
+      type: bool
+      default_value: true
+      description: "Enable geofence safety checker"
+      read_only: true
+
+    max_radius_m:
+      type: double
+      default_value: 500.0
+      description: "Maximum horizontal distance from home"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_altitude_m:
+      type: double
+      default_value: 120.0
+      description: "Maximum altitude AGL"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    min_altitude_m:
+      type: double
+      default_value: -5.0
+      description: "Minimum altitude AGL (allows small underground tolerance)"
+      read_only: true
+
+    warn_grace_s:
+      type: double
+      default_value: 3.0
+      description: "Grace period before geofence WARN escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+    critical_grace_s:
+      type: double
+      default_value: 1.0
+      description: "Grace period before geofence CRITICAL escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+  envelope:
+    enabled:
+      type: bool
+      default_value: true
+      description: "Enable flight envelope safety checker"
+      read_only: true
+
+    max_velocity_ms:
+      type: double
+      default_value: 15.0
+      description: "Maximum velocity magnitude (m/s)"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_altitude_m:
+      type: double
+      default_value: 120.0
+      description: "Maximum altitude for envelope check"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_tilt_rad:
+      type: double
+      default_value: 0.7
+      description: "Maximum tilt angle (radians)"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    warn_grace_s:
+      type: double
+      default_value: 3.0
+      description: "Grace period before envelope WARN escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]
+
+    critical_grace_s:
+      type: double
+      default_value: 1.0
+      description: "Grace period before envelope CRITICAL escalates"
+      read_only: true
+      validation:
+        gt_eq<>: [0.0]

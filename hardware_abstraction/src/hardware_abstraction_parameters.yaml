@@ -1,0 +1,50 @@
+hardware_abstraction:
+  px4_namespace:
+    type: string
+    default_value: ""
+    description: "PX4 topic namespace prefix (e.g. /px4_1 for multi-instance SITL)"
+    read_only: true
+
+  target_system_id:
+    type: int
+    default_value: 1
+    description: "MAV_SYS_ID of the PX4 instance this stack commands (instance N -> N+1)"
+    read_only: true
+    validation:
+      bounds<>: [0, 255]
+
+  frame_prefix:
+    type: string
+    default_value: ""
+    description: "TF frame name prefix for multi-UAV (e.g. uav1)"
+    read_only: true
+
+  sensor_gps_topic_suffix:
+    type: string
+    default_value: "/fmu/out/vehicle_gps_position"
+    description: "PX4 SensorGps topic suffix under px4_namespace"
+    read_only: true
+
+  offboard_rate_hz:
+    type: double
+    default_value: 20.0
+    description: "Offboard control mode publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  status_rate_hz:
+    type: double
+    default_value: 5.0
+    description: "PX4Status publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  connection_timeout_s:
+    type: double
+    default_value: 1.0
+    description: "Maximum telemetry silence before marking PX4 disconnected"
+    read_only: true
+    validation:
+      gt<>: [0.0]

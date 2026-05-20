@@ -31,6 +31,7 @@
 #pragma once
 
 #include <trajectory_manager/trajectory_generator_base.hpp>
+#include <trajectory_manager/trajectory_manager_parameters.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/action/execute_trajectory.hpp>
@@ -217,12 +218,8 @@ private:
   /// Odom frame name captured from first estimated_state message.
   std::string odomFrame_{"odom"};
 
-  /// Trajectory setpoint publication frequency.
-  double publishRateHz_{50.0};
-  /// Manager status publication frequency.
-  double statusRateHz_{10.0};
-  /// Maximum accepted estimated_state age before unhealthy status.
-  double stateTimeoutS_{0.5};
+  std::shared_ptr<trajectory_manager::ParamListener> paramListener_;
+  trajectory_manager::Params params_;
 
   /// True once configure has successfully allocated runtime resources.
   bool configured_{false};
@@ -248,8 +245,6 @@ private:
   /// Periodic status publication timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
-  /// When true, node self-transitions through configure -> activate on startup.
-  bool autoStart_{true};
   /// One-shot timer that drives the auto-start sequence.
   rclcpp::TimerBase::SharedPtr startupTimer_;
 };

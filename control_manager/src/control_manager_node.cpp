@@ -23,14 +23,11 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
   pluginLoader_ = std::make_unique<pluginlib::ClassLoader<ControllerBase>>(
     "control_manager", "control_manager::ControllerBase");
 
-  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 250.0);
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
-  stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
-  autoStart_ = this->declare_parameter<bool>("auto_start", true);
-  controllerType_ = this->declare_parameter<std::string>(
-    "controller_type", "control_manager::Px4PassthroughController");
+  paramListener_ = std::make_shared<control_manager::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
 
-  if (autoStart_) {
+  if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
       200ms,
       [this]() {
@@ -59,25 +56,14 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
 
 ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp_lifecycle::State &)
 {
-  // Re-read controller_type in case it was changed between lifecycle transitions
-  // (e.g., set_parameters service called while the node was inactive).
-  controllerType_ = this->get_parameter("controller_type").as_string();
-
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "publish_rate_hz, status_rate_hz, and state_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
   try {
-    controller_ = pluginLoader_->createUniqueInstance(controllerType_);
+    controller_ = pluginLoader_->createUniqueInstance(params_.controller_type);
   } catch (const pluginlib::PluginlibException & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to load controller '%s': %s",
-                 controllerType_.c_str(), e.what());
+                 params_.controller_type.c_str(), e.what());
     return CallbackReturn::FAILURE;
   }
-  controller_->configure(*this, 1.0 / publishRateHz_);
+  controller_->configure(*this, 1.0 / params_.publish_rate_hz);
 
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
@@ -98,11 +84,11 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
 
   publishTimer_ =
     this->create_wall_timer(
-    periodFromHz(publishRateHz_),
+    periodFromHz(params_.publish_rate_hz),
     [this]() { publishControlOutput(); });
   statusTimer_ =
     this->create_wall_timer(
-    periodFromHz(statusRateHz_),
+    periodFromHz(params_.status_rate_hz),
     [this]() { publishStatus(); });
 
   // Timers are armed only in lifecycle ACTIVE state.
@@ -114,7 +100,7 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   RCLCPP_INFO(
     this->get_logger(),
     "Configured control_manager: controller=%s publish_rate_hz=%.1f status_rate_hz=%.1f",
-    controllerType_.c_str(), publishRateHz_, statusRateHz_);
+    params_.controller_type.c_str(), params_.publish_rate_hz, params_.status_rate_hz);
   return CallbackReturn::SUCCESS;
 }
 
@@ -338,10 +324,10 @@ void ControlManagerNode::publishStatus()
   peregrine_interfaces::msg::ManagerStatus status;
   status.header.stamp = this->now();
   status.manager_name = kManagerName;
-  status.active_module = controller_ ? controller_->name() : controllerType_;
+  status.active_module = controller_ ? controller_->name() : params_.controller_type;
   // Explicit cast avoids implicit double->float narrowing warnings and documents the
   // precision boundary at the message interface.
-  status.output_rate_hz = static_cast<float>(publishRateHz_);
+  status.output_rate_hz = static_cast<float>(params_.publish_rate_hz);
   status.active = active_;
 
   if (!active_) {
@@ -354,7 +340,7 @@ void ControlManagerNode::publishStatus()
       status.message = "WAITING_FOR_ESTIMATED_STATE";
     } else {
       const double ageS = (this->now() - stateSnap->receiveTime).seconds();
-      status.healthy = ageS <= stateTimeoutS_;
+      status.healthy = ageS <= params_.state_timeout_s;
       status.message = status.healthy ? "OK" : "ESTIMATED_STATE_STALE";
     }
   }

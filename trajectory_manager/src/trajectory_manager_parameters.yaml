@@ -1,0 +1,30 @@
+trajectory_manager:
+  publish_rate_hz:
+    type: double
+    default_value: 50.0
+    description: "Trajectory setpoint publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  status_rate_hz:
+    type: double
+    default_value: 5.0
+    description: "Manager health status publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  state_timeout_s:
+    type: double
+    default_value: 0.5
+    description: "Input data staleness threshold before reporting unhealthy"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  auto_start:
+    type: bool
+    default_value: true
+    description: "Auto-configure and activate on startup"
+    read_only: true

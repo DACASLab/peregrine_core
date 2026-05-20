@@ -3,6 +3,7 @@
 #include <safety_monitor/rule_engine.hpp>
 #include <safety_monitor/safety_action_executor.hpp>
 #include <safety_monitor/safety_checker.hpp>
+#include <safety_monitor/safety_monitor_parameters.hpp>
 
 #include <peregrine_interfaces/msg/gps_status.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
@@ -54,9 +55,8 @@ private:
   std::optional<Px4Data> latestPx4_;
   rclcpp::Time lastGpsTime_{0, 0, RCL_ROS_TIME};
 
-  double evaluateRateHz_{2.0};
-  bool commandLandEnabled_{false};
-  double gpsFreshnessTimeoutS_{2.0};
+  std::shared_ptr<safety_monitor::ParamListener> paramListener_;
+  safety_monitor::Params params_;
 
   std::unique_ptr<RuleEngine> ruleEngine_;
   std::unique_ptr<SafetyActionExecutor> actionExecutor_;
@@ -75,7 +75,6 @@ private:
   std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
   std::shared_ptr<tf2_ros::TransformListener> tfListener_;
 
-  bool autoStart_{true};
   rclcpp::TimerBase::SharedPtr startupTimer_;
 };
 

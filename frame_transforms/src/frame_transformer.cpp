@@ -86,39 +86,23 @@ geometry_msgs::msg::Transform identityTransform()
 FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 : Node("frame_transformer", options)
 {
-  // Parameters define topic and the local frame naming convention for one UAV.
-  framePrefix_ = normalizePrefix(this->declare_parameter<std::string>("frame_prefix", ""));
-  odometryTopic_ = this->declare_parameter<std::string>("odometry_topic", "odometry");
-  // Keep global reference frames shared across the fleet; only vehicle-local
-  // frames are namespaced via frame_prefix.
-  worldFrame_ = this->declare_parameter<std::string>("world_frame", "world");
-  mapFrame_ = this->declare_parameter<std::string>("map_frame", "map");
-  odomFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("odom_frame", "odom"));
-  baseLinkFrame_ = composeFrame(framePrefix_, this->declare_parameter<std::string>("base_link_frame", "base_link"));
-  baseLinkFrdFrame_ =
-      composeFrame(framePrefix_, this->declare_parameter<std::string>("base_link_frd_frame", "base_link_frd"));
-  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 100.0);
+  paramListener_ = std::make_shared<frame_transforms::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
 
-  if (publishRateHz_ <= 0.0)
-  {
-    throw std::runtime_error("publish_rate_hz must be > 0");
-  }
+  framePrefix_ = normalizePrefix(params_.frame_prefix);
+  worldFrame_ = params_.world_frame;
+  mapFrame_ = params_.map_frame;
+  odomFrame_ = composeFrame(framePrefix_, params_.odom_frame);
+  baseLinkFrame_ = composeFrame(framePrefix_, params_.base_link_frame);
+  baseLinkFrdFrame_ = composeFrame(framePrefix_, params_.base_link_frd_frame);
 
-  // One dynamic and one static broadcaster keeps TF ownership clear in this node.
   tfBroadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
   staticTfBroadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
 
   odometrySub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      odometryTopic_, rclcpp::SensorDataQoS(),
+      params_.odometry_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::SharedPtr msg) { odometryCallback(msg); });
-
-  // Home GPS origin parameters
-  homeLatDeg_ = this->declare_parameter<double>("home_lat_deg", 47.397971);
-  homeLonDeg_ = this->declare_parameter<double>("home_lon_deg", 8.546164);
-  gpsMinFixType_ = this->declare_parameter<int>("gps_min_fix_type", 3);
-  gpsMinSatellites_ = this->declare_parameter<int>("gps_min_satellites", 6);
-  gpsMaxHdop_ = this->declare_parameter<double>("gps_max_hdop", 5.0);
-  gpsMaxVdop_ = this->declare_parameter<double>("gps_max_vdop", 5.0);
 
   publishStaticTransforms();
 
@@ -131,12 +115,12 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
       [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
 
   // Timer periodically emits the latest odom->base_link transform.
-  const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
+  const auto period = std::chrono::duration<double>(1.0 / params_.publish_rate_hz);
   dynamicTfTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       [this]() { publishDynamicTransforms(); });
 
-  RCLCPP_INFO(this->get_logger(), "frame_transformer started: odometry_topic=%s", odometryTopic_.c_str());
+  RCLCPP_INFO(this->get_logger(), "frame_transformer started: odometry_topic=%s", params_.odometry_topic.c_str());
   RCLCPP_INFO(this->get_logger(), "frames: world=%s map=%s odom=%s base_link=%s base_link_frd=%s",
               worldFrame_.c_str(), mapFrame_.c_str(), odomFrame_.c_str(), baseLinkFrame_.c_str(),
               baseLinkFrdFrame_.c_str());
@@ -279,32 +263,29 @@ void FrameTransformer::tryInitHome()
     return;
   }
 
-  // Check if home coordinates are configured (non-zero)
-  if (homeLatDeg_ == 0.0 && homeLonDeg_ == 0.0) {
-    return;  // No home configured, map->odom stays identity
+  if (params_.home_lat_deg == 0.0 && params_.home_lon_deg == 0.0) {
+    return;
   }
 
   const auto & gpsStatus = *latestGpsStatus_;
 
-  // GPS quality gate
-  if (gpsStatus.fix_type < gpsMinFixType_) {
+  if (gpsStatus.fix_type < params_.gps_min_fix_type) {
     return;
   }
-  if (gpsStatus.satellites_used < gpsMinSatellites_) {
+  if (gpsStatus.satellites_used < params_.gps_min_satellites) {
     return;
   }
-  if (gpsStatus.hdop > gpsMaxHdop_) {
+  if (gpsStatus.hdop > params_.gps_max_hdop) {
     return;
   }
-  if (gpsStatus.vdop > gpsMaxVdop_) {
+  if (gpsStatus.vdop > params_.gps_max_vdop) {
     return;
   }
 
   const auto & gnss = *latestGnss_;
 
-  // Compute map->odom offset: "PX4's origin is X meters east and Y meters north of home"
   mapToOdomOffset_ = geodeticToEnu(
-      homeLatDeg_, homeLonDeg_, 0.0,
+      params_.home_lat_deg, params_.home_lon_deg, 0.0,
       gnss.latitude, gnss.longitude, 0.0);
 
   // Republish map->odom static TF with the computed offset
@@ -324,7 +305,7 @@ void FrameTransformer::tryInitHome()
   homeInitialized_ = true;
   RCLCPP_INFO(this->get_logger(),
       "Home GPS origin initialized: home=(%.6f, %.6f) gnss=(%.6f, %.6f) offset=(%.2f, %.2f, %.2f)m",
-      homeLatDeg_, homeLonDeg_, gnss.latitude, gnss.longitude,
+      params_.home_lat_deg, params_.home_lon_deg, gnss.latitude, gnss.longitude,
       mapToOdomOffset_.x(), mapToOdomOffset_.y(), mapToOdomOffset_.z());
 }
 

@@ -32,6 +32,7 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <frame_transforms/frame_transforms_parameters.hpp>
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <peregrine_interfaces/msg/gps_status.hpp>
@@ -80,10 +81,11 @@ private:
    */
   void publishDynamicTransforms();
 
+  std::shared_ptr<frame_transforms::ParamListener> paramListener_;
+  frame_transforms::Params params_;
+
   /// Optional frame prefix (typically UAV namespace without leading slash).
   std::string framePrefix_;
-  /// Topic to read odometry from.
-  std::string odometryTopic_;
   /// Global world frame name.
   std::string worldFrame_;
   /// Local map frame name.
@@ -94,8 +96,6 @@ private:
   std::string baseLinkFrame_;
   /// Vehicle body frame in FRD convention.
   std::string baseLinkFrdFrame_;
-  /// Dynamic TF publication frequency.
-  double publishRateHz_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometrySub_;
   rclcpp::TimerBase::SharedPtr dynamicTfTimer_;
@@ -111,12 +111,6 @@ private:
   void onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg);
   void tryInitHome();
 
-  double homeLatDeg_{0.0};
-  double homeLonDeg_{0.0};
-  int gpsMinFixType_{3};
-  int gpsMinSatellites_{6};
-  double gpsMaxHdop_{5.0};
-  double gpsMaxVdop_{5.0};
 
   bool homeInitialized_{false};
   Eigen::Vector3d mapToOdomOffset_{0.0, 0.0, 0.0};

@@ -24,6 +24,7 @@
 #pragma once
 
 #include <estimation_manager/estimator_base.hpp>
+#include <estimation_manager/estimation_manager_parameters.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
@@ -111,12 +112,8 @@ private:
   /// Active estimator backend.
   std::unique_ptr<EstimatorBase> estimator_;
 
-  /// Output publication frequency for estimated_state.
-  double publishRateHz_{250.0};
-  /// Status publication frequency for estimation_status.
-  double statusRateHz_{10.0};
-  /// Max accepted estimate age before reporting unhealthy.
-  double stateTimeoutS_{0.5};
+  std::shared_ptr<estimation_manager::ParamListener> paramListener_;
+  estimation_manager::Params params_;
 
   /// True once configure has successfully allocated runtime resources.
   bool configured_{false};
@@ -137,8 +134,6 @@ private:
   /// Periodic status publication timer.
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
-  /// When true, node self-transitions through configure -> activate on startup.
-  bool autoStart_{true};
   /// One-shot timer that drives the auto-start sequence.
   rclcpp::TimerBase::SharedPtr startupTimer_;
 };

@@ -14,6 +14,12 @@ find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(generate_parameter_library REQUIRED)
+
+generate_parameter_library(
+  hardware_abstraction_parameters
+  src/hardware_abstraction_parameters.yaml
+)
 
 add_library(hardware_abstraction_component SHARED
   src/px4_hardware_abstraction.cpp
@@ -25,6 +31,8 @@ target_include_directories(hardware_abstraction_component
     $<INSTALL_INTERFACE:include>
     ${EIGEN3_INCLUDE_DIRS}
 )
+
+target_link_libraries(hardware_abstraction_component hardware_abstraction_parameters)
 
 target_compile_features(hardware_abstraction_component PUBLIC cxx_std_17)
 
@@ -66,6 +74,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(Eigen3 frame_transforms nav_msgs peregrine_interfaces px4_msgs rclcpp sensor_msgs)
+ament_export_dependencies(Eigen3 frame_transforms nav_msgs peregrine_interfaces px4_msgs rclcpp sensor_msgs generate_parameter_library)
 
 ament_package()

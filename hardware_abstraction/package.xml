@@ -17,6 +17,7 @@
   <depend>px4_msgs</depend>
   <depend>peregrine_interfaces</depend>
   <depend>Eigen3</depend>
+  <depend>generate_parameter_library</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

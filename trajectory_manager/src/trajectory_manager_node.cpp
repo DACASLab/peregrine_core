@@ -24,12 +24,11 @@ constexpr char kManagerName[] = "trajectory_manager";
 TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(kManagerName, options)
 {
-  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 50.0);
-  statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
-  stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
-  autoStart_ = this->declare_parameter<bool>("auto_start", true);
+  paramListener_ = std::make_shared<trajectory_manager::ParamListener>(
+      get_node_parameters_interface());
+  params_ = paramListener_->get_params();
 
-  if (autoStart_) {
+  if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
       200ms,
       [this]() {
@@ -59,13 +58,6 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "publish_rate_hz, status_rate_hz, and state_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
@@ -111,11 +103,11 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.
   // This is the same lifecycle gate used by other managers in the peregrine stack.
   publishTimer_ = this->create_wall_timer(
-    periodFromHz(publishRateHz_),
+    periodFromHz(params_.publish_rate_hz),
     [this]() { publishTrajectorySetpoint(); });
   statusTimer_ =
     this->create_wall_timer(
-    periodFromHz(statusRateHz_),
+    periodFromHz(params_.status_rate_hz),
     [this]() { publishStatus(); });
 
   publishTimer_->cancel();
@@ -141,8 +133,8 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   configured_ = true;
   active_ = false;
   RCLCPP_INFO(
-    this->get_logger(), "Configured trajectory_manager: publish_rate_hz=%.1f status_rate_hz=%.1f", publishRateHz_,
-    statusRateHz_);
+    this->get_logger(), "Configured trajectory_manager: publish_rate_hz=%.1f status_rate_hz=%.1f", params_.publish_rate_hz,
+    params_.status_rate_hz);
   return CallbackReturn::SUCCESS;
 }
 
@@ -436,7 +428,7 @@ void TrajectoryManagerNode::publishStatus()
   peregrine_interfaces::msg::ManagerStatus status;
   status.header.stamp = this->now();
   status.manager_name = kManagerName;
-  status.output_rate_hz = static_cast<float>(publishRateHz_);
+  status.output_rate_hz = static_cast<float>(params_.publish_rate_hz);
   status.active = active_;
 
   {
@@ -451,7 +443,7 @@ void TrajectoryManagerNode::publishStatus()
     } else {
       // Freshness check guards against stale estimated_state input.
       const double ageS = (this->now() - lastStateTime_).seconds();
-      status.healthy = ageS <= stateTimeoutS_;
+      status.healthy = ageS <= params_.state_timeout_s;
       status.message = status.healthy ? "OK" : "ESTIMATED_STATE_STALE";
     }
   }

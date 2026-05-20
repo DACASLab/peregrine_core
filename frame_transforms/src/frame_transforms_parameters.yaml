@@ -1,0 +1,94 @@
+frame_transforms:
+  frame_prefix:
+    type: string
+    default_value: ""
+    description: "TF frame name prefix for multi-UAV (e.g. uav1)"
+    read_only: true
+
+  odometry_topic:
+    type: string
+    default_value: "odometry"
+    description: "Odometry input topic name"
+    read_only: true
+
+  world_frame:
+    type: string
+    default_value: "world"
+    description: "Global world reference frame (shared across fleet)"
+    read_only: true
+
+  map_frame:
+    type: string
+    default_value: "map"
+    description: "Global map reference frame (shared across fleet)"
+    read_only: true
+
+  odom_frame:
+    type: string
+    default_value: "odom"
+    description: "Vehicle-local odom frame (prefixed with frame_prefix)"
+    read_only: true
+
+  base_link_frame:
+    type: string
+    default_value: "base_link"
+    description: "Vehicle-local base link frame (prefixed with frame_prefix)"
+    read_only: true
+
+  base_link_frd_frame:
+    type: string
+    default_value: "base_link_frd"
+    description: "Vehicle-local FRD body frame (prefixed with frame_prefix)"
+    read_only: true
+
+  publish_rate_hz:
+    type: double
+    default_value: 100.0
+    description: "TF broadcast publication rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  home_lat_deg:
+    type: double
+    default_value: 47.397971
+    description: "Default home latitude (overwritten by first valid GPS fix)"
+    read_only: true
+
+  home_lon_deg:
+    type: double
+    default_value: 8.546164
+    description: "Default home longitude (overwritten by first valid GPS fix)"
+    read_only: true
+
+  gps_min_fix_type:
+    type: int
+    default_value: 3
+    description: "Minimum GPS fix type for home origin initialization"
+    read_only: true
+    validation:
+      bounds<>: [0, 6]
+
+  gps_min_satellites:
+    type: int
+    default_value: 6
+    description: "Minimum satellite count for home origin initialization"
+    read_only: true
+    validation:
+      gt_eq<>: [0]
+
+  gps_max_hdop:
+    type: double
+    default_value: 5.0
+    description: "Maximum HDOP for home origin initialization"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  gps_max_vdop:
+    type: double
+    default_value: 5.0
+    description: "Maximum VDOP for home origin initialization"
+    read_only: true
+    validation:
+      gt<>: [0.0]
