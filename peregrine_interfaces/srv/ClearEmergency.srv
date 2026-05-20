@@ -1,0 +1,5 @@
+# Request: operator or BT explicitly clears a latched emergency.
+# The guard still checks that PX4 is connected, out of failsafe, and disarmed.
+---
+bool success
+string message
