@@ -27,7 +27,7 @@
 
 | Launch File | Purpose |
 |-------------|---------|
-| `single_uav.launch.py` | Launch complete stack for one UAV |
+| `core_stack.launch.py` | Launch complete stack for one UAV |
 | `multi_uav.launch.py` | Launch stack for N UAVs |
 | `simulation.launch.py` | Start Gazebo + SITL + stack |
 | `hardware.launch.py` | Real hardware deployment |
@@ -49,7 +49,7 @@
 ### Launch File
 
 ```python
-# launch/single_uav.launch.py
+# launch/core_stack.launch.py
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -151,10 +151,10 @@ def generate_launch_description():
 
 ```bash
 # Basic launch
-ros2 launch peregrine_bringup single_uav.launch.py
+ros2 launch peregrine_bringup core_stack.launch.py
 
 # With custom namespace and config
-ros2 launch peregrine_bringup single_uav.launch.py \
+ros2 launch peregrine_bringup core_stack.launch.py \
     namespace:=uav1 \
     config:=outdoor_config.yaml \
     environment:=gps
@@ -481,7 +481,7 @@ peregrine_bringup/
 ├── CMakeLists.txt
 ├── package.xml
 ├── launch/
-│   ├── single_uav.launch.py
+│   ├── core_stack.launch.py
 │   ├── multi_uav.launch.py
 │   ├── simulation.launch.py
 │   ├── hardware.launch.py

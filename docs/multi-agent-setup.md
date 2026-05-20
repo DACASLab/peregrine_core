@@ -10,8 +10,8 @@ The peregrine stack currently runs as a single UAV in one Docker container. The 
 - `docker/config/entrypoint.sh` — maps `DRONE_ID` → `ROS_DOMAIN_ID`, optional XRCE agent start
 - `docker/.env` — central config (versions, DRONE_ID=1, ROS_LOCALHOST_ONLY=1)
 - `docker/Makefile` — build/run targets
-- `peregrine_bringup/launch/single_uav.launch.py` — stack-only (no SITL)
-- `peregrine_bringup/launch/single_uav_sitl.launch.py` — full SITL + stack
+- `peregrine_bringup/launch/core_stack.launch.py` — composable flight stack
+- `peregrine_bringup/launch/multi_uav_sitl.launch.py` — shared Gazebo + N PX4 instances
 
 ### Architecture Target
 
@@ -125,7 +125,7 @@ Four services:
 - `DRONE_ID=1` → `ROS_DOMAIN_ID=1`
 - `ZENOH_BRIDGE_CONFIG=/ros2_ws/docker/config/zenoh/uav_bridge.json5`
 - `XRCE_PORT=8888`
-- Command: `ros2 launch peregrine_bringup single_uav.launch.py start_microxrce_agent:=false`
+- Command: `ros2 launch peregrine_bringup core_stack.launch.py start_microxrce_agent:=false`
 - (XRCE agent runs in sim container, not here)
 
 **`uav2`** — peregrine stack for UAV 2:
