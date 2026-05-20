@@ -152,10 +152,6 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   connectionTimeoutS_ = this->declare_parameter<double>("connection_timeout_s", 1.0);
 
-  targetSystemId_ = this->declare_parameter<int>("target_system_id", 1);
-  targetComponentId_ = this->declare_parameter<int>("target_component_id", 1);
-  sourceSystemId_ = this->declare_parameter<int>("source_system_id", 1);
-  sourceComponentId_ = this->declare_parameter<int>("source_component_id", 1);
 
   if (offboardRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || connectionTimeoutS_ <= 0.0)
   {
@@ -552,161 +548,160 @@ void PX4HardwareAbstraction::onControlOutput(const peregrine_interfaces::msg::Co
     return;
   }
 
-  // The control mode determines which PX4 input topic is actively driven.
   switch (msg->control_mode)
   {
     case peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY:
-    {
-      // PX4 trajectory setpoints use NaN to mean "do not control this axis". All fields
-      // are initialized to NaN, then only the actively controlled channels are filled in
-      // based on the use_position / use_velocity / use_acceleration / use_yaw flags.
-      // This enables mixed-mode control, e.g. position hold in XY with velocity in Z.
-      const float nan = std::numeric_limits<float>::quiet_NaN();
-      px4_msgs::msg::TrajectorySetpoint setpoint;
-      setpoint.timestamp = nowMicros();
-
-      for (std::size_t i = 0; i < setpoint.position.size(); ++i)
-      {
-        setpoint.position[i] = nan;
-        setpoint.velocity[i] = nan;
-        setpoint.acceleration[i] = nan;
-        setpoint.jerk[i] = nan;
-      }
-      setpoint.yaw = nan;
-      setpoint.yawspeed = nan;
-
-      if (msg->use_position)
-      {
-        // Trajectory fields are expected in ENU from managers; convert to NED for PX4.
-        const Eigen::Vector3d ned =
-            frame_transforms::enuToNed(Eigen::Vector3d(msg->position.x, msg->position.y, msg->position.z));
-        setpoint.position[0] = static_cast<float>(ned.x());
-        setpoint.position[1] = static_cast<float>(ned.y());
-        setpoint.position[2] = static_cast<float>(ned.z());
-      }
-
-      if (msg->use_velocity)
-      {
-        const Eigen::Vector3d ned =
-            frame_transforms::enuToNed(Eigen::Vector3d(msg->velocity.x, msg->velocity.y, msg->velocity.z));
-        setpoint.velocity[0] = static_cast<float>(ned.x());
-        setpoint.velocity[1] = static_cast<float>(ned.y());
-        setpoint.velocity[2] = static_cast<float>(ned.z());
-      }
-
-      if (msg->use_acceleration)
-      {
-        const Eigen::Vector3d ned =
-            frame_transforms::enuToNed(Eigen::Vector3d(msg->acceleration.x, msg->acceleration.y, msg->acceleration.z));
-        setpoint.acceleration[0] = static_cast<float>(ned.x());
-        setpoint.acceleration[1] = static_cast<float>(ned.y());
-        setpoint.acceleration[2] = static_cast<float>(ned.z());
-      }
-
-      if (msg->use_yaw)
-      {
-        // Yaw/yaw-rate are converted with convention-specific helpers.
-        setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg->yaw));
-      }
-      if (msg->use_yaw_rate)
-      {
-        setpoint.yawspeed = static_cast<float>(frame_transforms::yawRateEnuToNed(msg->yaw_rate));
-      }
-
-      trajectorySetpointPub_->publish(setpoint);
+      handleTrajectoryMode(*msg);
       break;
-    }
-
     case peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE:
-    {
-      px4_msgs::msg::VehicleRatesSetpoint rates;
-      rates.timestamp = nowMicros();
-
-      const Eigen::Vector3d ratesFrd = frame_transforms::fluToFrd(
-          Eigen::Vector3d(msg->body_rates.x, msg->body_rates.y, msg->body_rates.z));
-      rates.roll = static_cast<float>(ratesFrd.x());
-      rates.pitch = static_cast<float>(ratesFrd.y());
-      rates.yaw = static_cast<float>(ratesFrd.z());
-
-      // PX4 multicopter thrust is a normalized [0,1] value on the negative Z body axis
-      // (FRD frame). The manager provides thrust as a positive [0,1] "push up" value, so
-      // we negate it into thrust_body[2] to match PX4's "negative-Z = upward" convention.
-      const float thrust = std::clamp(msg->thrust, 0.0f, 1.0f);
-      rates.thrust_body[0] = 0.0f;
-      rates.thrust_body[1] = 0.0f;
-      rates.thrust_body[2] = -thrust;
-      rates.reset_integral = false;
-
-      vehicleRatesSetpointPub_->publish(rates);
+      handleBodyRateMode(*msg);
       break;
-    }
-
     case peregrine_interfaces::msg::ControlOutput::MODE_ATTITUDE:
-    {
-      px4_msgs::msg::VehicleAttitudeSetpoint attitude;
-      attitude.timestamp = nowMicros();
-
-      Eigen::Quaterniond qEnuFlu(msg->attitude.w, msg->attitude.x, msg->attitude.y, msg->attitude.z);
-      if (qEnuFlu.norm() < 1e-6)
-      {
-        qEnuFlu = Eigen::Quaterniond::Identity();
-      }
-      qEnuFlu.normalize();
-
-      const Eigen::Quaterniond qNedFrd = frame_transforms::orientationEnuFluToNedFrd(qEnuFlu);
-      attitude.q_d[0] = static_cast<float>(qNedFrd.w());
-      attitude.q_d[1] = static_cast<float>(qNedFrd.x());
-      attitude.q_d[2] = static_cast<float>(qNedFrd.y());
-      attitude.q_d[3] = static_cast<float>(qNedFrd.z());
-      attitude.yaw_sp_move_rate = static_cast<float>(frame_transforms::yawRateEnuToNed(msg->yaw_rate));
-
-      // PX4 uses FRD thrust with -Z as "upward thrust" for multicopters.
-      const float thrust = std::clamp(msg->thrust, 0.0f, 1.0f);
-      attitude.thrust_body[0] = 0.0f;
-      attitude.thrust_body[1] = 0.0f;
-      attitude.thrust_body[2] = -thrust;
-
-      vehicleAttitudeSetpointPub_->publish(attitude);
+      handleAttitudeMode(*msg);
       break;
-    }
-
     case peregrine_interfaces::msg::ControlOutput::MODE_DIRECT_ACTUATOR:
-    {
-      px4_msgs::msg::ActuatorMotors actuators;
-      actuators.timestamp = nowMicros();
-      actuators.timestamp_sample = actuators.timestamp;
-      actuators.reversible_flags = 0;
-
-      // Unused channels remain NaN so PX4 can treat them as disarmed/ignored.
-      const float nan = std::numeric_limits<float>::quiet_NaN();
-      for (auto& control : actuators.control)
-      {
-        control = nan;
-      }
-
-      const std::size_t count = std::min(msg->motor_commands.size(), actuators.control.size());
-      for (std::size_t i = 0; i < count; ++i)
-      {
-        actuators.control[i] = std::clamp(msg->motor_commands[i], -1.0f, 1.0f);
-      }
-
-      // Cache motor values for TUI status display.
-      auto safeClamp = [](float val) -> float {
-        return std::isfinite(val) ? std::clamp(val, 0.0f, 1.0f) : 0.0f;
-      };
-      if (count > 0) motorOutput0_.store(safeClamp(actuators.control[0]));
-      if (count > 1) motorOutput1_.store(safeClamp(actuators.control[1]));
-      if (count > 2) motorOutput2_.store(safeClamp(actuators.control[2]));
-      if (count > 3) motorOutput3_.store(safeClamp(actuators.control[3]));
-
-      actuatorMotorsPub_->publish(actuators);
+      handleDirectActuatorMode(*msg);
       break;
-    }
-
     default:
       RCLCPP_WARN(this->get_logger(), "Unsupported control_mode: %u", msg->control_mode);
       break;
   }
+}
+
+void PX4HardwareAbstraction::handleTrajectoryMode(
+  const peregrine_interfaces::msg::ControlOutput & msg)
+{
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  px4_msgs::msg::TrajectorySetpoint setpoint;
+  setpoint.timestamp = nowMicros();
+
+  for (std::size_t i = 0; i < setpoint.position.size(); ++i)
+  {
+    setpoint.position[i] = nan;
+    setpoint.velocity[i] = nan;
+    setpoint.acceleration[i] = nan;
+    setpoint.jerk[i] = nan;
+  }
+  setpoint.yaw = nan;
+  setpoint.yawspeed = nan;
+
+  if (msg.use_position)
+  {
+    const Eigen::Vector3d ned =
+        frame_transforms::enuToNed(Eigen::Vector3d(msg.position.x, msg.position.y, msg.position.z));
+    setpoint.position[0] = static_cast<float>(ned.x());
+    setpoint.position[1] = static_cast<float>(ned.y());
+    setpoint.position[2] = static_cast<float>(ned.z());
+  }
+
+  if (msg.use_velocity)
+  {
+    const Eigen::Vector3d ned =
+        frame_transforms::enuToNed(Eigen::Vector3d(msg.velocity.x, msg.velocity.y, msg.velocity.z));
+    setpoint.velocity[0] = static_cast<float>(ned.x());
+    setpoint.velocity[1] = static_cast<float>(ned.y());
+    setpoint.velocity[2] = static_cast<float>(ned.z());
+  }
+
+  if (msg.use_acceleration)
+  {
+    const Eigen::Vector3d ned =
+        frame_transforms::enuToNed(Eigen::Vector3d(msg.acceleration.x, msg.acceleration.y, msg.acceleration.z));
+    setpoint.acceleration[0] = static_cast<float>(ned.x());
+    setpoint.acceleration[1] = static_cast<float>(ned.y());
+    setpoint.acceleration[2] = static_cast<float>(ned.z());
+  }
+
+  if (msg.use_yaw)
+  {
+    setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg.yaw));
+  }
+  if (msg.use_yaw_rate)
+  {
+    setpoint.yawspeed = static_cast<float>(frame_transforms::yawRateEnuToNed(msg.yaw_rate));
+  }
+
+  trajectorySetpointPub_->publish(setpoint);
+}
+
+void PX4HardwareAbstraction::handleBodyRateMode(
+  const peregrine_interfaces::msg::ControlOutput & msg)
+{
+  px4_msgs::msg::VehicleRatesSetpoint rates;
+  rates.timestamp = nowMicros();
+
+  const Eigen::Vector3d ratesFrd = frame_transforms::fluToFrd(
+      Eigen::Vector3d(msg.body_rates.x, msg.body_rates.y, msg.body_rates.z));
+  rates.roll = static_cast<float>(ratesFrd.x());
+  rates.pitch = static_cast<float>(ratesFrd.y());
+  rates.yaw = static_cast<float>(ratesFrd.z());
+
+  const float thrust = std::clamp(msg.thrust, 0.0f, 1.0f);
+  rates.thrust_body[0] = 0.0f;
+  rates.thrust_body[1] = 0.0f;
+  rates.thrust_body[2] = -thrust;
+  rates.reset_integral = false;
+
+  vehicleRatesSetpointPub_->publish(rates);
+}
+
+void PX4HardwareAbstraction::handleAttitudeMode(
+  const peregrine_interfaces::msg::ControlOutput & msg)
+{
+  px4_msgs::msg::VehicleAttitudeSetpoint attitude;
+  attitude.timestamp = nowMicros();
+
+  Eigen::Quaterniond qEnuFlu(msg.attitude.w, msg.attitude.x, msg.attitude.y, msg.attitude.z);
+  if (qEnuFlu.norm() < 1e-6)
+  {
+    qEnuFlu = Eigen::Quaterniond::Identity();
+  }
+  qEnuFlu.normalize();
+
+  const Eigen::Quaterniond qNedFrd = frame_transforms::orientationEnuFluToNedFrd(qEnuFlu);
+  attitude.q_d[0] = static_cast<float>(qNedFrd.w());
+  attitude.q_d[1] = static_cast<float>(qNedFrd.x());
+  attitude.q_d[2] = static_cast<float>(qNedFrd.y());
+  attitude.q_d[3] = static_cast<float>(qNedFrd.z());
+  attitude.yaw_sp_move_rate = static_cast<float>(frame_transforms::yawRateEnuToNed(msg.yaw_rate));
+
+  const float thrust = std::clamp(msg.thrust, 0.0f, 1.0f);
+  attitude.thrust_body[0] = 0.0f;
+  attitude.thrust_body[1] = 0.0f;
+  attitude.thrust_body[2] = -thrust;
+
+  vehicleAttitudeSetpointPub_->publish(attitude);
+}
+
+void PX4HardwareAbstraction::handleDirectActuatorMode(
+  const peregrine_interfaces::msg::ControlOutput & msg)
+{
+  px4_msgs::msg::ActuatorMotors actuators;
+  actuators.timestamp = nowMicros();
+  actuators.timestamp_sample = actuators.timestamp;
+  actuators.reversible_flags = 0;
+
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  for (auto& control : actuators.control)
+  {
+    control = nan;
+  }
+
+  const std::size_t count = std::min(msg.motor_commands.size(), actuators.control.size());
+  for (std::size_t i = 0; i < count; ++i)
+  {
+    actuators.control[i] = std::clamp(msg.motor_commands[i], -1.0f, 1.0f);
+  }
+
+  auto safeClamp = [](float val) -> float {
+    return std::isfinite(val) ? std::clamp(val, 0.0f, 1.0f) : 0.0f;
+  };
+  if (count > 0) motorOutput0_.store(safeClamp(actuators.control[0]));
+  if (count > 1) motorOutput1_.store(safeClamp(actuators.control[1]));
+  if (count > 2) motorOutput2_.store(safeClamp(actuators.control[2]));
+  if (count > 3) motorOutput3_.store(safeClamp(actuators.control[3]));
+
+  actuatorMotorsPub_->publish(actuators);
 }
 
 void PX4HardwareAbstraction::onArmService(const std::shared_ptr<peregrine_interfaces::srv::Arm::Request> request,
@@ -815,10 +810,10 @@ px4_msgs::msg::VehicleCommand PX4HardwareAbstraction::makeVehicleCommand(uint32_
   vehicleCommand.command = command;
   vehicleCommand.param1 = param1;
   vehicleCommand.param2 = param2;
-  vehicleCommand.target_system = static_cast<uint8_t>(targetSystemId_);
-  vehicleCommand.target_component = static_cast<uint8_t>(targetComponentId_);
-  vehicleCommand.source_system = static_cast<uint8_t>(sourceSystemId_);
-  vehicleCommand.source_component = static_cast<uint16_t>(sourceComponentId_);
+  vehicleCommand.target_system = 1;
+  vehicleCommand.target_component = 1;
+  vehicleCommand.source_system = 1;
+  vehicleCommand.source_component = 1;
   vehicleCommand.confirmation = 0;
   vehicleCommand.from_external = true;
   return vehicleCommand;

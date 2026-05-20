@@ -5,7 +5,3 @@
     offboard_rate_hz: 20.0
     status_rate_hz: 5.0
     connection_timeout_s: 1.0
-    target_system_id: 1
-    target_component_id: 1
-    source_system_id: 1
-    source_component_id: 1

@@ -103,6 +103,10 @@ private:
    * @brief Routes manager command envelope into the selected PX4 input topic.
    */
   void onControlOutput(const peregrine_interfaces::msg::ControlOutput::SharedPtr msg);
+  void handleTrajectoryMode(const peregrine_interfaces::msg::ControlOutput & msg);
+  void handleBodyRateMode(const peregrine_interfaces::msg::ControlOutput & msg);
+  void handleAttitudeMode(const peregrine_interfaces::msg::ControlOutput & msg);
+  void handleDirectActuatorMode(const peregrine_interfaces::msg::ControlOutput & msg);
 
   /**
    * @brief Service callback to arm or disarm the vehicle.
@@ -162,14 +166,6 @@ private:
   /// Maximum allowed telemetry silence before marking disconnected.
   double connectionTimeoutS_;
 
-  /// Target system ID for PX4 command messages.
-  int targetSystemId_;
-  /// Target component ID for PX4 command messages.
-  int targetComponentId_;
-  /// Source system ID for PX4 command messages.
-  int sourceSystemId_;
-  /// Source component ID for PX4 command messages.
-  int sourceComponentId_;
 
   // These members are std::atomic because they are written from PX4 subscription callbacks
   // and read from timer callbacks (offboard heartbeat, status publication) and service
