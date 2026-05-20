@@ -7,7 +7,7 @@ Each mission executes: takeoff -> circle -> figure-8 -> land.
 This launch does NOT start SITL or the manager stack. It is intended for the
 multi-container setup where:
   - sim container runs shared Gazebo + PX4 instances
-  - uav containers already run single_uav.launch.py
+  - uav containers already run core_stack.launch.py
 
 Usage:
   ros2 launch hardware_abstraction_example example14_multi_uav_circle_figure8.launch.py

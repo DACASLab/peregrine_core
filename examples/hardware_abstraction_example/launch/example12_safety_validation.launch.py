@@ -54,9 +54,9 @@ def generate_launch_description() -> LaunchDescription:
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
                 [
-                    FindPackageShare("hardware_abstraction_example"),
+                    FindPackageShare("peregrine_bringup"),
                     "launch",
-                    "peregrine_single_container.launch.py",
+                    "core_stack.launch.py",
                 ]
             )
         ),

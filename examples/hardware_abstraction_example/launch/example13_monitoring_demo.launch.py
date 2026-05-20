@@ -43,7 +43,7 @@ def generate_launch_description() -> LaunchDescription:
                 [
                     FindPackageShare("hardware_abstraction_example"),
                     "launch",
-                    "example11_multi_cycle_demo.launch.py",
+                    "multi_cycle_demo.launch.py",
                 ]
             )
         ),

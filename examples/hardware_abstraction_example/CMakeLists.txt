@@ -19,8 +19,6 @@ install(PROGRAMS
   scripts/circle_figure8_demo.py
   scripts/circle_tracking_evaluator.py
   scripts/multi_cycle_demo.py
-  scripts/se3_circle_sweep.py
-  scripts/se3_step_sweep.py
   scripts/step_response_demo.py
   scripts/step_response_evaluator.py
   scripts/safety_fault_injector.py
