@@ -58,9 +58,6 @@ class SafetyRegressionDemo(Node):
         self.geofence_breach_x_m = float(self.declare_parameter("geofence_breach_x_m", 40.0).value)
         self.geofence_breach_y_m = float(self.declare_parameter("geofence_breach_y_m", 0.0).value)
         self.go_to_velocity_mps = float(self.declare_parameter("go_to_velocity_mps", 3.0).value)
-        self.go_to_acceptance_radius_m = float(
-            self.declare_parameter("go_to_acceptance_radius_m", 0.8).value
-        )
 
         self.takeoff_retry_count = int(self.declare_parameter("takeoff_retry_count", 2).value)
         self.takeoff_retry_delay_s = float(self.declare_parameter("takeoff_retry_delay_s", 8.0).value)
@@ -114,7 +111,7 @@ class SafetyRegressionDemo(Node):
 
         self.takeoff_client = ActionClient(self, Takeoff, "uav_manager/takeoff")
         self.land_client = ActionClient(self, Land, "uav_manager/land")
-        self.go_to_client = ActionClient(self, GoTo, "uav_manager/go_to")
+        self.go_to_client = ActionClient(self, GoTo, "trajectory_manager/go_to")
 
         self.vehicle_command_pub = None
         self.vehicle_command_ack_sub = None
@@ -562,7 +559,7 @@ class SafetyRegressionDemo(Node):
         for client, name in (
             (self.takeoff_client, "uav_manager/takeoff"),
             (self.land_client, "uav_manager/land"),
-            (self.go_to_client, "uav_manager/go_to"),
+            (self.go_to_client, "trajectory_manager/go_to"),
         ):
             self.get_logger().info("Waiting for action server %s" % name)
             if not client.wait_for_server(timeout_sec=self.server_wait_s):
@@ -712,7 +709,6 @@ class SafetyRegressionDemo(Node):
         goal.target_position.z = float(target_z_m)
         goal.target_yaw = 0.0
         goal.velocity_mps = float(self.go_to_velocity_mps)
-        goal.acceptance_radius_m = float(self.go_to_acceptance_radius_m)
         return self._send_goal(
             self.go_to_client,
             goal,
@@ -739,7 +735,6 @@ class SafetyRegressionDemo(Node):
         goal.target_position.z = float(target_z_m)
         goal.target_yaw = 0.0
         goal.velocity_mps = float(self.go_to_velocity_mps)
-        goal.acceptance_radius_m = float(self.go_to_acceptance_radius_m)
 
         self.get_logger().info(
             "Sending fire-and-forget go_to toward (%.1f, %.1f, %.1f)"

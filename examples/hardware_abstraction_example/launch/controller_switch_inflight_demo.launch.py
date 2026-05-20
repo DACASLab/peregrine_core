@@ -29,6 +29,9 @@ def generate_launch_description() -> LaunchDescription:
     mission_yaml = PathJoinSubstitution(
         [FindPackageShare("hardware_abstraction_example"), "config", "controller_switch_inflight_mission.yaml"]
     )
+    uav_manager_yaml = PathJoinSubstitution(
+        [FindPackageShare("hardware_abstraction_example"), "config", "controller_switch_uav_manager.yaml"]
+    )
 
     core_stack = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -41,6 +44,7 @@ def generate_launch_description() -> LaunchDescription:
             "ros_localhost_only": ros_localhost_only,
             "ros_domain_id": ros_domain_id,
             "config_overrides": config_overrides,
+            "uav_params_file": uav_manager_yaml,
         }.items(),
     )
 

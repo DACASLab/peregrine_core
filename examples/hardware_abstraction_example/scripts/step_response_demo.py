@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a takeoff -> step-response sequence -> land mission through uav_manager."""
+"""Demo: takeoff -> configurable step-response sequence -> land."""
 
 from __future__ import annotations
 
@@ -7,15 +7,12 @@ import math
 import time
 
 import rclpy
-from rclpy.action import ActionClient
 from rclpy.node import Node
 
-from peregrine_interfaces.action import ExecuteTrajectory, Land, Takeoff
-from peregrine_interfaces.msg import UAVState
+from peregrine_client import FlightError, PeregrineClient
 
 
 class StepResponseDemo(Node):
-    """Runs a configurable sequence of position/yaw steps for controller tuning."""
 
     _VALID_STEPS = {"x+", "x-", "y+", "y-", "z+", "z-", "yaw+", "yaw-"}
 
@@ -24,11 +21,15 @@ class StepResponseDemo(Node):
 
         self.takeoff_altitude_m = float(self.declare_parameter("takeoff_altitude_m", 5.0).value)
         self.climb_velocity_mps = float(self.declare_parameter("climb_velocity_mps", 1.0).value)
-        self.landing_descent_velocity_mps = float(self.declare_parameter("landing_descent_velocity_mps", 0.8).value)
-        self.step_sequence = list(
-            self.declare_parameter(
-                "step_sequence", ["x+", "x-", "y+", "y-", "z+", "z-", "yaw+", "yaw-"]
-            ).value
+        self.landing_descent_velocity_mps = float(
+            self.declare_parameter("landing_descent_velocity_mps", 0.8).value
+        )
+        raw = self.declare_parameter(
+            "step_sequence", ["x+", "x-", "y+", "y-", "z+", "z-", "yaw+", "yaw-"]
+        ).value
+        self.step_sequence = (
+            [t.strip() for t in raw.split(",") if t.strip()]
+            if isinstance(raw, str) else list(raw)
         )
         self.lateral_step_m = float(self.declare_parameter("lateral_step_m", 1.0).value)
         self.vertical_step_m = float(self.declare_parameter("vertical_step_m", 0.75).value)
@@ -41,42 +42,31 @@ class StepResponseDemo(Node):
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 240.0).value)
 
-        self.latest_uav_state: UAVState | None = None
-        self.create_subscription(UAVState, "uav_state", self._on_uav_state, 10)
-
-        self.takeoff_client = ActionClient(self, Takeoff, "uav_manager/takeoff")
-        self.execute_client = ActionClient(self, ExecuteTrajectory, "uav_manager/execute_trajectory")
-        self.land_client = ActionClient(self, Land, "uav_manager/land")
-
     def run(self) -> int:
-        invalid_steps = [token for token in self.step_sequence if token not in self._VALID_STEPS]
-        if invalid_steps:
-            self.get_logger().error(f"Invalid step_sequence entries: {invalid_steps}")
+        invalid = [t for t in self.step_sequence if t not in self._VALID_STEPS]
+        if invalid:
+            self.get_logger().error("Invalid step_sequence entries: %s" % invalid)
             return 1
 
-        if not self._wait_for_preflight_ready():
-            return 1
-        if not self._wait_for_servers():
-            return 1
+        client = PeregrineClient(
+            self, server_wait_s=self.server_wait_s, action_timeout_s=self.action_timeout_s
+        )
 
-        takeoff_goal = Takeoff.Goal()
-        takeoff_goal.target_altitude_m = self.takeoff_altitude_m
-        takeoff_goal.climb_velocity_mps = self.climb_velocity_mps
-        if not self._send_goal(self.takeoff_client, takeoff_goal, "takeoff"):
-            return 1
+        try:
+            client.wait_ready(timeout_s=self.preflight_wait_s, settle_s=self.post_ready_wait_s)
+            client.takeoff(self.takeoff_altitude_m, self.climb_velocity_mps)
 
-        time.sleep(1.0)
-        for index, token in enumerate(self.step_sequence, start=1):
-            params = self._params_for_step(token)
-            label = f"step{index}_{token.replace('+', '_pos').replace('-', '_neg')}"
-            if not self._execute_trajectory(params, label):
-                return 1
-            if self.inter_step_pause_s > 0.0:
-                time.sleep(self.inter_step_pause_s)
+            time.sleep(1.0)
+            for index, token in enumerate(self.step_sequence, start=1):
+                label = "step%d_%s" % (index, token.replace("+", "_pos").replace("-", "_neg"))
+                self.get_logger().info("Executing %s" % label)
+                client.execute("step_response", self._params_for_step(token))
+                if self.inter_step_pause_s > 0.0:
+                    time.sleep(self.inter_step_pause_s)
 
-        land_goal = Land.Goal()
-        land_goal.descent_velocity_mps = self.landing_descent_velocity_mps
-        if not self._send_goal(self.land_client, land_goal, "land"):
+            client.land(self.landing_descent_velocity_mps)
+        except FlightError as e:
+            self.get_logger().error(str(e))
             return 1
 
         self.get_logger().info("Step-response demo completed successfully.")
@@ -101,85 +91,6 @@ class StepResponseDemo(Node):
         elif token == "yaw-":
             dyaw = -math.radians(self.yaw_step_deg)
         return [dx, dy, dz, dyaw, self.pre_step_hold_s, self.post_step_hold_s]
-
-    def _execute_trajectory(self, params: list[float], label: str) -> bool:
-        goal = ExecuteTrajectory.Goal()
-        goal.trajectory_type = "step_response"
-        goal.params = params
-        return self._send_goal(self.execute_client, goal, label)
-
-    def _wait_for_servers(self) -> bool:
-        clients = [
-            (self.takeoff_client, "uav_manager/takeoff"),
-            (self.execute_client, "uav_manager/execute_trajectory"),
-            (self.land_client, "uav_manager/land"),
-        ]
-        for client, name in clients:
-            self.get_logger().info(f"Waiting for action server {name}")
-            if not client.wait_for_server(timeout_sec=self.server_wait_s):
-                self.get_logger().error(f"Action server unavailable: {name}")
-                return False
-        return True
-
-    def _wait_for_preflight_ready(self) -> bool:
-        self.get_logger().info(f"Waiting up to {self.preflight_wait_s:.1f}s for preflight readiness")
-        deadline = time.monotonic() + self.preflight_wait_s
-        while time.monotonic() < deadline:
-            rclpy.spin_once(self, timeout_sec=0.2)
-            snapshot = self.latest_uav_state
-            if snapshot is not None and snapshot.dependencies_ready:
-                self.get_logger().info(f"Preflight ready: {snapshot.readiness_detail}")
-                if self.post_ready_wait_s > 0.0:
-                    self.get_logger().info(
-                        f"Waiting an extra {self.post_ready_wait_s:.1f}s for PX4 pre-arm checks to settle"
-                    )
-                    time.sleep(self.post_ready_wait_s)
-                return True
-
-        if self.latest_uav_state is None:
-            self.get_logger().error("Preflight readiness timeout: no uav_state received")
-        else:
-            self.get_logger().error(
-                "Preflight readiness timeout: %s" % self.latest_uav_state.readiness_detail
-            )
-        return False
-
-    def _on_uav_state(self, msg: UAVState) -> None:
-        self.latest_uav_state = msg
-
-    def _send_goal(self, client: ActionClient, goal_msg, label: str) -> bool:
-        self.get_logger().info(f"Sending {label} goal")
-
-        goal_future = client.send_goal_async(goal_msg)
-        rclpy.spin_until_future_complete(self, goal_future, timeout_sec=self.action_timeout_s)
-        if not goal_future.done():
-            self.get_logger().error(f"{label} goal send timeout")
-            return False
-
-        goal_handle = goal_future.result()
-        if goal_handle is None or not goal_handle.accepted:
-            self.get_logger().error(f"{label} goal rejected")
-            return False
-
-        result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future, timeout_sec=self.action_timeout_s)
-        if not result_future.done():
-            self.get_logger().error(f"{label} result timeout")
-            return False
-
-        wrapped_result = result_future.result()
-        if wrapped_result is None:
-            self.get_logger().error(f"{label} result is empty")
-            return False
-
-        result = wrapped_result.result
-        success = bool(getattr(result, "success", False))
-        message = str(getattr(result, "message", ""))
-        if success:
-            self.get_logger().info(f"{label} completed: {message}")
-        else:
-            self.get_logger().error(f"{label} failed: {message}")
-        return success
 
 
 def main() -> int:
