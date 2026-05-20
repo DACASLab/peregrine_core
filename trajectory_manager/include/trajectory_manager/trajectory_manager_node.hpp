@@ -122,6 +122,7 @@ private:
   /**
    * @brief Stores latest estimated state and initializes hold mode when needed.
    */
+  void stopPublishing();
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
 
   /**
@@ -203,6 +204,8 @@ private:
   std::unique_ptr<TrajectoryGeneratorBase> holdGenerator_;
   /// Active trajectory generator owned by current goal.
   std::unique_ptr<TrajectoryGeneratorBase> activeGenerator_;
+  /// Generator validated in onExecuteGoal(), consumed by onExecuteAccepted().
+  std::unique_ptr<TrajectoryGeneratorBase> pendingGenerator_;
   /// Type of goal currently driving `activeGenerator_`.
   ActiveGoalType activeGoalType_{ActiveGoalType::None};
   /// Active GoTo goal handle, if any.
@@ -220,8 +223,6 @@ private:
   double statusRateHz_{10.0};
   /// Maximum accepted estimated_state age before unhealthy status.
   double stateTimeoutS_{0.5};
-  /// Configure-time wait bound for upstream topic discovery.
-  double dependencyStartupTimeoutS_{2.0};
 
   /// True once configure has successfully allocated runtime resources.
   bool configured_{false};

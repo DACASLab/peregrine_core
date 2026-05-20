@@ -24,6 +24,7 @@
 #include <rclcpp/time.hpp>
 
 #include <string>
+#include <utility>
 
 namespace trajectory_manager
 {
@@ -51,19 +52,17 @@ struct TrajectorySample
 class TrajectoryGeneratorBase
 {
 public:
+  explicit TrajectoryGeneratorBase(std::string name) : name_(std::move(name)) {}
   virtual ~TrajectoryGeneratorBase() = default;
 
-  /**
-   * @brief Returns a short identifier for the active generator.
-   */
-  virtual std::string name() const = 0;
+  const std::string & name() const { return name_; }
 
-  /**
-   * @brief Samples the trajectory at the given time.
-   */
   virtual TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) = 0;
+
+private:
+  std::string name_;
 };
 
 }  // namespace trajectory_manager

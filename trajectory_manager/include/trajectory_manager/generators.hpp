@@ -25,8 +25,6 @@
 
 #include <geometry_msgs/msg/point.hpp>
 
-#include <cstdint>
-
 namespace trajectory_manager
 {
 
@@ -52,7 +50,6 @@ public:
    */
   HoldPositionGenerator(const geometry_msgs::msg::Point & position, double yaw);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -77,7 +74,6 @@ public:
     double climbVelocityMps,
     const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -106,7 +102,6 @@ public:
     const geometry_msgs::msg::Point & targetPosition,
     double targetYaw, double velocityMps, double acceptanceRadiusM, const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -137,7 +132,6 @@ public:
     double angularVelocityRadps,
     double numLoops, const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -166,7 +160,6 @@ public:
     double angularVelocityRadps,
     double numLoops, const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -208,7 +201,6 @@ public:
     double postStepHoldS,
     const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;
@@ -237,7 +229,6 @@ public:
     const peregrine_interfaces::msg::State & startState, double descentVelocityMps,
     const rclcpp::Time & startTime);
 
-  std::string name() const override;
   TrajectorySample sample(
     const peregrine_interfaces::msg::State & currentState,
     const rclcpp::Time & now) override;

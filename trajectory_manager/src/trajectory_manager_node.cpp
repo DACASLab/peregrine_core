@@ -7,7 +7,6 @@
 #include <cmath>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>
 
 namespace trajectory_manager
@@ -28,7 +27,6 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
   publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 50.0);
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
-  dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
 
   if (autoStart_) {
@@ -61,29 +59,10 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
-    dependencyStartupTimeoutS_ <= 0.0)
-  {
+  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0) {
     RCLCPP_ERROR(
       this->get_logger(),
-      "publish_rate_hz, status_rate_hz, state_timeout_s, and dependency_startup_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  // Deterministic startup gate: trajectory generation requires estimated_state input.
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(100ms);
-  }
-
-  if (this->get_publishers_info_by_topic("estimated_state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure trajectory_manager: upstream topic 'estimated_state' not available");
+      "publish_rate_hz, status_rate_hz, and state_timeout_s must be > 0");
     return CallbackReturn::FAILURE;
   }
 
@@ -145,12 +124,17 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   {
     std::scoped_lock lock(mutex_);
     latestState_.reset();
-    holdGenerator_.reset();
+    geometry_msgs::msg::Point origin;
+    origin.x = 0.0;
+    origin.y = 0.0;
+    origin.z = 0.0;
+    holdGenerator_ = std::make_unique<HoldPositionGenerator>(origin, 0.0);
     activeGenerator_.reset();
+    pendingGenerator_.reset();
     activeGoalType_ = ActiveGoalType::None;
     activeGoToGoal_.reset();
     activeExecuteGoal_.reset();
-    activeModuleName_ = "hold_position";
+    activeModuleName_ = holdGenerator_->name();
     lastStateTime_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
@@ -183,21 +167,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_activate(
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_deactivate(
   const rclcpp_lifecycle::State &)
 {
-  active_ = false;
-
-  if (publishTimer_) {
-    publishTimer_->cancel();
-  }
-  if (statusTimer_) {
-    statusTimer_->cancel();
-  }
-
-  if (trajectorySetpointPub_) {
-    trajectorySetpointPub_->on_deactivate();
-  }
-  if (statusPub_) {
-    statusPub_->on_deactivate();
-  }
+  stopPublishing();
 
   std::shared_ptr<GoalHandleGoTo> goToAbort;
   std::shared_ptr<GoalHandleExecuteTrajectory> executeAbort;
@@ -248,6 +218,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_cleanup(
     latestState_.reset();
     holdGenerator_.reset();
     activeGenerator_.reset();
+    pendingGenerator_.reset();
     activeGoalType_ = ActiveGoalType::None;
     activeGoToGoal_.reset();
     activeExecuteGoal_.reset();
@@ -270,6 +241,13 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_shutdown(
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_error(
   const rclcpp_lifecycle::State &)
 {
+  stopPublishing();
+  RCLCPP_ERROR(this->get_logger(), "Error in trajectory_manager lifecycle; timers canceled");
+  return CallbackReturn::SUCCESS;
+}
+
+void TrajectoryManagerNode::stopPublishing()
+{
   active_ = false;
   if (publishTimer_) {
     publishTimer_->cancel();
@@ -283,8 +261,6 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_error(
   if (statusPub_) {
     statusPub_->on_deactivate();
   }
-  RCLCPP_ERROR(this->get_logger(), "Error in trajectory_manager lifecycle; timers canceled");
-  return CallbackReturn::SUCCESS;
 }
 
 void TrajectoryManagerNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
@@ -331,8 +307,9 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
     return;
   }
 
-  // Goal handle copies are staged here so that succeed()/canceled() can be called OUTSIDE
-  // the lock. See the comment near the end of this function for the deadlock rationale.
+  // Phase 1: Sample under lock — copy state, run generator, detect cancel/completion.
+  // Phase 2: Publish setpoint and feedback outside lock.
+  // Phase 3: Resolve goal handles outside lock (avoids deadlock with action server callbacks).
   std::shared_ptr<GoalHandleGoTo> goToGoalToSucceed;
   std::shared_ptr<GoalHandleGoTo> goToGoalToCancel;
   std::shared_ptr<GoalHandleExecuteTrajectory> executeGoalToSucceed;
@@ -340,8 +317,13 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
   std::shared_ptr<GoTo::Result> goToResult;
   std::shared_ptr<ExecuteTrajectory::Result> executeResult;
 
+  std::shared_ptr<GoalHandleGoTo> goToFeedbackHandle;
+  std::shared_ptr<GoalHandleExecuteTrajectory> executeFeedbackHandle;
+  TrajectorySample sample;
+
   peregrine_interfaces::msg::TrajectorySetpoint setpoint;
   const auto now = this->now();
+  bool haveSample = false;
 
   {
     std::scoped_lock lock(mutex_);
@@ -349,14 +331,11 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
       return;
     }
 
-    // Lazily initialize hold generator once state is available.
     if (!holdGenerator_) {
       holdGenerator_ = std::make_unique<HoldPositionGenerator>(*latestState_);
     }
 
-    TrajectorySample sample;
     if (activeGenerator_) {
-      // Cancellation is handled here so state switch and result reason are serialized.
       if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_ &&
         activeGoToGoal_->is_canceling())
       {
@@ -378,22 +357,17 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
     }
 
     if (activeGenerator_) {
-      // Active goal path: sample trajectory, emit feedback, and detect completion.
       sample = activeGenerator_->sample(*latestState_, now);
       setpoint = sample.setpoint;
+      haveSample = true;
 
       if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
-        auto feedback = std::make_shared<GoTo::Feedback>();
-        feedback->distance_remaining_m = sample.distanceRemaining;
-        activeGoToGoal_->publish_feedback(feedback);
+        goToFeedbackHandle = activeGoToGoal_;
       } else if (activeGoalType_ == ActiveGoalType::ExecuteTrajectory && activeExecuteGoal_) {
-        auto feedback = std::make_shared<ExecuteTrajectory::Feedback>();
-        feedback->progress = sample.progress;
-        activeExecuteGoal_->publish_feedback(feedback);
+        executeFeedbackHandle = activeExecuteGoal_;
       }
 
       if (sample.completed) {
-        // Latch terminal result first, then switch back to hold generator.
         if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
           goToGoalToSucceed = activeGoToGoal_;
           goToResult = std::make_shared<GoTo::Result>();
@@ -408,7 +382,6 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
         }
 
         const double holdYaw = sample.setpoint.yaw;
-        // Freeze final setpoint as new hold reference for smooth post-goal behavior.
         holdGenerator_ = std::make_unique<HoldPositionGenerator>(sample.setpoint.position, holdYaw);
         activeGenerator_.reset();
         activeGoalType_ = ActiveGoalType::None;
@@ -417,24 +390,29 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
         activeModuleName_ = holdGenerator_->name();
       }
     } else {
-      // Idle path: keep publishing hold setpoints.
       sample = holdGenerator_->sample(*latestState_, now);
       setpoint = sample.setpoint;
       activeModuleName_ = holdGenerator_->name();
     }
   }
 
+  // Phase 2: publish setpoint and feedback outside the lock.
   setpoint.header.stamp = now;
   setpoint.header.frame_id = odomFrame_;
-  // Timestamp and frame_id normalized at publish time so downstream controller sees
-  // consistent cadence and frame metadata.
   trajectorySetpointPub_->publish(setpoint);
 
-  // Goal results (succeed/canceled) are resolved OUTSIDE the lock. Calling
-  // goalHandle->succeed() or goalHandle->canceled() may synchronously invoke the action
-  // server's goal or cancel callbacks (onGoToGoal, onGoToCancel, etc.), which themselves
-  // acquire mutex_. If we called succeed() while holding the lock, the re-entrant lock
-  // attempt would deadlock (std::mutex is non-recursive).
+  if (haveSample && goToFeedbackHandle) {
+    auto feedback = std::make_shared<GoTo::Feedback>();
+    feedback->distance_remaining_m = sample.distanceRemaining;
+    goToFeedbackHandle->publish_feedback(feedback);
+  } else if (haveSample && executeFeedbackHandle) {
+    auto feedback = std::make_shared<ExecuteTrajectory::Feedback>();
+    feedback->progress = sample.progress;
+    executeFeedbackHandle->publish_feedback(feedback);
+  }
+
+  // Phase 3: resolve goal handles outside the lock. Calling succeed()/canceled() may
+  // synchronously invoke action server callbacks that acquire mutex_.
   if (goToGoalToCancel && goToResult) {
     goToGoalToCancel->canceled(goToResult);
   }
@@ -548,7 +526,6 @@ rclcpp_action::GoalResponse TrajectoryManagerNode::onExecuteGoal(
   const std::shared_ptr<const ExecuteTrajectory::Goal> goal)
 {
   std::scoped_lock lock(mutex_);
-  // Single-goal policy: reject when another generator already owns execution.
   if (!active_) {
     return rclcpp_action::GoalResponse::REJECT;
   }
@@ -556,12 +533,12 @@ rclcpp_action::GoalResponse TrajectoryManagerNode::onExecuteGoal(
     return rclcpp_action::GoalResponse::REJECT;
   }
 
-  const auto generator = createGeneratorForExecuteGoal(*goal, *latestState_, this->now());
+  auto generator = createGeneratorForExecuteGoal(*goal, *latestState_, this->now());
   if (!generator) {
-    // Validation in goal callback provides early reject for malformed params.
     return rclcpp_action::GoalResponse::REJECT;
   }
 
+  pendingGenerator_ = std::move(generator);
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -579,28 +556,16 @@ void TrajectoryManagerNode::onExecuteAccepted(
   const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle)
 {
   std::scoped_lock lock(mutex_);
-  if (!active_ || !latestState_.has_value()) {
+  if (!active_ || !latestState_.has_value() || !pendingGenerator_) {
     auto result = std::make_shared<ExecuteTrajectory::Result>();
     result->success = false;
-    result->message = "MISSING_ESTIMATED_STATE";
+    result->message = pendingGenerator_ ? "MISSING_ESTIMATED_STATE" : "NO_PENDING_GENERATOR";
+    pendingGenerator_.reset();
     goalHandle->abort(result);
     return;
   }
 
-  auto generator =
-    createGeneratorForExecuteGoal(*goalHandle->get_goal(), *latestState_, this->now());
-  if (!generator) {
-    auto result = std::make_shared<ExecuteTrajectory::Result>();
-    result->success = false;
-    result->message = "INVALID_GOAL";
-    goalHandle->abort(result);
-    return;
-  }
-
-  activeGenerator_ = std::move(generator);
-  // Ownership transfer marks this goal as the sole setpoint producer.
-  // `std::move` converts `generator` into an rvalue so unique_ptr ownership can be
-  // transferred. After move, `generator` is empty (nullptr by convention).
+  activeGenerator_ = std::move(pendingGenerator_);
   activeGoalType_ = ActiveGoalType::ExecuteTrajectory;
   activeExecuteGoal_ = goalHandle;
   activeGoToGoal_.reset();

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace trajectory_manager
 {
@@ -31,6 +30,11 @@ double norm2d(const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Poi
   const double dy = a.y - b.y;
   return std::hypot(dx, dy);
 }
+
+// Completion requires both time progress AND position proximity. Time-only completion
+// can report "done" while the vehicle is meters off-path due to wind or tracking lag.
+constexpr double kCurvedCompletionRadiusM = 0.5;
+constexpr double kStepCompletionRadiusM = 0.3;
 
 // 3D distance used by go-to and hold generators where all three axes matter for
 // proximity detection and acceptance radius checks.
@@ -79,7 +83,8 @@ double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q)
 }
 
 HoldPositionGenerator::HoldPositionGenerator(const peregrine_interfaces::msg::State & referenceState)
-: holdPosition_(referenceState.pose.pose.position),
+: TrajectoryGeneratorBase("hold_position"),
+  holdPosition_(referenceState.pose.pose.position),
   holdYaw_(yawFromQuaternion(referenceState.pose.pose.orientation))
 {
 }
@@ -87,13 +92,9 @@ HoldPositionGenerator::HoldPositionGenerator(const peregrine_interfaces::msg::St
 HoldPositionGenerator::HoldPositionGenerator(
   const geometry_msgs::msg::Point & position,
   const double yaw)
-: holdPosition_(position), holdYaw_(yaw)
+: TrajectoryGeneratorBase("hold_position"),
+  holdPosition_(position), holdYaw_(yaw)
 {
-}
-
-std::string HoldPositionGenerator::name() const
-{
-  return "hold_position";
 }
 
 TrajectorySample HoldPositionGenerator::sample(
@@ -118,18 +119,14 @@ TrajectorySample HoldPositionGenerator::sample(
 TakeoffGenerator::TakeoffGenerator(
   const peregrine_interfaces::msg::State & startState, const double targetAltitudeM,
   const double climbVelocityMps, const rclcpp::Time & startTime)
-: startPosition_(startState.pose.pose.position),
+: TrajectoryGeneratorBase("takeoff"),
+  startPosition_(startState.pose.pose.position),
   startYaw_(yawFromQuaternion(startState.pose.pose.orientation)),
   startAltitude_(startState.pose.pose.position.z),
   targetAltitude_(targetAltitudeM),
   climbVelocity_(std::max(0.1, std::abs(climbVelocityMps))),
   startTime_(startTime)
 {
-}
-
-std::string TakeoffGenerator::name() const
-{
-  return "takeoff";
 }
 
 TrajectorySample TakeoffGenerator::sample(
@@ -167,7 +164,8 @@ LinearGoToGenerator::LinearGoToGenerator(
   const geometry_msgs::msg::Point & targetPosition, const double targetYaw,
   const double velocityMps, const double acceptanceRadiusM,
   const rclcpp::Time & startTime)
-: startPosition_(startState.pose.pose.position),
+: TrajectoryGeneratorBase("linear_goto"),
+  startPosition_(startState.pose.pose.position),
   targetPosition_(targetPosition),
   targetYaw_(targetYaw),
   velocity_(std::max(0.1, std::abs(velocityMps))),
@@ -176,11 +174,6 @@ LinearGoToGenerator::LinearGoToGenerator(
   totalDurationS_((totalDistance_ > 1e-6) ? (totalDistance_ / velocity_) : 0.0),
   startTime_(startTime)
 {
-}
-
-std::string LinearGoToGenerator::name() const
-{
-  return "linear_goto";
 }
 
 TrajectorySample LinearGoToGenerator::sample(
@@ -219,7 +212,8 @@ TrajectorySample LinearGoToGenerator::sample(
 CircleGenerator::CircleGenerator(
   const peregrine_interfaces::msg::State & startState, const double radiusM,
   const double angularVelocityRadps, const double numLoops, const rclcpp::Time & startTime)
-: radius_(std::max(0.1, std::abs(radiusM))),
+: TrajectoryGeneratorBase("circle"),
+  radius_(std::max(0.1, std::abs(radiusM))),
   angularVelocity_((std::abs(angularVelocityRadps) > 1e-6) ? angularVelocityRadps : 0.5),
   loops_(std::max(0.1, std::abs(numLoops))),
   altitude_(startState.pose.pose.position.z),
@@ -229,11 +223,6 @@ CircleGenerator::CircleGenerator(
   center_.x = startState.pose.pose.position.x - radius_;
   center_.y = startState.pose.pose.position.y;
   center_.z = altitude_;
-}
-
-std::string CircleGenerator::name() const
-{
-  return "circle";
 }
 
 TrajectorySample CircleGenerator::sample(
@@ -269,7 +258,8 @@ TrajectorySample CircleGenerator::sample(
   const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
   sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
   sample.progress = static_cast<float>(thetaProgress);
-  sample.completed = thetaProgress >= 1.0;
+  sample.completed =
+    thetaProgress >= 1.0 && sample.distanceRemaining <= kCurvedCompletionRadiusM;
   return sample;
 }
 
@@ -282,18 +272,14 @@ FigureEightGenerator::FigureEightGenerator(
   const peregrine_interfaces::msg::State & startState, const double radiusM,
   const double angularVelocityRadps, const double numLoops,
   const rclcpp::Time & startTime)
-: center_(startState.pose.pose.position),
+: TrajectoryGeneratorBase("figure8"),
+  center_(startState.pose.pose.position),
   radius_(std::max(0.1, std::abs(radiusM))),
   angularVelocity_((std::abs(angularVelocityRadps) > 1e-6) ? angularVelocityRadps : 0.5),
   loops_(std::max(0.1, std::abs(numLoops))),
   altitude_(startState.pose.pose.position.z),
   startTime_(startTime)
 {
-}
-
-std::string FigureEightGenerator::name() const
-{
-  return "figure8";
 }
 
 TrajectorySample FigureEightGenerator::sample(
@@ -344,7 +330,8 @@ TrajectorySample FigureEightGenerator::sample(
   const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
   sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
   sample.progress = static_cast<float>(thetaProgress);
-  sample.completed = thetaProgress >= 1.0;
+  sample.completed =
+    thetaProgress >= 1.0 && sample.distanceRemaining <= kCurvedCompletionRadiusM;
   return sample;
 }
 
@@ -355,7 +342,8 @@ StepResponseGenerator::StepResponseGenerator(
   const double preStepHoldS,
   const double postStepHoldS,
   const rclcpp::Time & startTime)
-: startPosition_(startState.pose.pose.position),
+: TrajectoryGeneratorBase("step_response"),
+  startPosition_(startState.pose.pose.position),
   targetPosition_(startState.pose.pose.position),
   startYaw_(yawFromQuaternion(startState.pose.pose.orientation)),
   targetYaw_(0.0),
@@ -367,11 +355,6 @@ StepResponseGenerator::StepResponseGenerator(
   targetPosition_.y += stepOffset.y;
   targetPosition_.z += stepOffset.z;
   targetYaw_ = wrapAngle(startYaw_ + yawStepRad);
-}
-
-std::string StepResponseGenerator::name() const
-{
-  return "step_response";
 }
 
 TrajectorySample StepResponseGenerator::sample(
@@ -396,7 +379,9 @@ TrajectorySample StepResponseGenerator::sample(
   }
 
   sample.progress = static_cast<float>(clamp01(elapsedS / std::max(totalDurationS, 1e-6)));
-  sample.completed = elapsedS >= totalDurationS;
+  sample.completed =
+    elapsedS >= totalDurationS &&
+    (!stepApplied || norm3d(currentState.pose.pose.position, targetPosition_) <= kStepCompletionRadiusM);
   return sample;
 }
 
@@ -408,18 +393,14 @@ TrajectorySample StepResponseGenerator::sample(
 LandGenerator::LandGenerator(
   const peregrine_interfaces::msg::State & startState, const double descentVelocityMps,
   const rclcpp::Time & startTime)
-: startPosition_(startState.pose.pose.position),
+: TrajectoryGeneratorBase("land"),
+  startPosition_(startState.pose.pose.position),
   startYaw_(yawFromQuaternion(startState.pose.pose.orientation)),
   startAltitude_(startState.pose.pose.position.z),
   targetAltitude_(0.0),
   descentVelocity_(std::max(0.05, std::abs(descentVelocityMps))),
   startTime_(startTime)
 {
-}
-
-std::string LandGenerator::name() const
-{
-  return "land";
 }
 
 TrajectorySample LandGenerator::sample(
