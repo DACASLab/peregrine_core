@@ -220,8 +220,8 @@ Eigen::Vector3d getVector3Param(
 
 void Se3Controller::configure(rclcpp_lifecycle::LifecycleNode & node, double dt)
 {
-  config_.mass = declareOrGet(node, std::string("se3.mass"), 1.5);
-  config_.gravity = declareOrGet(node, std::string("se3.gravity"), 9.81);
+  config_.mass = declareOrGet(node, std::string("se3.mass"), 2.0643);
+  config_.gravity = 9.81;
   config_.dt = dt;
   config_.k_p = getVector3Param(node, "se3.k_p", {6.0, 6.0, 8.0});
   config_.k_v = getVector3Param(node, "se3.k_v", {4.0, 4.0, 5.0});
@@ -231,7 +231,7 @@ void Se3Controller::configure(rclcpp_lifecycle::LifecycleNode & node, double dt)
   config_.k_Ri = getVector3Param(node, "se3.k_Ri", {0.1, 0.1, 0.05});
   config_.pos_int_limit = getVector3Param(node, "se3.pos_int_limit", {2.0, 2.0, 3.0});
   config_.att_int_limit = getVector3Param(node, "se3.att_int_limit", {0.5, 0.5, 0.3});
-  config_.max_thrust_N = declareOrGet(node, std::string("se3.max_thrust_N"), 29.43);
+  config_.max_thrust_N = declareOrGet(node, std::string("se3.max_thrust_N"), 34.19432);
   reset();
 }
 

@@ -1,10 +1,6 @@
 /**:
   ros__parameters:
-    publish_rate_hz: 250.0
-    status_rate_hz: 5.0
-    state_timeout_s: 0.5
-    auto_start: true
-    controller_type: "control_manager::Px4PassthroughController"
+    controller_type: "control_manager::Se3Controller"
 
     se3:
       mass: 2.0643

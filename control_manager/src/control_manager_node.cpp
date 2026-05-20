@@ -5,7 +5,6 @@
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
-#include <thread>
 
 namespace control_manager
 {
@@ -27,7 +26,6 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
   publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 250.0);
   statusRateHz_ = this->declare_parameter<double>("status_rate_hz", 5.0);
   stateTimeoutS_ = this->declare_parameter<double>("state_timeout_s", 0.5);
-  dependencyStartupTimeoutS_ = this->declare_parameter<double>("dependency_startup_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
   controllerType_ = this->declare_parameter<std::string>(
     "controller_type", "control_manager::Px4PassthroughController");
@@ -65,29 +63,10 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_configure(const rclcpp
   // (e.g., set_parameters service called while the node was inactive).
   controllerType_ = this->get_parameter("controller_type").as_string();
 
-  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0 ||
-    dependencyStartupTimeoutS_ <= 0.0)
-  {
+  if (publishRateHz_ <= 0.0 || statusRateHz_ <= 0.0 || stateTimeoutS_ <= 0.0) {
     RCLCPP_ERROR(
       this->get_logger(),
-      "publish_rate_hz, status_rate_hz, state_timeout_s, and dependency_startup_timeout_s must be > 0");
-    return CallbackReturn::FAILURE;
-  }
-
-  const auto startupDeadline = this->now() +
-    rclcpp::Duration::from_seconds(dependencyStartupTimeoutS_);
-  // Deterministic startup gate: control_manager depends on estimated_state availability.
-  while (this->now() < startupDeadline) {
-    if (!this->get_publishers_info_by_topic("estimated_state").empty()) {
-      break;
-    }
-    std::this_thread::sleep_for(100ms);
-  }
-
-  if (this->get_publishers_info_by_topic("estimated_state").empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Cannot configure control_manager: upstream topic 'estimated_state' not available");
+      "publish_rate_hz, status_rate_hz, and state_timeout_s must be > 0");
     return CallbackReturn::FAILURE;
   }
 
@@ -160,23 +139,10 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_activate(const rclcpp_
 ControlManagerNode::CallbackReturn ControlManagerNode::on_deactivate(
   const rclcpp_lifecycle::State &)
 {
-  active_ = false;
+  stopPublishing();
   if (controller_) {
     controller_->reset();
   }
-  if (publishTimer_) {
-    publishTimer_->cancel();
-  }
-  if (statusTimer_) {
-    statusTimer_->cancel();
-  }
-  if (controlOutputPub_) {
-    controlOutputPub_->on_deactivate();
-  }
-  if (statusPub_) {
-    statusPub_->on_deactivate();
-  }
-
   RCLCPP_INFO(this->get_logger(), "Deactivated control_manager");
   return CallbackReturn::SUCCESS;
 }
@@ -194,12 +160,9 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_cleanup(const rclcpp_l
   controlOutputPub_.reset();
   statusPub_.reset();
 
-  {
-    std::scoped_lock lock(dataMutex_);
-    latestState_.reset();
-    latestSetpoint_.reset();
-    lastStateTime_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-  }
+  std::atomic_store(&cachedState_, std::shared_ptr<const CachedState>{});
+  std::atomic_store(&cachedSetpoint_,
+    std::shared_ptr<const peregrine_interfaces::msg::TrajectorySetpoint>{});
 
   controller_.reset();
   RCLCPP_INFO(this->get_logger(), "Cleaned up control_manager");
@@ -215,6 +178,13 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_shutdown(const rclcpp_
 
 ControlManagerNode::CallbackReturn ControlManagerNode::on_error(const rclcpp_lifecycle::State &)
 {
+  stopPublishing();
+  RCLCPP_ERROR(this->get_logger(), "Error in control_manager lifecycle; timers canceled");
+  return CallbackReturn::SUCCESS;
+}
+
+void ControlManagerNode::stopPublishing()
+{
   active_ = false;
   if (publishTimer_) {
     publishTimer_->cancel();
@@ -228,9 +198,6 @@ ControlManagerNode::CallbackReturn ControlManagerNode::on_error(const rclcpp_lif
   if (statusPub_) {
     statusPub_->on_deactivate();
   }
-
-  RCLCPP_ERROR(this->get_logger(), "Error in control_manager lifecycle; timers canceled");
-  return CallbackReturn::SUCCESS;
 }
 
 void ControlManagerNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
@@ -239,30 +206,35 @@ void ControlManagerNode::onEstimatedState(const peregrine_interfaces::msg::State
     return;
   }
 
-  std::scoped_lock lock(dataMutex_);
-  latestState_ = *msg;
-  // Normalize freshness time even when source timestamp is unset.
+  auto snap = std::make_shared<CachedState>();
+  snap->state = *msg;
+
   if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
-    lastStateTime_ = this->now();
+    snap->receiveTime = this->now();
   } else {
-    lastStateTime_ = rclcpp::Time(msg->header.stamp);
+    snap->receiveTime = rclcpp::Time(msg->header.stamp);
   }
 
-  // Capture frame names from upstream estimated_state.
+  auto prev = std::atomic_load(&cachedState_);
+  std::string prevOdom = prev ? prev->odomFrame : "odom";
   if (!msg->header.frame_id.empty()) {
-    if (odomFrame_ != "odom" && msg->header.frame_id != odomFrame_) {
+    if (prevOdom != "odom" && msg->header.frame_id != prevOdom) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000,
         "estimated_state frame_id changed: '%s' -> '%s'",
-        odomFrame_.c_str(), msg->header.frame_id.c_str());
+        prevOdom.c_str(), msg->header.frame_id.c_str());
     }
-    odomFrame_ = msg->header.frame_id;
-    // Derive baseLinkFrame_ from odomFrame_: "uav1/odom" -> "uav1/base_link".
-    const auto pos = odomFrame_.rfind("odom");
+    snap->odomFrame = msg->header.frame_id;
+    const auto pos = snap->odomFrame.rfind("odom");
     if (pos != std::string::npos) {
-      baseLinkFrame_ = odomFrame_.substr(0, pos) + "base_link";
+      snap->baseLinkFrame = snap->odomFrame.substr(0, pos) + "base_link";
     }
+  } else if (prev) {
+    snap->odomFrame = prev->odomFrame;
+    snap->baseLinkFrame = prev->baseLinkFrame;
   }
+
+  std::atomic_store(&cachedState_, std::shared_ptr<const CachedState>(std::move(snap)));
 }
 
 void ControlManagerNode::onTrajectorySetpoint(
@@ -272,54 +244,40 @@ void ControlManagerNode::onTrajectorySetpoint(
     return;
   }
 
-  std::scoped_lock lock(dataMutex_);
+  auto stateSnap = std::atomic_load(&cachedState_);
+  const std::string & odom = stateSnap ? stateSnap->odomFrame : "odom";
+  const std::string & baseLink = stateSnap ? stateSnap->baseLinkFrame : "base_link";
 
-  // Validate setpoint frame_id: must be odom (world-frame) or base_link (body-frame).
   if (!msg->header.frame_id.empty() &&
-    msg->header.frame_id != odomFrame_ &&
-    msg->header.frame_id != baseLinkFrame_)
+    msg->header.frame_id != odom &&
+    msg->header.frame_id != baseLink)
   {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 5000,
       "trajectory_setpoint has unexpected frame_id '%s' (expected '%s' or '%s')",
-      msg->header.frame_id.c_str(), odomFrame_.c_str(), baseLinkFrame_.c_str());
+      msg->header.frame_id.c_str(), odom.c_str(), baseLink.c_str());
   }
 
-  // Last-writer-wins policy: newest setpoint drives the next control tick.
-  latestSetpoint_ = *msg;
+  std::atomic_store(&cachedSetpoint_,
+    std::make_shared<const peregrine_interfaces::msg::TrajectorySetpoint>(*msg));
 }
 
-/// Shared state is copied under the mutex so the controller runs lock-free,
-/// keeping subscription callbacks and the timer thread decoupled.
 void ControlManagerNode::publishControlOutput()
 {
   if (!active_ || !controller_ || !controlOutputPub_ || !controlOutputPub_->is_activated()) {
     return;
   }
 
-  // Copy shared data under lock, then run controller logic lock-free.
-  std::optional<peregrine_interfaces::msg::State> state;
-  std::optional<peregrine_interfaces::msg::TrajectorySetpoint> setpoint;
-  {
-    std::scoped_lock lock(dataMutex_);
-    state = latestState_;
-    setpoint = latestSetpoint_;
-  }
-
-  if (!state.has_value()) {
-    // Controller is strictly state-driven; never emit open-loop output without state.
+  auto stateSnap = std::atomic_load(&cachedState_);
+  if (!stateSnap) {
     return;
   }
 
-  // When trajectory_manager hasn't sent any setpoint yet (e.g. during initial hover),
-  // we synthesize a hold-at-current-position setpoint. This ensures the PX4 offboard
-  // setpoint stream never goes stale -- PX4 will exit offboard mode if setpoints stop
-  // arriving for more than ~500ms.
-  auto activeSetpoint = setpoint.has_value() ? *setpoint : makeHoldSetpoint(*state);
+  auto setpointSnap = std::atomic_load(&cachedSetpoint_);
+  auto activeSetpoint = setpointSnap ? *setpointSnap : makeHoldSetpoint(stateSnap->state);
 
-  // If setpoint is in body frame, rotate velocity/acceleration to odom frame.
-  if (activeSetpoint.header.frame_id == baseLinkFrame_) {
-    const auto & q = state->pose.pose.orientation;
+  if (activeSetpoint.header.frame_id == stateSnap->baseLinkFrame) {
+    const auto & q = stateSnap->state.pose.pose.orientation;
     const Eigen::Quaterniond orientation(q.w, q.x, q.y, q.z);
 
     if (activeSetpoint.use_velocity) {
@@ -348,22 +306,19 @@ void ControlManagerNode::publishControlOutput()
       activeSetpoint.use_position = false;
     }
 
-    // After rotation, setpoint is now in odom frame.
-    activeSetpoint.header.frame_id = odomFrame_;
+    activeSetpoint.header.frame_id = stateSnap->odomFrame;
   }
 
-  // Controller backend is pure; all ROS side-effects happen only around this call.
-  auto output = controller_->compute(*state, activeSetpoint);
+  auto output = controller_->compute(stateSnap->state, activeSetpoint);
   output.header.stamp = this->now();
 
-  // Set frame_id based on control mode.
   switch (output.control_mode) {
     case peregrine_interfaces::msg::ControlOutput::MODE_TRAJECTORY:
     case peregrine_interfaces::msg::ControlOutput::MODE_ATTITUDE:
-      output.header.frame_id = odomFrame_;
+      output.header.frame_id = stateSnap->odomFrame;
       break;
     case peregrine_interfaces::msg::ControlOutput::MODE_BODY_RATE:
-      output.header.frame_id = baseLinkFrame_;
+      output.header.frame_id = stateSnap->baseLinkFrame;
       break;
     case peregrine_interfaces::msg::ControlOutput::MODE_DIRECT_ACTUATOR:
     default:
@@ -371,7 +326,6 @@ void ControlManagerNode::publishControlOutput()
       break;
   }
 
-  // One output per timer tick keeps command cadence deterministic.
   controlOutputPub_->publish(output);
 }
 
@@ -394,14 +348,12 @@ void ControlManagerNode::publishStatus()
     status.healthy = false;
     status.message = "LIFECYCLE_INACTIVE";
   } else {
-    std::scoped_lock lock(dataMutex_);
-    if (!latestState_.has_value()) {
-      // Active but waiting for first estimator sample.
+    auto stateSnap = std::atomic_load(&cachedState_);
+    if (!stateSnap) {
       status.healthy = false;
       status.message = "WAITING_FOR_ESTIMATED_STATE";
     } else {
-      // Freshness check guards against stale estimator output.
-      const double ageS = (this->now() - lastStateTime_).seconds();
+      const double ageS = (this->now() - stateSnap->receiveTime).seconds();
       status.healthy = ageS <= stateTimeoutS_;
       status.message = status.healthy ? "OK" : "ESTIMATED_STATE_STALE";
     }
