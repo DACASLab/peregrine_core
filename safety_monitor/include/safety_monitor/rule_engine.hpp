@@ -30,6 +30,12 @@ struct RuleState
   std::chrono::steady_clock::time_point firstTriggered;
   std::chrono::steady_clock::time_point lastHealthy;
   bool graceExpired{false};
+
+  void update(
+    const CheckResult & checkResult,
+    const RuleConfig & ruleConfig,
+    double healthyAutoClearS,
+    std::chrono::steady_clock::time_point now);
 };
 
 class RuleEngine

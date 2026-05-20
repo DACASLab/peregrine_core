@@ -1,9 +1,51 @@
 #include <safety_monitor/rule_engine.hpp>
 
-#include <algorithm>
-
 namespace safety_monitor
 {
+
+void RuleState::update(
+  const CheckResult & checkResult,
+  const RuleConfig & ruleConfig,
+  double healthyAutoClearS,
+  std::chrono::steady_clock::time_point now)
+{
+  if (checkResult.level == SafetyLevel::Nominal) {
+    if (level != SafetyLevel::Nominal) {
+      if (lastHealthy == std::chrono::steady_clock::time_point{}) {
+        lastHealthy = now;
+      }
+      const auto healthyDuration = std::chrono::duration<double>(now - lastHealthy).count();
+      if (healthyDuration >= healthyAutoClearS) {
+        level = SafetyLevel::Nominal;
+        reason.clear();
+        graceExpired = false;
+      }
+    }
+    return;
+  }
+
+  lastHealthy = {};
+
+  if (level == SafetyLevel::Nominal) {
+    firstTriggered = now;
+    graceExpired = false;
+  }
+
+  const auto elapsed = std::chrono::duration<double>(now - firstTriggered).count();
+
+  if (checkResult.level >= SafetyLevel::Critical) {
+    if (elapsed >= ruleConfig.critical_grace_s) {
+      graceExpired = true;
+    }
+  } else if (checkResult.level >= SafetyLevel::Warning) {
+    if (elapsed >= ruleConfig.warn_grace_s) {
+      graceExpired = true;
+    }
+  }
+
+  level = checkResult.level;
+  reason = checkResult.reason;
+}
 
 RuleEngine::RuleEngine(RuleEngineConfig config)
 : config_(config)
@@ -35,49 +77,10 @@ RuleEngine::EvaluationResult RuleEngine::evaluateDetailed(
     }
 
     const auto checkResult = rule.checker->check(ctx);
-    const auto checkerName = rule.checker->name();
+    auto & state = ruleStates_[rule.checker->name()];
 
-    auto & state = ruleStates_[checkerName];
+    state.update(checkResult, rule.config, config_.healthy_auto_clear_s, now);
 
-    if (checkResult.level == SafetyLevel::Nominal) {
-      // Check auto-clear: sustained healthy for healthy_auto_clear_s
-      if (state.level != SafetyLevel::Nominal) {
-        if (state.lastHealthy == std::chrono::steady_clock::time_point{}) {
-          state.lastHealthy = now;
-        }
-        const auto healthyDuration = std::chrono::duration<double>(now - state.lastHealthy).count();
-        if (healthyDuration >= config_.healthy_auto_clear_s) {
-          state.level = SafetyLevel::Nominal;
-          state.reason.clear();
-          state.graceExpired = false;
-        }
-      }
-    } else {
-      state.lastHealthy = {};  // Reset healthy timer
-
-      if (state.level == SafetyLevel::Nominal) {
-        // First trigger
-        state.firstTriggered = now;
-        state.graceExpired = false;
-      }
-
-      const auto elapsed = std::chrono::duration<double>(now - state.firstTriggered).count();
-
-      if (checkResult.level >= SafetyLevel::Critical) {
-        if (elapsed >= rule.config.critical_grace_s) {
-          state.graceExpired = true;
-        }
-      } else if (checkResult.level >= SafetyLevel::Warning) {
-        if (elapsed >= rule.config.warn_grace_s) {
-          state.graceExpired = true;
-        }
-      }
-
-      state.level = checkResult.level;
-      state.reason = checkResult.reason;
-    }
-
-    // Report the current level (grace only affects action trigger, not reporting)
     CheckResult reportedResult;
     reportedResult.level = state.level;
     reportedResult.reason = checkResult.reason;

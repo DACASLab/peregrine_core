@@ -32,12 +32,6 @@ SafetyMonitorNode::SafetyMonitorNode(const rclcpp::NodeOptions & options)
   commandLandEnabled_ = this->declare_parameter<bool>("command_land_enabled", true);
   gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps.freshness_timeout_s", 2.0);
   autoStart_ = this->declare_parameter<bool>("auto_start", true);
-  batteryTopic_ = this->declare_parameter<std::string>("battery_topic", "battery");
-  gpsStatusTopic_ = this->declare_parameter<std::string>("gps_status_topic", "gps_status");
-  estimatedStateTopic_ =
-    this->declare_parameter<std::string>("estimated_state_topic", "estimated_state");
-  px4StatusTopic_ = this->declare_parameter<std::string>("px4_status_topic", "status");
-  mapFrame_ = this->declare_parameter<std::string>("map_frame", "map");
 
   // Battery checker params
   this->declare_parameter<bool>("battery.enabled", true);
@@ -177,14 +171,14 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
   // Subscriptions
   const auto qos = rclcpp::QoS(20).reliable();
   batterySub_ = this->create_subscription<sensor_msgs::msg::BatteryState>(
-    batteryTopic_, qos, [this](sensor_msgs::msg::BatteryState::SharedPtr msg) { onBattery(msg); });
+    "battery", qos, [this](sensor_msgs::msg::BatteryState::SharedPtr msg) { onBattery(msg); });
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-    gpsStatusTopic_, qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
+    "gps_status", qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
-    estimatedStateTopic_, qos,
+    "estimated_state", qos,
     [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
-    px4StatusTopic_, rclcpp::QoS(10).reliable(),
+    "status", rclcpp::QoS(10).reliable(),
     [this](peregrine_interfaces::msg::PX4Status::SharedPtr msg) { onPx4Status(msg); });
 
   // Publisher
@@ -209,10 +203,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
 
   RCLCPP_INFO(
     get_logger(),
-    "Configured safety_monitor (rate=%.1fHz, land_enabled=%s, battery_topic=%s, gps_topic=%s, "
-    "state_topic=%s, px4_topic=%s)",
-    evaluateRateHz_, commandLandEnabled_ ? "true" : "false", batteryTopic_.c_str(),
-    gpsStatusTopic_.c_str(), estimatedStateTopic_.c_str(), px4StatusTopic_.c_str());
+    "Configured safety_monitor (rate=%.1fHz, land_enabled=%s)",
+    evaluateRateHz_, commandLandEnabled_ ? "true" : "false");
   return CallbackReturn::SUCCESS;
 }
 
@@ -322,7 +314,7 @@ void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State:
       geometry_msgs::msg::PointStamped odomPoint;
       odomPoint.header = msg->header;
       odomPoint.point = msg->pose.pose.position;
-      auto mapPoint = tfBuffer_->transform(odomPoint, mapFrame_, tf2::durationFromSec(0.0));
+      auto mapPoint = tfBuffer_->transform(odomPoint, std::string("map"), tf2::durationFromSec(0.0));
       px = mapPoint.point.x;
       py = mapPoint.point.y;
       pz = mapPoint.point.z;
