@@ -136,6 +136,7 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
 {
   // Names, rates, and command IDs are parameterized for single and multi-UAV deployments.
   px4Namespace_ = normalizeNamespace(this->declare_parameter<std::string>("px4_namespace", ""));
+  targetSystemId_ = static_cast<uint8_t>(this->declare_parameter<int>("target_system_id", 1));
   auto framePrefix = this->declare_parameter<std::string>("frame_prefix", "");
   if (!framePrefix.empty()) {
     if (framePrefix.front() == '/') framePrefix.erase(framePrefix.begin());
@@ -810,9 +811,9 @@ px4_msgs::msg::VehicleCommand PX4HardwareAbstraction::makeVehicleCommand(uint32_
   vehicleCommand.command = command;
   vehicleCommand.param1 = param1;
   vehicleCommand.param2 = param2;
-  vehicleCommand.target_system = 1;
+  vehicleCommand.target_system = targetSystemId_;
   vehicleCommand.target_component = 1;
-  vehicleCommand.source_system = 1;
+  vehicleCommand.source_system = targetSystemId_;
   vehicleCommand.source_component = 1;
   vehicleCommand.confirmation = 0;
   vehicleCommand.from_external = true;

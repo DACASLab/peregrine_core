@@ -151,6 +151,8 @@ private:
 
   /// PX4 ROS namespace prefix (e.g. "/uav1"), empty for global topics.
   std::string px4Namespace_;
+  /// MAV_SYS_ID of the PX4 instance this stack commands (instance N → N+1).
+  uint8_t targetSystemId_;
   /// Frame used for published odometry parent.
   std::string odomFrame_;
   /// Frame used for published odometry child.
