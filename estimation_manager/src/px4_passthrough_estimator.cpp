@@ -1,38 +1,32 @@
 #include <estimation_manager/px4_passthrough_estimator.hpp>
 
-#include <utility>
-
 namespace estimation_manager
 {
 
 void Px4PassthroughEstimator::processState(const peregrine_interfaces::msg::State & state)
 {
-  std::scoped_lock lock(mutex_);
-  latestState_ = state;
-  // Tag the output so downstream consumers can identify which estimator produced it.
-  latestState_.source = "estimation_manager/px4_passthrough";
-  hasEstimate_ = true;
-  lastUpdateTime_ = rclcpp::Time(state.header.stamp);
+  auto snap = std::make_shared<StateSnapshot>();
+  snap->state = state;
+  snap->state.source = "estimation_manager/px4_passthrough";
+  snap->updateTime = rclcpp::Time(state.header.stamp);
+  std::atomic_store(&snapshot_, std::shared_ptr<const StateSnapshot>(std::move(snap)));
 }
 
 bool Px4PassthroughEstimator::hasEstimate() const
 {
-  std::scoped_lock lock(mutex_);
-  return hasEstimate_;
+  return std::atomic_load(&snapshot_) != nullptr;
 }
 
-/// Returns a copy taken under lock, ensuring the caller sees a coherent snapshot
-/// even if processState() is writing concurrently on another thread.
 peregrine_interfaces::msg::State Px4PassthroughEstimator::getEstimate() const
 {
-  std::scoped_lock lock(mutex_);
-  return latestState_;
+  auto snap = std::atomic_load(&snapshot_);
+  return snap ? snap->state : peregrine_interfaces::msg::State{};
 }
 
 rclcpp::Time Px4PassthroughEstimator::lastUpdateTime() const
 {
-  std::scoped_lock lock(mutex_);
-  return lastUpdateTime_;
+  auto snap = std::atomic_load(&snapshot_);
+  return snap ? snap->updateTime : rclcpp::Time(0, 0, RCL_ROS_TIME);
 }
 
 }  // namespace estimation_manager

@@ -90,6 +90,7 @@ private:
   /**
    * @brief Handles incoming state messages from hardware_abstraction.
    */
+  void stopPublishing();
   void onState(const peregrine_interfaces::msg::State::SharedPtr msg);
 
   /**
@@ -116,8 +117,6 @@ private:
   double statusRateHz_{10.0};
   /// Max accepted estimate age before reporting unhealthy.
   double stateTimeoutS_{0.5};
-  /// Configure-time wait bound for required upstream topic discovery.
-  double dependencyStartupTimeoutS_{2.0};
 
   /// True once configure has successfully allocated runtime resources.
   bool configured_{false};
