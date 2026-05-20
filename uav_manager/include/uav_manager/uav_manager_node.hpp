@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include <uav_manager/action_orchestrator.hpp>
+#include <uav_manager/step_result.hpp>
 #include <uav_manager/health_aggregator.hpp>
 #include <uav_manager/supervisor_state_machine.hpp>
 #include <uav_manager/transition_guard.hpp>
@@ -120,6 +120,7 @@ private:
 
   StepResult callArmService(bool arm);
   StepResult callSetModeService(const std::string & mode);
+  void recoveryLand(const std::string & context);
 
   StepResult pollUntil(
     const std::string & timeoutCode,

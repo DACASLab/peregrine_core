@@ -597,16 +597,18 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
 
   auto failGoal = [&](const std::string & reason)
   {
+    bool isArmed = false;
     bool needsDisarmTransition = false;
     {
       std::scoped_lock lock(mutex_);
+      isArmed = latestPx4Status_.has_value() && latestPx4Status_->armed;
       needsDisarmTransition =
-        supervisor_.state() == SupervisorState::Armed &&
-        latestPx4Status_.has_value() &&
-        !latestPx4Status_->armed;
+        supervisor_.state() == SupervisorState::Armed && !isArmed;
     }
     if (needsDisarmTransition) {
       (void)applyEvent(SupervisorEvent::DisarmCompleted);
+    } else if (isArmed) {
+      recoveryLand("takeoff_failGoal: " + reason);
     }
 
     result->success = false;
@@ -843,13 +845,25 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     },
     preempted, emergency);
   if (!step.success) {
-    (void)applyEvent(SupervisorEvent::LandFailed);
-    failGoal(step.describe());
-    return;
+    // PX4 is in land mode but hasn't auto-disarmed within 30s.  The vehicle is
+    // on (or very near) the ground — PX4 owns the final touchdown.  Treat as
+    // landed rather than reverting to Hovering, which would be a lie.
+    RCLCPP_WARN(
+      get_logger(),
+      "Auto-disarm timeout after land mode set (%s) — treating as landed",
+      step.describe().c_str());
   }
 
   (void)applyEvent(SupervisorEvent::LandCompleted);
-  (void)applyEvent(SupervisorEvent::DisarmCompleted);
+
+  bool disarmed = false;
+  {
+    std::scoped_lock lock(mutex_);
+    disarmed = latestPx4Status_.has_value() && !latestPx4Status_->armed;
+  }
+  if (disarmed) {
+    (void)applyEvent(SupervisorEvent::DisarmCompleted);
+  }
 
   result->success = true;
   result->message = "LAND_COMPLETE";
@@ -964,6 +978,26 @@ StepResult UavManagerNode::callSetModeService(const std::string & mode)
   }
 
   return StepResult::ok();
+}
+
+void UavManagerNode::recoveryLand(const std::string & context)
+{
+  bool armed = false;
+  {
+    std::scoped_lock lock(mutex_);
+    armed = latestPx4Status_.has_value() && latestPx4Status_->armed;
+  }
+  if (!armed) {
+    return;
+  }
+
+  RCLCPP_WARN(get_logger(), "Recovery land triggered (%s) — sending PX4 land mode", context.c_str());
+  StepResult landStep = callSetModeService("land");
+  if (!landStep.success) {
+    RCLCPP_ERROR(
+      get_logger(), "Recovery land failed: %s — vehicle may require manual intervention",
+      landStep.describe().c_str());
+  }
 }
 
 StepResult UavManagerNode::pollUntil(

@@ -13,7 +13,6 @@ find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
 add_library(uav_manager_component SHARED
-  src/action_orchestrator.cpp
   src/health_aggregator.cpp
   src/supervisor_state_machine.cpp
   src/transition_guard.cpp

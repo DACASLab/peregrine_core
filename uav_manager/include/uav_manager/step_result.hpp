@@ -1,9 +1,6 @@
 /**
- * @file action_orchestrator.hpp
- * @brief Machine-readable reason codes for uav_manager action orchestration.
- *
- * StepCode / StepResult give action callers a deterministic explanation for any
- * failure in the arm → offboard → takeoff or land → disarm sequences.
+ * @file step_result.hpp
+ * @brief Machine-readable reason codes for uav_manager orchestration steps.
  */
 
 #pragma once
