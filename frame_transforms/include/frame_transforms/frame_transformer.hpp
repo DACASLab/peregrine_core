@@ -117,8 +117,6 @@ private:
   int gpsMinSatellites_{6};
   double gpsMaxHdop_{5.0};
   double gpsMaxVdop_{5.0};
-  double gpsFreshnessTimeoutS_{2.0};
-  double homeInitTimeoutS_{60.0};
 
   bool homeInitialized_{false};
   Eigen::Vector3d mapToOdomOffset_{0.0, 0.0, 0.0};

@@ -119,8 +119,6 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   gpsMinSatellites_ = this->declare_parameter<int>("gps_min_satellites", 6);
   gpsMaxHdop_ = this->declare_parameter<double>("gps_max_hdop", 5.0);
   gpsMaxVdop_ = this->declare_parameter<double>("gps_max_vdop", 5.0);
-  gpsFreshnessTimeoutS_ = this->declare_parameter<double>("gps_freshness_timeout_s", 2.0);
-  homeInitTimeoutS_ = this->declare_parameter<double>("home_init_timeout_s", 90.0);
 
   publishStaticTransforms();
 
