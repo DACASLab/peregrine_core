@@ -1,42 +1,19 @@
 /**
  * @file action_orchestrator.hpp
- * @brief Orchestrates explicit waits/timeouts and preemption-aware steps.
+ * @brief Machine-readable reason codes for uav_manager action orchestration.
  *
- * The orchestrator provides two building blocks for uav_manager's action server
- * accepted callbacks:
- *
- *   callStep():  Runs a function after checking emergency/preemption predicates.
- *                Used to wrap service calls (arm, set_mode) so they can be aborted
- *                immediately if a failsafe is detected mid-call.
- *
- *   waitForCondition():  Polls a boolean condition at a configurable rate (default 50ms)
- *                        with emergency/preemption checks on each tick. Used to wait for
- *                        PX4 state changes (armed confirmation, offboard entry, auto-disarm).
- *
- * Both methods return StepResult with machine-readable reason codes that propagate
- * through the action result. This gives the action client a deterministic explanation
- * for any failure (e.g., "ARMED_TIMEOUT", "EMERGENCY_PREEMPT", "GOAL_PREEMPTED").
- *
- * The polling approach (rather than blocking waits) is intentional: it ensures that
- * emergency and cancel events are detected within one poll period (~50ms) rather than
- * being delayed until a potentially long timeout expires.
+ * StepCode / StepResult give action callers a deterministic explanation for any
+ * failure in the arm → offboard → takeoff or land → disarm sequences.
  */
 
 #pragma once
 
-#include <rclcpp/clock.hpp>
-#include <rclcpp/time.hpp>
-
-#include <chrono>
 #include <cstdint>
-#include <functional>
-#include <memory>
 #include <string>
 #include <string_view>
 
 namespace uav_manager
 {
-using namespace std::chrono_literals;
 
 /**
  * @enum StepCode
@@ -61,8 +38,6 @@ enum class StepCode : uint16_t
   ControlSetpointTimeout,
 
   // Service orchestration
-  SetPositionFailed,
-  PositionModeTimeout,
   ArmServiceUnavailable,
   ArmServiceTimeout,
   ArmServiceRejected,
@@ -70,17 +45,12 @@ enum class StepCode : uint16_t
   SetModeServiceTimeout,
   SetModeRejected,
 
-  // Downstream trajectory_manager forwarding
+  // Downstream trajectory_manager forwarding (used internally for takeoff trajectory)
   TrajectoryExecuteServerUnavailable,
   TrajectoryExecuteGoalTimeout,
   TrajectoryExecuteGoalRejected,
   TrajectoryExecuteResultTimeout,
   TrajectoryExecuteResultNotSucceeded,
-  TrajectoryGotoServerUnavailable,
-  TrajectoryGotoGoalTimeout,
-  TrajectoryGotoGoalRejected,
-  TrajectoryGotoResultTimeout,
-  TrajectoryGotoResultNotSucceeded,
 
   // Generic escape hatch for codes that are generated at runtime.
   Custom,
@@ -104,10 +74,6 @@ constexpr std::string_view stepCodeToString(const StepCode code) noexcept
       return "PX4_DISCONNECTED";
     case StepCode::ControlSetpointTimeout:
       return "CONTROL_SETPOINT_TIMEOUT";
-    case StepCode::SetPositionFailed:
-      return "SET_POSITION_FAILED";
-    case StepCode::PositionModeTimeout:
-      return "POSITION_MODE_TIMEOUT";
     case StepCode::ArmServiceUnavailable:
       return "ARM_SERVICE_UNAVAILABLE";
     case StepCode::ArmServiceTimeout:
@@ -130,16 +96,6 @@ constexpr std::string_view stepCodeToString(const StepCode code) noexcept
       return "TRAJECTORY_EXECUTE_RESULT_TIMEOUT";
     case StepCode::TrajectoryExecuteResultNotSucceeded:
       return "TRAJECTORY_EXECUTE_RESULT_NOT_SUCCEEDED";
-    case StepCode::TrajectoryGotoServerUnavailable:
-      return "TRAJECTORY_GOTO_SERVER_UNAVAILABLE";
-    case StepCode::TrajectoryGotoGoalTimeout:
-      return "TRAJECTORY_GOTO_GOAL_TIMEOUT";
-    case StepCode::TrajectoryGotoGoalRejected:
-      return "TRAJECTORY_GOTO_GOAL_REJECTED";
-    case StepCode::TrajectoryGotoResultTimeout:
-      return "TRAJECTORY_GOTO_RESULT_TIMEOUT";
-    case StepCode::TrajectoryGotoResultNotSucceeded:
-      return "TRAJECTORY_GOTO_RESULT_NOT_SUCCEEDED";
     case StepCode::Custom:
       return "CUSTOM";
   }
@@ -217,67 +173,6 @@ struct StepResult
     r.customCode = std::move(customCode);
     return r;
   }
-};
-
-/**
- * @struct OrchestratorConfig
- * @brief Timing configuration for polling-based waits.
- */
-struct OrchestratorConfig
-{
-  /// Poll period used by wait loops.
-  std::chrono::milliseconds pollPeriod{50ms};
-};
-
-/**
- * @class ActionOrchestrator
- * @brief Runs preemption-aware action/service/wait steps with explicit reason codes.
- */
-class ActionOrchestrator
-{
-public:
-  /**
-   * @brief Constructs the orchestrator with polling configuration.
-   */
-  explicit ActionOrchestrator(OrchestratorConfig config, rclcpp::Clock::SharedPtr clock);
-
-  /**
-   * @brief Executes one step function after preemption checks.
-   *
-   * @param stepCode Stable step identifier used as fallback reason code.
-   * @param fn Step function that returns detailed result.
-   * @param preempted Predicate indicating action cancel/preempt.
-   * @param emergency Predicate indicating emergency takeover.
-   * @return Step result with machine-readable reason.
-   */
-  StepResult callStep(
-    const std::string & stepCode,
-    const std::function<StepResult()> & fn,
-    const std::function<bool()> & preempted,
-    const std::function<bool()> & emergency) const;
-
-  /**
-   * @brief Waits until a condition is true, preempted, or timed out.
-   *
-   * @param timeoutCode Reason code returned on timeout.
-   * @param timeout Maximum wait duration.
-   * @param condition Condition to poll.
-   * @param preempted Predicate indicating action cancel/preempt.
-   * @param emergency Predicate indicating emergency takeover.
-   * @return Step result with machine-readable reason.
-   */
-  StepResult waitForCondition(
-    const std::string & timeoutCode,
-    std::chrono::milliseconds timeout,
-    const std::function<bool()> & condition,
-    const std::function<bool()> & preempted,
-    const std::function<bool()> & emergency) const;
-
-private:
-  /// Polling/wait configuration.
-  OrchestratorConfig config_;
-  /// Clock source (sim-time aware when use_sim_time is true).
-  rclcpp::Clock::SharedPtr clock_;
 };
 
 }  // namespace uav_manager
