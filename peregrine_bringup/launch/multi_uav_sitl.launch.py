@@ -3,7 +3,7 @@
 
 Spawns N PX4 SITL instances in one shared Gazebo world, each with its own
 MicroXRCE-DDS Agent. Does NOT launch the peregrine stack — each UAV container
-does that separately via single_uav.launch.py.
+does that separately via core_stack.launch.py.
 
 Usage:
   ros2 launch peregrine_bringup multi_uav_sitl.launch.py num_uavs:=2

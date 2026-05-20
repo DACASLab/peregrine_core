@@ -1,12 +1,16 @@
 """@file
-@brief Single-UAV PEREGRINE bringup in one composable container.
+@brief Core PEREGRINE flight stack in one composable container.
 
-Launches hardware_abstraction, frame_transforms, estimation_manager,
-control_manager, trajectory_manager, safety_monitor, and uav_manager inside a
-single `component_container_mt` process.
+Single source of truth for launching the peregrine node composition. All launch
+files that need the flight stack should IncludeLaunchDescription this file rather
+than defining their own ComposableNodeContainer.
 
-This launch expects PX4 + MicroXRCE connectivity to be available, unless
-`start_microxrce_agent:=true` is used.
+Nodes launched (all composable, single process):
+  hardware_abstraction, frame_transforms, estimation_manager, control_manager,
+  trajectory_manager, safety_monitor, uav_manager
+
+Optional extras (via launch args):
+  MicroXRCEAgent, Gazebo clock bridge, flight visualizer, RViz2
 """
 
 from launch import LaunchDescription

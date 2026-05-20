@@ -7,7 +7,7 @@
   <maintainer email="vaidyavarad2001@gmail.com">px4ros2</maintainer>
   <license>Apache-2.0</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
@@ -22,12 +22,10 @@
   <exec_depend>uav_manager</exec_depend>
   <exec_depend>rviz_plugins</exec_depend>
   <exec_depend>rviz2</exec_depend>
-  <exec_depend>hardware_abstraction_example</exec_depend>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
+  <test_depend>pytest</test_depend>
 
   <export>
-    <build_type>ament_cmake</build_type>
+    <build_type>ament_python</build_type>
   </export>
 </package>

@@ -2,7 +2,7 @@
 @brief Hardware mission: circle and/or figure-eight trajectories.
 
 Launches ONLY the mission demo node. The full peregrine stack must already be
-running (via tmuxinator `flight` session or manual `single_uav.launch.py`).
+running (via tmuxinator `flight` session or manual `core_stack.launch.py`).
 
 This is the hardware counterpart to example10_circle_figure8_demo.launch.py,
 which launches its own manager container (for SITL). On hardware the managers

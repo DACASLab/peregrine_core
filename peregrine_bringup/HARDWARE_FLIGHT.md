@@ -40,7 +40,7 @@ The container starts and the entrypoint runs:
 
 | Pane | What's running |
 |---|---|
-| **stack** | `ros2 launch peregrine_bringup single_uav.launch.py start_microxrce_agent:=false` |
+| **stack** | `ros2 launch peregrine_bringup core_stack.launch.py start_microxrce_agent:=false` |
 | **shell** | Empty bash — run missions from here |
 
 ## 3. Run a Mission (from the shell pane)
