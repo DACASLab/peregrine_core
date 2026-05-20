@@ -357,7 +357,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
     }
 
     if (activeGenerator_) {
-      sample = activeGenerator_->sample(*latestState_, now);
+      sample = activeGenerator_->sample(now);
       setpoint = sample.setpoint;
       haveSample = true;
 
@@ -367,7 +367,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
         executeFeedbackHandle = activeExecuteGoal_;
       }
 
-      if (sample.completed) {
+      if (sample.progress >= 1.0F) {
         if (activeGoalType_ == ActiveGoalType::GoTo && activeGoToGoal_) {
           goToGoalToSucceed = activeGoToGoal_;
           goToResult = std::make_shared<GoTo::Result>();
@@ -390,7 +390,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
         activeModuleName_ = holdGenerator_->name();
       }
     } else {
-      sample = holdGenerator_->sample(*latestState_, now);
+      sample = holdGenerator_->sample(now);
       setpoint = sample.setpoint;
       activeModuleName_ = holdGenerator_->name();
     }
@@ -403,7 +403,7 @@ void TrajectoryManagerNode::publishTrajectorySetpoint()
 
   if (haveSample && goToFeedbackHandle) {
     auto feedback = std::make_shared<GoTo::Feedback>();
-    feedback->distance_remaining_m = sample.distanceRemaining;
+    feedback->progress = sample.progress;
     goToFeedbackHandle->publish_feedback(feedback);
   } else if (haveSample && executeFeedbackHandle) {
     auto feedback = std::make_shared<ExecuteTrajectory::Feedback>();
@@ -461,7 +461,7 @@ void TrajectoryManagerNode::publishStatus()
 
 rclcpp_action::GoalResponse TrajectoryManagerNode::onGoToGoal(
   const rclcpp_action::GoalUUID & /*uuid*/,
-  const std::shared_ptr<const GoTo::Goal> goal)
+  const std::shared_ptr<const GoTo::Goal> /*goal*/)
 {
   // Lock is required because publishTrajectorySetpoint may concurrently modify
   // activeGoalType_ (e.g., when a trajectory completes and resets to None).
@@ -473,9 +473,6 @@ rclcpp_action::GoalResponse TrajectoryManagerNode::onGoToGoal(
     return rclcpp_action::GoalResponse::REJECT;
   }
   if (!latestState_.has_value() || activeGoalType_ != ActiveGoalType::None) {
-    return rclcpp_action::GoalResponse::REJECT;
-  }
-  if (goal->acceptance_radius_m <= 0.0) {
     return rclcpp_action::GoalResponse::REJECT;
   }
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -513,8 +510,7 @@ void TrajectoryManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo>
     latestState_->pose.pose.orientation);
   const double velocity = (goal.velocity_mps > 0.0) ? goal.velocity_mps : 1.0;
   activeGenerator_ = std::make_unique<LinearGoToGenerator>(
-    *latestState_, goal.target_position, targetYaw, velocity,
-    goal.acceptance_radius_m, this->now());
+    *latestState_, goal.target_position, targetYaw, velocity, this->now());
   activeGoalType_ = ActiveGoalType::GoTo;
   activeGoToGoal_ = goalHandle;
   activeExecuteGoal_.reset();

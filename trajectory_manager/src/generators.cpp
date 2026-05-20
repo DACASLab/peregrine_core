@@ -22,22 +22,7 @@ double wrapAngle(const double angle)
   return std::atan2(std::sin(angle), std::cos(angle));
 }
 
-// 2D distance (XY only) used by circle/figure8 generators where altitude is held constant
-// and completion should only consider horizontal tracking error.
-double norm2d(const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b)
-{
-  const double dx = a.x - b.x;
-  const double dy = a.y - b.y;
-  return std::hypot(dx, dy);
-}
 
-// Completion requires both time progress AND position proximity. Time-only completion
-// can report "done" while the vehicle is meters off-path due to wind or tracking lag.
-constexpr double kCurvedCompletionRadiusM = 0.5;
-constexpr double kStepCompletionRadiusM = 0.3;
-
-// 3D distance used by go-to and hold generators where all three axes matter for
-// proximity detection and acceptance radius checks.
 double norm3d(const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b)
 {
   const double dx = a.x - b.x;
@@ -97,25 +82,18 @@ HoldPositionGenerator::HoldPositionGenerator(
 {
 }
 
-TrajectorySample HoldPositionGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState, const rclcpp::Time & now)
+TrajectorySample HoldPositionGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
-  // Hold generator is intentionally non-terminating; caller controls lifecycle/goal state.
   sample.setpoint.position = holdPosition_;
   sample.setpoint.yaw = holdYaw_;
   sample.progress = 1.0F;
-  sample.distanceRemaining = norm3d(currentState.pose.pose.position, holdPosition_);
-  sample.completed = false;
   return sample;
 }
 
 // Time-parameterized vertical climb: the reference altitude increases linearly with time
-// at the specified climb rate, clamped so it never overshoots the target. The XY position
-// is held at the takeoff location. Completion is determined by MEASURED altitude (from
-// currentState), not the planned reference, to account for tracking error -- the generator
-// only reports done when the vehicle has actually reached the target altitude.
+// at the specified climb rate, clamped at the target. XY is held at the takeoff location.
 TakeoffGenerator::TakeoffGenerator(
   const peregrine_interfaces::msg::State & startState, const double targetAltitudeM,
   const double climbVelocityMps, const rclcpp::Time & startTime)
@@ -129,9 +107,7 @@ TakeoffGenerator::TakeoffGenerator(
 {
 }
 
-TrajectorySample TakeoffGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample TakeoffGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -143,42 +119,31 @@ TrajectorySample TakeoffGenerator::sample(
   const double direction = (dz >= 0.0) ? 1.0 : -1.0;
   const double traveled = climbVelocity_ * elapsedS;
   const double absoluteDz = std::abs(dz);
-  // Clamp traveled distance so target altitude is never overshot.
   const double step = std::min(traveled, absoluteDz);
 
   sample.setpoint.position.z = startAltitude_ + (direction * step);
   sample.progress = static_cast<float>((absoluteDz > 1e-6) ? clamp01(step / absoluteDz) : 1.0);
-  // Completion is based on measured altitude error, not just planned progress.
-  sample.distanceRemaining = std::abs(targetAltitude_ - currentState.pose.pose.position.z);
-  sample.completed = sample.distanceRemaining <= 0.10;
   return sample;
 }
 
 // Constant-velocity linear interpolation in 3D from start to target position.
-// Completion uses two criteria: (1) acceptance radius -- the measured position is within
-// the specified proximity of the target, and (2) time -- interpolation has reached 1.0.
-// The time-based fallback handles edge cases where the vehicle overshoots the target and
-// re-approaches, or where wind prevents reaching the acceptance sphere.
 LinearGoToGenerator::LinearGoToGenerator(
   const peregrine_interfaces::msg::State & startState,
   const geometry_msgs::msg::Point & targetPosition, const double targetYaw,
-  const double velocityMps, const double acceptanceRadiusM,
+  const double velocityMps,
   const rclcpp::Time & startTime)
 : TrajectoryGeneratorBase("linear_goto"),
   startPosition_(startState.pose.pose.position),
   targetPosition_(targetPosition),
   targetYaw_(targetYaw),
   velocity_(std::max(0.1, std::abs(velocityMps))),
-  acceptanceRadius_(std::max(0.05, std::abs(acceptanceRadiusM))),
   totalDistance_(norm3d(startPosition_, targetPosition_)),
   totalDurationS_((totalDistance_ > 1e-6) ? (totalDistance_ / velocity_) : 0.0),
   startTime_(startTime)
 {
 }
 
-TrajectorySample LinearGoToGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample LinearGoToGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -186,7 +151,6 @@ TrajectorySample LinearGoToGenerator::sample(
 
   double interpolation = 1.0;
   if (totalDurationS_ > 1e-6) {
-    // Time-parameterized linear interpolation from start to target.
     interpolation = clamp01((now - startTime_).seconds() / totalDurationS_);
   }
 
@@ -197,9 +161,6 @@ TrajectorySample LinearGoToGenerator::sample(
   sample.setpoint.position.z = startPosition_.z +
     ((targetPosition_.z - startPosition_.z) * interpolation);
   sample.progress = static_cast<float>(interpolation);
-  // Completion uses both acceptance radius and time completion as a fallback.
-  sample.distanceRemaining = norm3d(currentState.pose.pose.position, targetPosition_);
-  sample.completed = (sample.distanceRemaining <= acceptanceRadius_) || (interpolation >= 1.0);
   return sample;
 }
 
@@ -225,9 +186,7 @@ CircleGenerator::CircleGenerator(
   center_.z = altitude_;
 }
 
-TrajectorySample CircleGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample CircleGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -255,11 +214,7 @@ TrajectorySample CircleGenerator::sample(
   sample.setpoint.use_yaw_rate = true;
   sample.setpoint.yaw_rate = angularVelocity_;
 
-  const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
-  sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
   sample.progress = static_cast<float>(thetaProgress);
-  sample.completed =
-    thetaProgress >= 1.0 && sample.distanceRemaining <= kCurvedCompletionRadiusM;
   return sample;
 }
 
@@ -282,9 +237,7 @@ FigureEightGenerator::FigureEightGenerator(
 {
 }
 
-TrajectorySample FigureEightGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample FigureEightGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -327,11 +280,7 @@ TrajectorySample FigureEightGenerator::sample(
   sample.setpoint.use_yaw_rate = true;
   sample.setpoint.yaw_rate = (speedSq > 1e-6) ? ((vx * ay) - (vy * ax)) / speedSq : 0.0;
 
-  const geometry_msgs::msg::Point currentPos = currentState.pose.pose.position;
-  sample.distanceRemaining = norm2d(currentPos, sample.setpoint.position);
   sample.progress = static_cast<float>(thetaProgress);
-  sample.completed =
-    thetaProgress >= 1.0 && sample.distanceRemaining <= kCurvedCompletionRadiusM;
   return sample;
 }
 
@@ -357,9 +306,7 @@ StepResponseGenerator::StepResponseGenerator(
   targetYaw_ = wrapAngle(startYaw_ + yawStepRad);
 }
 
-TrajectorySample StepResponseGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample StepResponseGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -371,17 +318,12 @@ TrajectorySample StepResponseGenerator::sample(
   if (stepApplied) {
     sample.setpoint.position = targetPosition_;
     sample.setpoint.yaw = targetYaw_;
-    sample.distanceRemaining = norm3d(currentState.pose.pose.position, targetPosition_);
   } else {
     sample.setpoint.position = startPosition_;
     sample.setpoint.yaw = startYaw_;
-    sample.distanceRemaining = 0.0;
   }
 
   sample.progress = static_cast<float>(clamp01(elapsedS / std::max(totalDurationS, 1e-6)));
-  sample.completed =
-    elapsedS >= totalDurationS &&
-    (!stepApplied || norm3d(currentState.pose.pose.position, targetPosition_) <= kStepCompletionRadiusM);
   return sample;
 }
 
@@ -403,9 +345,7 @@ LandGenerator::LandGenerator(
 {
 }
 
-TrajectorySample LandGenerator::sample(
-  const peregrine_interfaces::msg::State & currentState,
-  const rclcpp::Time & now)
+TrajectorySample LandGenerator::sample(const rclcpp::Time & now)
 {
   TrajectorySample sample;
   sample.setpoint = makeBaseSetpoint(now);
@@ -414,14 +354,11 @@ TrajectorySample LandGenerator::sample(
 
   const double elapsedS = std::max(0.0, (now - startTime_).seconds());
   const double descent = descentVelocity_ * elapsedS;
-  // Clamp at target altitude to avoid commanding below ground reference.
   const double targetZ = std::max(targetAltitude_, startAltitude_ - descent);
   sample.setpoint.position.z = targetZ;
 
   const double totalDrop = std::max(1e-6, startAltitude_ - targetAltitude_);
   sample.progress = static_cast<float>(clamp01((startAltitude_ - targetZ) / totalDrop));
-  sample.distanceRemaining = std::max(0.0, currentState.pose.pose.position.z - targetAltitude_);
-  sample.completed = sample.distanceRemaining <= 0.10;
   return sample;
 }
 

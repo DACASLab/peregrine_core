@@ -2,21 +2,17 @@
  * @file generators.hpp
  * @brief Built-in trajectory generators for trajectory_manager.
  *
- * All generators follow a common pattern:
- *  1. Constructor captures the start state (position, yaw) and trajectory parameters
- *  2. sample() is called at the publication rate and returns the reference setpoint
- *     for the current time, plus progress/completion metadata
- *  3. Completion is based on MEASURED state (from currentState), not just planned
- *     progress, to account for tracking error and disturbances
+ * Generators are pure reference sources.  Each follows the same pattern:
+ *  1. Constructor captures start state and trajectory parameters.
+ *  2. sample() returns the reference setpoint for the current time and a progress
+ *     scalar [0, 1].  After progress reaches 1.0 the setpoint clamps at its final
+ *     value.  Generators never inspect measured state for completion — that decision
+ *     belongs to the orchestrator (trajectory_manager action server or BT).
  *
- * Generators produce setpoints in ENU/FLU coordinates. The conversion to PX4's NED/FRD
- * happens downstream in hardware_abstraction.
+ * Setpoints are in ENU/FLU.  Conversion to PX4's NED/FRD happens in hardware_abstraction.
  *
- * Velocity feedforward: CircleGenerator and FigureEightGenerator enable use_velocity
- * in their setpoints and provide analytical velocity derivatives. This helps PX4's
- * position controller track the curved path without lag (pure position control would
- * always lag behind a moving reference). For straight-line or vertical trajectories,
- * position-only control is sufficient.
+ * Velocity feedforward: CircleGenerator and FigureEightGenerator provide analytical
+ * velocity/acceleration derivatives so PX4's controller can track curves without lag.
  */
 
 #pragma once
@@ -24,6 +20,7 @@
 #include <trajectory_manager/trajectory_generator_base.hpp>
 
 #include <geometry_msgs/msg/point.hpp>
+#include <peregrine_interfaces/msg/state.hpp>
 
 namespace trajectory_manager
 {
@@ -50,9 +47,7 @@ public:
    */
   HoldPositionGenerator(const geometry_msgs::msg::Point & position, double yaw);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point holdPosition_;
@@ -74,9 +69,7 @@ public:
     double climbVelocityMps,
     const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
@@ -100,18 +93,15 @@ public:
   LinearGoToGenerator(
     const peregrine_interfaces::msg::State & startState,
     const geometry_msgs::msg::Point & targetPosition,
-    double targetYaw, double velocityMps, double acceptanceRadiusM, const rclcpp::Time & startTime);
+    double targetYaw, double velocityMps, const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
   geometry_msgs::msg::Point targetPosition_;
   double targetYaw_{0.0};
   double velocity_{1.0};
-  double acceptanceRadius_{0.2};
   double totalDistance_{0.0};
   double totalDurationS_{0.0};
   rclcpp::Time startTime_{0, 0, RCL_ROS_TIME};
@@ -132,9 +122,7 @@ public:
     double angularVelocityRadps,
     double numLoops, const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point center_;
@@ -160,9 +148,7 @@ public:
     double angularVelocityRadps,
     double numLoops, const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point center_;
@@ -201,9 +187,7 @@ public:
     double postStepHoldS,
     const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
@@ -229,9 +213,7 @@ public:
     const peregrine_interfaces::msg::State & startState, double descentVelocityMps,
     const rclcpp::Time & startTime);
 
-  TrajectorySample sample(
-    const peregrine_interfaces::msg::State & currentState,
-    const rclcpp::Time & now) override;
+  TrajectorySample sample(const rclcpp::Time & now) override;
 
 private:
   geometry_msgs::msg::Point startPosition_;
