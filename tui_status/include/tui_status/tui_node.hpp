@@ -35,9 +35,12 @@ private:
   void onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg);
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
   void onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::SharedPtr msg);
-  void onEstimationStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
-  void onControlStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
-  void onTrajectoryStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg);
+  void onManagerStatus(
+    const peregrine_interfaces::msg::ManagerStatus::SharedPtr & msg,
+    bool & hadFirst,
+    bool & lastHealthy,
+    std::optional<peregrine_interfaces::msg::ManagerStatus> & latestStatus,
+    const char * label);
   void onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg);
   void onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg);
 

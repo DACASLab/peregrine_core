@@ -81,15 +81,21 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
 
   estimationStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("estimation_status"), qos,
-    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onEstimationStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) {
+      onManagerStatus(msg, hadFirstEstimationStatus_, lastEstimationHealthy_, latestEstimationStatus_, "EST");
+    });
 
   controlStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("control_status"), qos,
-    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onControlStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) {
+      onManagerStatus(msg, hadFirstControlStatus_, lastControlHealthy_, latestControlStatus_, "CTL");
+    });
 
   trajectoryStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ManagerStatus>(
     topicName("trajectory_status"), qos,
-    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) { onTrajectoryStatus(msg); });
+    [this](peregrine_interfaces::msg::ManagerStatus::SharedPtr msg) {
+      onManagerStatus(msg, hadFirstTrajectoryStatus_, lastTrajectoryHealthy_, latestTrajectoryStatus_, "TRJ");
+    });
 
   px4StatusSub_ = this->create_subscription<peregrine_interfaces::msg::PX4Status>(
     topicName("status"), qos, [this](peregrine_interfaces::msg::PX4Status::SharedPtr msg) { onPx4Status(msg); });
@@ -256,49 +262,24 @@ void TuiNode::onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::Shar
   }
 }
 
-void TuiNode::onEstimationStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
+void TuiNode::onManagerStatus(
+  const peregrine_interfaces::msg::ManagerStatus::SharedPtr & msg,
+  bool & hadFirst,
+  bool & lastHealthy,
+  std::optional<peregrine_interfaces::msg::ManagerStatus> & latestStatus,
+  const char * label)
 {
   std::scoped_lock lock(mutex_);
 
-  if (hadFirstEstimationStatus_ && msg->healthy != lastEstimationHealthy_) {
+  if (hadFirst && msg->healthy != lastHealthy) {
     alertBuffer_.push(
       msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
-      std::string("EST health: ") + (msg->healthy ? "OK" : "BAD"));
+      std::string(label) + " health: " + (msg->healthy ? "OK" : "BAD"));
   }
-  lastEstimationHealthy_ = msg->healthy;
-  hadFirstEstimationStatus_ = true;
+  lastHealthy = msg->healthy;
+  hadFirst = true;
 
-  latestEstimationStatus_ = *msg;
-}
-
-void TuiNode::onControlStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
-{
-  std::scoped_lock lock(mutex_);
-
-  if (hadFirstControlStatus_ && msg->healthy != lastControlHealthy_) {
-    alertBuffer_.push(
-      msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
-      std::string("CTL health: ") + (msg->healthy ? "OK" : "BAD"));
-  }
-  lastControlHealthy_ = msg->healthy;
-  hadFirstControlStatus_ = true;
-
-  latestControlStatus_ = *msg;
-}
-
-void TuiNode::onTrajectoryStatus(const peregrine_interfaces::msg::ManagerStatus::SharedPtr msg)
-{
-  std::scoped_lock lock(mutex_);
-
-  if (hadFirstTrajectoryStatus_ && msg->healthy != lastTrajectoryHealthy_) {
-    alertBuffer_.push(
-      msg->healthy ? AlertSeverity::Info : AlertSeverity::Error,
-      std::string("TRJ health: ") + (msg->healthy ? "OK" : "BAD"));
-  }
-  lastTrajectoryHealthy_ = msg->healthy;
-  hadFirstTrajectoryStatus_ = true;
-
-  latestTrajectoryStatus_ = *msg;
+  latestStatus = *msg;
 }
 
 void TuiNode::onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg)
