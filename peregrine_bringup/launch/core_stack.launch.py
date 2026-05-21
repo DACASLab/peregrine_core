@@ -47,26 +47,8 @@ def generate_launch_description() -> LaunchDescription:
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
     )
 
-    frame_yaml = PathJoinSubstitution(
-        [FindPackageShare("frame_transforms"), "config", "defaults.yaml"]
-    )
-    hardware_yaml = PathJoinSubstitution(
-        [FindPackageShare("hardware_abstraction"), "config", "defaults.yaml"]
-    )
-    estimation_yaml = PathJoinSubstitution(
-        [FindPackageShare("estimation_manager"), "config", "defaults.yaml"]
-    )
     control_yaml = PathJoinSubstitution(
         [FindPackageShare("control_manager"), "config", "defaults.yaml"]
-    )
-    trajectory_yaml = PathJoinSubstitution(
-        [FindPackageShare("trajectory_manager"), "config", "defaults.yaml"]
-    )
-    safety_yaml = PathJoinSubstitution(
-        [FindPackageShare("safety_monitor"), "config", "defaults.yaml"]
-    )
-    uav_yaml = PathJoinSubstitution(
-        [FindPackageShare("uav_manager"), "config", "defaults.yaml"]
     )
     rviz_yaml = PathJoinSubstitution(
         [FindPackageShare("rviz_plugins"), "config", "defaults.yaml"]
@@ -119,13 +101,13 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "safety_params_file",
-                default_value=safety_yaml,
-                description="Safety monitor parameter profile.",
+                default_value=bringup_default_overrides,
+                description="Optional safety monitor parameter override YAML.",
             ),
             DeclareLaunchArgument(
                 "uav_params_file",
-                default_value=uav_yaml,
-                description="UAV manager parameter profile.",
+                default_value=bringup_default_overrides,
+                description="Optional UAV manager parameter override YAML.",
             ),
             DeclareLaunchArgument(
                 "config_overrides",
@@ -177,7 +159,7 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="hardware_abstraction::PX4HardwareAbstraction",
                         name="px4_hardware_abstraction",
                         namespace=uav_namespace,
-                        parameters=[hardware_yaml, config_overrides, {
+                        parameters=[config_overrides, {
                             "px4_namespace": px4_namespace,
                             "target_system_id": target_system_id,
                             "frame_prefix": uav_namespace,
@@ -189,7 +171,7 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="frame_transforms::FrameTransformer",
                         name="frame_transformer",
                         namespace=uav_namespace,
-                        parameters=[frame_yaml, config_overrides, {
+                        parameters=[config_overrides, {
                             "frame_prefix": uav_namespace,
                             "use_sim_time": use_sim_time,
                         }],
@@ -199,7 +181,7 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="estimation_manager::EstimationManagerNode",
                         name="estimation_manager",
                         namespace=uav_namespace,
-                        parameters=[estimation_yaml, config_overrides, {"use_sim_time": use_sim_time}],
+                        parameters=[config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="control_manager",
@@ -213,7 +195,7 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="trajectory_manager::TrajectoryManagerNode",
                         name="trajectory_manager",
                         namespace=uav_namespace,
-                        parameters=[trajectory_yaml, config_overrides, {"use_sim_time": use_sim_time}],
+                        parameters=[config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="safety_monitor",
