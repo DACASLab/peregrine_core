@@ -4,3 +4,12 @@
     # Keep this aligned with /opt/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf.
     home_lat_deg: 47.397971057728974
     home_lon_deg: 8.546163739800146
+
+    # Shared GPS quality thresholds — used by both frame_transforms (home origin
+    # init gate) and safety_monitor (continuous flight safety). Change here to
+    # keep both nodes in sync.
+    gps:
+      min_fix_type: 3
+      min_satellites: 6
+      max_hdop: 5.0
+      max_vdop: 5.0

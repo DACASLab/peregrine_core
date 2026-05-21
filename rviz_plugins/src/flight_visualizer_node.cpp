@@ -131,39 +131,10 @@ visualization_msgs::msg::Marker makeBaseMarker(
 FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
 : rclcpp::Node(kNodeName, options)
 {
-  uavNamespace_ = this->declare_parameter<std::string>("uav_namespace", "");
-  fixedFrame_ = this->declare_parameter<std::string>("fixed_frame", "map");
-  lastFrameId_ = fixedFrame_;
-
-  publishRateHz_ = this->declare_parameter<double>("publish_rate_hz", 15.0);
-  maxActualPathPoints_ = this->declare_parameter<int>("max_actual_path_points", 2000);
-  maxReferencePathPoints_ = this->declare_parameter<int>("max_reference_path_points", 2000);
-  pathMinSeparationM_ = this->declare_parameter<double>("path_min_separation_m", 0.05);
-
-  showGeofence_ = this->declare_parameter<bool>("show_geofence", true);
-  geofenceRadiusM_ = this->declare_parameter<double>("geofence_radius_m", 500.0);
-  geofenceMinAltitudeM_ = this->declare_parameter<double>("geofence_min_altitude_m", -5.0);
-  geofenceMaxAltitudeM_ = this->declare_parameter<double>("geofence_max_altitude_m", 120.0);
-
-  showSetpointVelocity_ = this->declare_parameter<bool>("show_setpoint_velocity", true);
-  setpointVelocityScale_ = this->declare_parameter<double>("setpoint_velocity_scale", 0.5);
-  clearReferencePathOnDisarm_ = this->declare_parameter<bool>("clear_reference_path_on_disarm", true);
-
-  const std::string actualPathTopic = this->declare_parameter<std::string>(
-    "actual_path_topic", "viz/actual_path");
-  const std::string referencePathTopic = this->declare_parameter<std::string>(
-    "reference_path_topic", "viz/reference_path");
-  const std::string markerTopic = this->declare_parameter<std::string>(
-    "marker_topic", "viz/markers");
-
-  if (publishRateHz_ <= 0.0) {
-    throw std::runtime_error("publish_rate_hz must be > 0");
-  }
-  maxActualPathPoints_ = std::max(10, maxActualPathPoints_);
-  maxReferencePathPoints_ = std::max(10, maxReferencePathPoints_);
-  pathMinSeparationM_ = std::max(0.0, pathMinSeparationM_);
-  geofenceRadiusM_ = std::max(0.1, geofenceRadiusM_);
-  setpointVelocityScale_ = std::max(0.0, setpointVelocityScale_);
+  paramListener_ = std::make_shared<flight_visualizer::ParamListener>(
+    this->get_node_parameters_interface());
+  params_ = paramListener_->get_params();
+  lastFrameId_ = params_.fixed_frame;
 
   // Reliable QoS keeps visualization streams stable across teleop and debugging sessions.
   const auto streamQos = rclcpp::QoS(20).reliable();
@@ -182,31 +153,31 @@ FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
     topicName("safety_status"), rclcpp::QoS(10).reliable(),
     [this](peregrine_interfaces::msg::SafetyStatus::SharedPtr msg) { onSafetyStatus(msg); });
 
-  actualPathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(actualPathTopic), vizQos);
-  referencePathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(referencePathTopic), vizQos);
-  markerPub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(topicName(markerTopic), vizQos);
+  actualPathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(params_.actual_path_topic), vizQos);
+  referencePathPub_ = this->create_publisher<nav_msgs::msg::Path>(topicName(params_.reference_path_topic), vizQos);
+  markerPub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(topicName(params_.marker_topic), vizQos);
 
-  const auto period = std::chrono::duration<double>(1.0 / publishRateHz_);
+  const auto period = std::chrono::duration<double>(1.0 / params_.publish_rate_hz);
   publishTimer_ = this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
     [this]() { onPublishTimer(); });
 
-  actualPath_.header.frame_id = fixedFrame_;
-  referencePath_.header.frame_id = fixedFrame_;
+  actualPath_.header.frame_id = params_.fixed_frame;
+  referencePath_.header.frame_id = params_.fixed_frame;
 
   RCLCPP_INFO(
     this->get_logger(),
     "flight_visualizer started (ns='%s', fixed_frame='%s', rate=%.1fHz)",
-    uavNamespace_.c_str(), fixedFrame_.c_str(), publishRateHz_);
+    params_.uav_namespace.c_str(), params_.fixed_frame.c_str(), params_.publish_rate_hz);
 }
 
 std::string FlightVisualizerNode::topicName(const std::string & base_topic) const
 {
-  if (uavNamespace_.empty() || uavNamespace_ == "/") {
+  if (params_.uav_namespace.empty() || params_.uav_namespace == "/") {
     return base_topic;
   }
 
-  std::string ns = uavNamespace_;
+  std::string ns = params_.uav_namespace;
   if (ns.front() != '/') {
     ns = "/" + ns;
   }
@@ -224,7 +195,7 @@ std::string FlightVisualizerNode::resolveFrameId(const std::string & frame_id_hi
   if (!lastFrameId_.empty()) {
     return lastFrameId_;
   }
-  return fixedFrame_;
+  return params_.fixed_frame;
 }
 
 void FlightVisualizerNode::appendPose(
@@ -272,7 +243,7 @@ void FlightVisualizerNode::onEstimatedState(const peregrine_interfaces::msg::Sta
   lastFrameId_ = pose.header.frame_id;
   latestEstimatedPose_ = pose;
   hasEstimatedPose_ = true;
-  appendPose(actualPath_, pose, static_cast<std::size_t>(maxActualPathPoints_), pathMinSeparationM_);
+  appendPose(actualPath_, pose, static_cast<std::size_t>(params_.max_actual_path_points), params_.path_min_separation_m);
 }
 
 void FlightVisualizerNode::onTrajectorySetpoint(
@@ -299,7 +270,7 @@ void FlightVisualizerNode::onTrajectorySetpoint(
   latestReferencePose_ = pose;
   hasReferencePose_ = true;
   appendPose(
-    referencePath_, pose, static_cast<std::size_t>(maxReferencePathPoints_), pathMinSeparationM_);
+    referencePath_, pose, static_cast<std::size_t>(params_.max_reference_path_points), params_.path_min_separation_m);
 }
 
 void FlightVisualizerNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)
@@ -308,7 +279,7 @@ void FlightVisualizerNode::onUavState(const peregrine_interfaces::msg::UAVState:
   const bool wasArmed = latestUavState_.has_value() ? latestUavState_->armed : false;
   latestUavState_ = *msg;
 
-  if (clearReferencePathOnDisarm_ && wasArmed && !msg->armed) {
+  if (params_.clear_reference_path_on_disarm && wasArmed && !msg->armed) {
     referencePath_.poses.clear();
     hasReferencePose_ = false;
   }
@@ -324,8 +295,8 @@ void FlightVisualizerNode::addOrDeleteVehicleMarkers(
   std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const
 {
   if (!hasEstimatedPose_) {
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsVehicle, kIdVehicleBody));
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsVehicle, kIdVehicleHeading));
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsVehicle, kIdVehicleBody));
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsVehicle, kIdVehicleHeading));
     return;
   }
 
@@ -358,8 +329,8 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
   std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const
 {
   if (!hasReferencePose_) {
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsReference, kIdReferencePoint));
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsReference, kIdReferenceVelocity));
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsReference, kIdReferencePoint));
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsReference, kIdReferenceVelocity));
     return;
   }
 
@@ -374,7 +345,7 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
   markers.push_back(std::move(setpoint));
 
   if (
-    !showSetpointVelocity_ || !latestTrajectorySetpoint_.has_value() ||
+    !params_.show_setpoint_velocity || !latestTrajectorySetpoint_.has_value() ||
     !latestTrajectorySetpoint_->use_velocity)
   {
     markers.push_back(makeDeleteMarker(
@@ -385,7 +356,7 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
   const auto & velocity = latestTrajectorySetpoint_->velocity;
   const double speed = std::sqrt(
     (velocity.x * velocity.x) + (velocity.y * velocity.y) + (velocity.z * velocity.z));
-  if (speed < kMinSetpointVelocityMps || setpointVelocityScale_ <= 0.0) {
+  if (speed < kMinSetpointVelocityMps || params_.setpoint_velocity_scale <= 0.0) {
     markers.push_back(makeDeleteMarker(
       latestReferencePose_.header.frame_id, stamp, kNsReference, kIdReferenceVelocity));
     return;
@@ -401,9 +372,9 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
 
   geometry_msgs::msg::Point start = latestReferencePose_.pose.position;
   geometry_msgs::msg::Point end = start;
-  end.x += velocity.x * setpointVelocityScale_;
-  end.y += velocity.y * setpointVelocityScale_;
-  end.z += velocity.z * setpointVelocityScale_;
+  end.x += velocity.x * params_.setpoint_velocity_scale;
+  end.y += velocity.y * params_.setpoint_velocity_scale;
+  end.z += velocity.z * params_.setpoint_velocity_scale;
   velocity_arrow.points.push_back(start);
   velocity_arrow.points.push_back(end);
   markers.push_back(std::move(velocity_arrow));
@@ -412,7 +383,7 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
 void FlightVisualizerNode::addSafetyTextMarker(
   std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const
 {
-  const std::string frame_id = hasEstimatedPose_ ? latestEstimatedPose_.header.frame_id : fixedFrame_;
+  const std::string frame_id = hasEstimatedPose_ ? latestEstimatedPose_.header.frame_id : params_.fixed_frame;
   auto text = makeBaseMarker(
     frame_id, stamp, kNsSafety, kIdSafetyText,
     visualization_msgs::msg::Marker::TEXT_VIEW_FACING);
@@ -454,31 +425,31 @@ void FlightVisualizerNode::addSafetyTextMarker(
 void FlightVisualizerNode::addOrDeleteGeofenceMarker(
   std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const
 {
-  if (!showGeofence_) {
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsGeofence, kIdGeofenceVolume));
-    markers.push_back(makeDeleteMarker(fixedFrame_, stamp, kNsGeofence, kIdGeofenceText));
+  if (!params_.show_geofence) {
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsGeofence, kIdGeofenceVolume));
+    markers.push_back(makeDeleteMarker(params_.fixed_frame, stamp, kNsGeofence, kIdGeofenceText));
     return;
   }
 
-  const double min_alt = std::min(geofenceMinAltitudeM_, geofenceMaxAltitudeM_);
-  const double max_alt = std::max(geofenceMinAltitudeM_, geofenceMaxAltitudeM_);
+  const double min_alt = std::min(params_.geofence_min_altitude_m, params_.geofence_max_altitude_m);
+  const double max_alt = std::max(params_.geofence_min_altitude_m, params_.geofence_max_altitude_m);
   const double height = std::max(0.1, max_alt - min_alt);
 
   auto volume = makeBaseMarker(
-    fixedFrame_, stamp, kNsGeofence, kIdGeofenceVolume,
+    params_.fixed_frame, stamp, kNsGeofence, kIdGeofenceVolume,
     visualization_msgs::msg::Marker::CYLINDER);
   volume.pose.orientation.w = 1.0;
   volume.pose.position.x = 0.0;
   volume.pose.position.y = 0.0;
   volume.pose.position.z = min_alt + (0.5 * height);
-  volume.scale.x = 2.0 * geofenceRadiusM_;
-  volume.scale.y = 2.0 * geofenceRadiusM_;
+  volume.scale.x = 2.0 * params_.geofence_radius_m;
+  volume.scale.y = 2.0 * params_.geofence_radius_m;
   volume.scale.z = height;
   volume.color = makeColor(0.20F, 0.55F, 0.95F, 0.12F);
   markers.push_back(std::move(volume));
 
   auto label = makeBaseMarker(
-    fixedFrame_, stamp, kNsGeofence, kIdGeofenceText,
+    params_.fixed_frame, stamp, kNsGeofence, kIdGeofenceText,
     visualization_msgs::msg::Marker::TEXT_VIEW_FACING);
   label.pose.orientation.w = 1.0;
   label.pose.position.x = 0.0;
@@ -488,7 +459,7 @@ void FlightVisualizerNode::addOrDeleteGeofenceMarker(
   label.color = makeColor(0.20F, 0.65F, 1.0F, 0.9F);
 
   std::ostringstream ss;
-  ss << "geofence R=" << geofenceRadiusM_ << "m Z=[" << min_alt << ", " << max_alt << "]m";
+  ss << "geofence R=" << params_.geofence_radius_m << "m Z=[" << min_alt << ", " << max_alt << "]m";
   label.text = ss.str();
   markers.push_back(std::move(label));
 }
@@ -507,10 +478,10 @@ void FlightVisualizerNode::onPublishTimer()
     reference_path = referencePath_;
 
     if (actual_path.header.frame_id.empty()) {
-      actual_path.header.frame_id = fixedFrame_;
+      actual_path.header.frame_id = params_.fixed_frame;
     }
     if (reference_path.header.frame_id.empty()) {
-      reference_path.header.frame_id = fixedFrame_;
+      reference_path.header.frame_id = params_.fixed_frame;
     }
 
     addOrDeleteVehicleMarkers(marker_array.markers, now);

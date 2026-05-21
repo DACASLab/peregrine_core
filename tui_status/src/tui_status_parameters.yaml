@@ -1,0 +1,22 @@
+tui_status_node:
+  refresh_rate_hz:
+    type: double
+    default_value: 10.0
+    description: "TUI screen refresh rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  alert_buffer_size:
+    type: int
+    default_value: 100
+    description: "Maximum number of alerts kept in scrollback"
+    read_only: true
+    validation:
+      gt<>: [0]
+
+  uav_namespace:
+    type: string
+    default_value: ""
+    description: "UAV namespace prefix for topic resolution"
+    read_only: true

@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(generate_parameter_library REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
@@ -13,6 +14,11 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+
+generate_parameter_library(
+  rviz_plugins_parameters
+  src/rviz_plugins_parameters.yaml
+)
 
 add_library(flight_visualizer_component SHARED
   src/flight_visualizer_node.cpp
@@ -25,6 +31,8 @@ target_include_directories(flight_visualizer_component
 )
 
 target_compile_features(flight_visualizer_component PUBLIC cxx_std_17)
+
+target_link_libraries(flight_visualizer_component rviz_plugins_parameters)
 
 ament_target_dependencies(flight_visualizer_component
   geometry_msgs
@@ -55,7 +63,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch rviz
+install(DIRECTORY launch rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -68,6 +76,7 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_dependencies(
+  generate_parameter_library
   geometry_msgs
   nav_msgs
   peregrine_interfaces

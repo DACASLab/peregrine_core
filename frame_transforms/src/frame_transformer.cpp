@@ -269,16 +269,16 @@ void FrameTransformer::tryInitHome()
 
   const auto & gpsStatus = *latestGpsStatus_;
 
-  if (gpsStatus.fix_type < params_.gps_min_fix_type) {
+  if (gpsStatus.fix_type < params_.gps.min_fix_type) {
     return;
   }
-  if (gpsStatus.satellites_used < params_.gps_min_satellites) {
+  if (gpsStatus.satellites_used < params_.gps.min_satellites) {
     return;
   }
-  if (gpsStatus.hdop > params_.gps_max_hdop) {
+  if (gpsStatus.hdop > params_.gps.max_hdop) {
     return;
   }
-  if (gpsStatus.vdop > params_.gps_max_vdop) {
+  if (gpsStatus.vdop > params_.gps.max_vdop) {
     return;
   }
 

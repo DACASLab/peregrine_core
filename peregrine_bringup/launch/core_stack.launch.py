@@ -47,12 +47,6 @@ def generate_launch_description() -> LaunchDescription:
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
     )
 
-    control_yaml = PathJoinSubstitution(
-        [FindPackageShare("control_manager"), "config", "defaults.yaml"]
-    )
-    rviz_yaml = PathJoinSubstitution(
-        [FindPackageShare("rviz_plugins"), "config", "defaults.yaml"]
-    )
     default_rviz_config = PathJoinSubstitution(
         [FindPackageShare("rviz_plugins"), "rviz", "flight_visualization.rviz"]
     )
@@ -188,7 +182,7 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="control_manager::ControlManagerNode",
                         name="control_manager",
                         namespace=uav_namespace,
-                        parameters=[control_yaml, config_overrides, {"use_sim_time": use_sim_time}],
+                        parameters=[config_overrides, {"use_sim_time": use_sim_time}],
                     ),
                     ComposableNode(
                         package="trajectory_manager",
@@ -220,7 +214,6 @@ def generate_launch_description() -> LaunchDescription:
                 name="flight_visualizer",
                 output="screen",
                 parameters=[
-                    rviz_yaml,
                     {
                         "uav_namespace": uav_namespace,
                         "fixed_frame": "map",

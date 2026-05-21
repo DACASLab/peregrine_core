@@ -1,0 +1,108 @@
+flight_visualizer:
+  uav_namespace:
+    type: string
+    default_value: ""
+    description: "UAV namespace prefix for topic resolution"
+    read_only: true
+
+  fixed_frame:
+    type: string
+    default_value: "map"
+    description: "RViz fixed frame for all visualizations"
+    read_only: true
+
+  publish_rate_hz:
+    type: double
+    default_value: 15.0
+    description: "Visualization publish rate"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  max_actual_path_points:
+    type: int
+    default_value: 2000
+    description: "Maximum points in actual path trail"
+    read_only: true
+    validation:
+      gt_eq<>: [10]
+
+  max_reference_path_points:
+    type: int
+    default_value: 2000
+    description: "Maximum points in reference path trail"
+    read_only: true
+    validation:
+      gt_eq<>: [10]
+
+  path_min_separation_m:
+    type: double
+    default_value: 0.05
+    description: "Minimum distance between consecutive path points"
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  show_geofence:
+    type: bool
+    default_value: true
+    description: "Display geofence cylinder in RViz"
+    read_only: true
+
+  geofence_radius_m:
+    type: double
+    default_value: 500.0
+    description: "Geofence cylinder radius"
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  geofence_min_altitude_m:
+    type: double
+    default_value: -5.0
+    description: "Geofence cylinder floor altitude"
+    read_only: true
+
+  geofence_max_altitude_m:
+    type: double
+    default_value: 120.0
+    description: "Geofence cylinder ceiling altitude"
+    read_only: true
+
+  show_setpoint_velocity:
+    type: bool
+    default_value: true
+    description: "Display setpoint velocity arrow"
+    read_only: true
+
+  setpoint_velocity_scale:
+    type: double
+    default_value: 0.5
+    description: "Velocity arrow scale factor"
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  clear_reference_path_on_disarm:
+    type: bool
+    default_value: true
+    description: "Clear reference path when vehicle disarms"
+    read_only: true
+
+  actual_path_topic:
+    type: string
+    default_value: "viz/actual_path"
+    description: "Output topic for actual flight path"
+    read_only: true
+
+  reference_path_topic:
+    type: string
+    default_value: "viz/reference_path"
+    description: "Output topic for reference path"
+    read_only: true
+
+  marker_topic:
+    type: string
+    default_value: "viz/markers"
+    description: "Output topic for visualization markers"
+    read_only: true

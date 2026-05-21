@@ -5,7 +5,7 @@
     landing_descent_velocity_mps: 0.8
 
     # Default sequence for classical step-response tuning.
-    step_sequence: ["x+", "x-", "y+", "y-", "z+", "z-", "yaw+", "yaw-"]
+    step_sequence: "x+,x-,y+,y-,z+,z-,yaw+,yaw-"
     lateral_step_m: 1.0
     vertical_step_m: 0.75
     yaw_step_deg: 20.0

@@ -55,16 +55,15 @@ bool isFlightState(const uint8_t state)
 
 TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
 : Node("tui_status_node")
+, paramListener_(std::make_shared<tui_status_node::ParamListener>(
+    this->get_node_parameters_interface()))
+, params_(paramListener_->get_params())
 , renderer_(renderer)
-, alertBuffer_(
-    static_cast<std::size_t>(
-      std::max<int64_t>(
-        1,
-        this->declare_parameter<int>("alert_buffer_size", 100))))
+, alertBuffer_(static_cast<std::size_t>(std::max(int64_t{1}, params_.alert_buffer_size)))
 , startTime_(this->now())
 {
-  const double refreshRateHz = this->declare_parameter<double>("refresh_rate_hz", 10.0);
-  uavNamespace_ = this->declare_parameter<std::string>("uav_namespace", "");
+
+  const double refreshRateHz = params_.refresh_rate_hz;
 
   const auto qos = rclcpp::QoS(10).reliable();
 
@@ -111,7 +110,7 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
   RCLCPP_INFO(
     this->get_logger(),
     "tui_status started (refresh=%.1fHz, namespace='%s')",
-    refreshRateHz, uavNamespace_.c_str());
+    refreshRateHz, params_.uav_namespace.c_str());
 }
 
 bool TuiNode::shouldExit() const
@@ -122,11 +121,11 @@ bool TuiNode::shouldExit() const
 
 std::string TuiNode::topicName(const std::string & base_topic) const
 {
-  if (uavNamespace_.empty() || uavNamespace_ == "/") {
+  if (params_.uav_namespace.empty() || params_.uav_namespace == "/") {
     return base_topic;
   }
 
-  std::string ns = uavNamespace_;
+  std::string ns = params_.uav_namespace;
   if (ns.front() != '/') {
     ns = "/" + ns;
   }
@@ -190,7 +189,7 @@ void TuiNode::onTimer()
     scroll = alertScroll_;
   }
 
-  renderer_->render(snapshot, alerts, scroll, uavNamespace_);
+  renderer_->render(snapshot, alerts, scroll, params_.uav_namespace);
 }
 
 void TuiNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)

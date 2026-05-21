@@ -7,6 +7,7 @@
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
+#include <tui_status/tui_status_parameters.hpp>
 
 #include <peregrine_interfaces/msg/gps_status.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
@@ -46,10 +47,11 @@ private:
 
   StatusSnapshot buildSnapshot() const;
 
+  std::shared_ptr<tui_status_node::ParamListener> paramListener_;
+  tui_status_node::Params params_;
+
   std::shared_ptr<Renderer> renderer_;
   AlertBuffer alertBuffer_;
-
-  std::string uavNamespace_;
   rclcpp::Time startTime_;
 
   mutable std::mutex mutex_;

@@ -1,5 +1,0 @@
-tui_status_node:
-  ros__parameters:
-    refresh_rate_hz: 10.0
-    alert_buffer_size: 100
-    uav_namespace: ""

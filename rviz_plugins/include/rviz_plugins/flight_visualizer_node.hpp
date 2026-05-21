@@ -11,6 +11,7 @@
 #include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
 #include <peregrine_interfaces/msg/uav_state.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rviz_plugins/rviz_plugins_parameters.hpp>
 
 #include <nav_msgs/msg/path.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -65,23 +66,10 @@ private:
   void addOrDeleteGeofenceMarker(
     std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const;
 
-  std::string uavNamespace_;
-  std::string fixedFrame_;
+  std::shared_ptr<flight_visualizer::ParamListener> paramListener_;
+  flight_visualizer::Params params_;
+
   std::string lastFrameId_;
-
-  int maxActualPathPoints_{2000};
-  int maxReferencePathPoints_{2000};
-  double pathMinSeparationM_{0.05};
-  double publishRateHz_{15.0};
-
-  bool showGeofence_{true};
-  double geofenceRadiusM_{500.0};
-  double geofenceMinAltitudeM_{-5.0};
-  double geofenceMaxAltitudeM_{120.0};
-
-  bool showSetpointVelocity_{true};
-  double setpointVelocityScale_{0.5};
-  bool clearReferencePathOnDisarm_{true};
 
   mutable std::mutex mutex_;
 

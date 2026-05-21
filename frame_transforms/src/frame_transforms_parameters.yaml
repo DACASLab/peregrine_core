@@ -61,34 +61,35 @@ frame_transforms:
     description: "Default home longitude (overwritten by first valid GPS fix)"
     read_only: true
 
-  gps_min_fix_type:
-    type: int
-    default_value: 3
-    description: "Minimum GPS fix type for home origin initialization"
-    read_only: true
-    validation:
-      bounds<>: [0, 6]
+  gps:
+    min_fix_type:
+      type: int
+      default_value: 3
+      description: "Minimum GPS fix type for home origin initialization"
+      read_only: true
+      validation:
+        bounds<>: [0, 6]
 
-  gps_min_satellites:
-    type: int
-    default_value: 6
-    description: "Minimum satellite count for home origin initialization"
-    read_only: true
-    validation:
-      gt_eq<>: [0]
+    min_satellites:
+      type: int
+      default_value: 6
+      description: "Minimum satellite count for home origin initialization"
+      read_only: true
+      validation:
+        gt_eq<>: [0]
 
-  gps_max_hdop:
-    type: double
-    default_value: 5.0
-    description: "Maximum HDOP for home origin initialization"
-    read_only: true
-    validation:
-      gt<>: [0.0]
+    max_hdop:
+      type: double
+      default_value: 5.0
+      description: "Maximum HDOP for home origin initialization"
+      read_only: true
+      validation:
+        gt<>: [0.0]
 
-  gps_max_vdop:
-    type: double
-    default_value: 5.0
-    description: "Maximum VDOP for home origin initialization"
-    read_only: true
-    validation:
-      gt<>: [0.0]
+    max_vdop:
+      type: double
+      default_value: 5.0
+      description: "Maximum VDOP for home origin initialization"
+      read_only: true
+      validation:
+        gt<>: [0.0]

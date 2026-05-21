@@ -7,8 +7,14 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(Curses REQUIRED)
+find_package(generate_parameter_library REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
+
+generate_parameter_library(
+  tui_status_parameters
+  src/tui_status_parameters.yaml
+)
 
 add_executable(tui_status_node
   src/main.cpp
@@ -28,6 +34,7 @@ target_compile_features(tui_status_node PUBLIC cxx_std_17)
 
 target_link_libraries(tui_status_node
   ${CURSES_LIBRARIES}
+  tui_status_parameters
 )
 
 ament_target_dependencies(tui_status_node
@@ -43,9 +50,6 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config
-)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -55,6 +59,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(peregrine_interfaces rclcpp)
+ament_export_dependencies(generate_parameter_library peregrine_interfaces rclcpp)
 
 ament_package()
