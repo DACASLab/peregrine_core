@@ -25,7 +25,7 @@ class StepResponseDemo(Node):
             self.declare_parameter("landing_descent_velocity_mps", 0.8).value
         )
         raw = self.declare_parameter(
-            "step_sequence", ["x+", "x-", "y+", "y-", "z+", "z-", "yaw+", "yaw-"]
+            "step_sequence", "x+,x-,y+,y-,z+,z-,yaw+,yaw-"
         ).value
         self.step_sequence = (
             [t.strip() for t in raw.split(",") if t.strip()]

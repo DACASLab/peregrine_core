@@ -17,8 +17,9 @@
  * Flight maneuvers (go_to, circle, figure8, etc.) are handled directly by the
  * Behavior Tree calling trajectory_manager. uav_manager does not proxy them.
  *
- * Emergencies are latched faults. The operator or BT must explicitly call the
- * ClearEmergency service to reset — there is no automatic timer-based clearance.
+ * Emergencies are latched faults. By default, auto-clear fires once the vehicle
+ * is disarmed and PX4 exits failsafe for a configurable hold period. Set
+ * emergency_auto_clear=false to require explicit ClearEmergency service calls.
  *
  * Threading model (requires MultiThreadedExecutor / component_container_mt):
  *   - Default group (MutuallyExclusive): subscriptions + status timer
@@ -110,6 +111,7 @@ private:
 
   TransitionOutcome applyEvent(SupervisorEvent event);
   bool isEmergency() const;
+  void tryEmergencyAutoClear();
 
   bool createActionServers();
   void destroyActionServers();
@@ -185,12 +187,16 @@ private:
   rclcpp_action::Server<Takeoff>::SharedPtr takeoffServer_;
   rclcpp_action::Server<Land>::SharedPtr landServer_;
 
-  /// ClearEmergency service server — operator/BT must explicitly clear latched faults.
+  /// ClearEmergency service server — manual override for clearing latched faults.
   rclcpp::Service<peregrine_interfaces::srv::ClearEmergency>::SharedPtr clearEmergencyService_;
 
   rclcpp::TimerBase::SharedPtr statusTimer_;
 
   uint8_t latestSafetyLevel_{0};
+
+  /// Tracks when emergency auto-clear conditions first became continuously met.
+  /// Reset to nullopt whenever any condition fails or FSM leaves Emergency.
+  std::optional<std::chrono::steady_clock::time_point> emergencyClearSince_;
 
   rclcpp::TimerBase::SharedPtr startupTimer_;
   rclcpp::TimerBase::SharedPtr readinessTimer_;

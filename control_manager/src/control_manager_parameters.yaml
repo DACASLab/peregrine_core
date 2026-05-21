@@ -33,4 +33,4 @@ control_manager:
     type: string
     default_value: "control_manager::Px4PassthroughController"
     description: "Fully qualified class name of the controller plugin to load"
-    read_only: true
+    read_only: false

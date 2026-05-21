@@ -212,6 +212,7 @@ UavManagerNode::CallbackReturn UavManagerNode::on_configure(const rclcpp_lifecyc
     supervisor_ = SupervisorStateMachine();
     lastTransitionReason_ = "CONFIGURED";
     latestSafetyLevel_ = 0;
+    emergencyClearSince_.reset();
   }
 
   configured_ = true;
@@ -525,6 +526,47 @@ void UavManagerNode::publishUavState()
   }
 
   uavStatePub_->publish(output);
+
+  if (params_.emergency_auto_clear && output.state == toUavStateCode(SupervisorState::Emergency)) {
+    tryEmergencyAutoClear();
+  } else {
+    emergencyClearSince_.reset();
+  }
+}
+
+void UavManagerNode::tryEmergencyAutoClear()
+{
+  if (!healthAggregator_) {
+    return;
+  }
+
+  const auto now = nowSteady();
+  const auto snap = healthAggregator_->snapshot(now);
+  const bool conditions_met =
+    !snap.px4.failsafe && snap.px4.connected && snap.px4.present && !snap.px4.armed;
+
+  if (!conditions_met) {
+    if (emergencyClearSince_.has_value()) {
+      RCLCPP_DEBUG(get_logger(), "Emergency auto-clear hold reset (conditions lost)");
+    }
+    emergencyClearSince_.reset();
+    return;
+  }
+
+  if (!emergencyClearSince_.has_value()) {
+    emergencyClearSince_ = now;
+    RCLCPP_INFO(get_logger(), "Emergency auto-clear conditions met, starting hold period");
+    return;
+  }
+
+  const double elapsed_s = std::chrono::duration<double>(now - *emergencyClearSince_).count();
+  if (elapsed_s >= params_.emergency_auto_clear_hold_s) {
+    RCLCPP_INFO(
+      get_logger(), "Emergency auto-clear: hold period (%.1fs) satisfied, clearing",
+      params_.emergency_auto_clear_hold_s);
+    emergencyClearSince_.reset();
+    (void)applyEvent(SupervisorEvent::EmergencyCleared);
+  }
 }
 
 void UavManagerNode::onClearEmergency(

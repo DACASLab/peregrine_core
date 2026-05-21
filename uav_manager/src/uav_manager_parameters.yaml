@@ -66,3 +66,17 @@ uav_manager:
     read_only: true
     validation:
       gt<>: [0]
+
+  emergency_auto_clear:
+    type: bool
+    default_value: true
+    description: "Automatically clear EMERGENCY state when vehicle is disarmed and PX4 exits failsafe"
+    read_only: true
+
+  emergency_auto_clear_hold_s:
+    type: double
+    default_value: 5.0
+    description: "Seconds that clear conditions must hold continuously before auto-clear fires"
+    read_only: true
+    validation:
+      gt<>: [0.0]

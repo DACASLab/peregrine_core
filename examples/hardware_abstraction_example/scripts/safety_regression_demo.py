@@ -229,6 +229,11 @@ class SafetyRegressionDemo(Node):
         ):
             return False, "battery_fault_did_not_raise_critical"
 
+        if not self._wait_supervisor_state(
+            UAVState.STATE_EMERGENCY, 10.0, "battery emergency entry"
+        ):
+            return False, "battery_fault_did_not_enter_emergency"
+
         if not self._wait_disarmed("battery auto-land disarm", 70.0):
             return False, "battery_fault_did_not_disarm"
 
@@ -294,6 +299,11 @@ class SafetyRegressionDemo(Node):
         ):
             return False, "gps_post_fault_did_not_raise_critical"
 
+        if not self._wait_supervisor_state(
+            UAVState.STATE_EMERGENCY, 10.0, "gps post-takeoff emergency entry"
+        ):
+            return False, "gps_post_fault_did_not_enter_emergency"
+
         if not self._wait_disarmed("gps post-takeoff auto-land disarm", 70.0):
             return False, "gps_post_fault_did_not_disarm"
 
@@ -335,13 +345,18 @@ class SafetyRegressionDemo(Node):
         ):
             return False, "geofence_fault_did_not_raise_critical"
 
+        if not self._wait_supervisor_state(
+            UAVState.STATE_EMERGENCY, 10.0, "geofence emergency entry"
+        ):
+            return False, "geofence_fault_did_not_enter_emergency"
+
         if not self._wait_disarmed("geofence auto-land disarm", 70.0):
             return False, "geofence_fault_did_not_disarm"
 
         self._spin_for(self.post_clear_settle_s)
-        # Geofence breach is considered handled once safety escalates and forces
-        # auto-land/disarm. Remaining outside geofence after landing is expected
-        # and should not fail this case.
+
+        if not self._reconcile_supervisor_state():
+            return False, "supervisor_not_recoverable_after_geofence_case"
 
         return True, "real go_to breach triggered geofence auto-land"
 
@@ -574,6 +589,14 @@ class SafetyRegressionDemo(Node):
             label,
         )
 
+    def _wait_supervisor_state(self, target_state: int, timeout_s: float, label: str) -> bool:
+        return self._wait_for(
+            lambda: self.latest_uav_state is not None
+            and self.latest_uav_state.state == target_state,
+            timeout_s,
+            label,
+        )
+
     def _wait_disarmed(self, label: str, timeout_s: float) -> bool:
         return self._wait_for(
             lambda: self.latest_uav_state is not None and not self.latest_uav_state.armed,
@@ -621,10 +644,10 @@ class SafetyRegressionDemo(Node):
         current_state = self.latest_uav_state.state
 
         if current_state == UAVState.STATE_EMERGENCY:
-            # FSM is latched in EMERGENCY. The uav_manager auto-recovery logic
-            # will fire EmergencyCleared once the vehicle is disarmed, PX4
-            # failsafe clears, and safety level returns to nominal/warning for
-            # the configured hold period. Wait for that to complete.
+            # FSM is latched in EMERGENCY. The uav_manager auto-clear logic
+            # fires EmergencyCleared once the vehicle is disarmed and PX4 exits
+            # failsafe for the configured hold period (emergency_auto_clear_hold_s).
+            # Wait for that to complete.
             self.get_logger().warn(
                 "Reconciliation: supervisor in EMERGENCY, waiting for auto-clear"
             )
