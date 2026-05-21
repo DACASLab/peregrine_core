@@ -2,7 +2,9 @@
 
   <BehaviorTree ID="ControllerSwitchDemo">
     <Sequence>
-      <IsDependenciesReady/>
+      <RetryUntilSuccessful num_attempts="500">
+        <IsDependenciesReady/>
+      </RetryUntilSuccessful>
       <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
       <SetModeService mode="se3"/>
       <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,2"/>

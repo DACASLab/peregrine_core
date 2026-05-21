@@ -2,7 +2,9 @@
 
   <BehaviorTree ID="TakeoffHoverLand">
     <Sequence>
-      <IsDependenciesReady/>
+      <RetryUntilSuccessful num_attempts="500">
+        <IsDependenciesReady/>
+      </RetryUntilSuccessful>
       <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
       <WaitAction duration_s="10.0"/>
       <LandAction descent_velocity_mps="0.8"/>

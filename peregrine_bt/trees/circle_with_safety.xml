@@ -1,18 +1,25 @@
 <root BTCPP_format="4">
 
   <BehaviorTree ID="CircleWithSafety">
-    <ReactiveFallback>
-      <ReactiveSequence>
-        <IsSafetyNominal/>
+    <Sequence>
+      <RetryUntilSuccessful num_attempts="500">
         <Sequence>
           <IsDependenciesReady/>
-          <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
-          <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,2"/>
-          <LandAction descent_velocity_mps="0.8"/>
+          <IsSafetyNominal/>
         </Sequence>
-      </ReactiveSequence>
-      <LandAction descent_velocity_mps="1.0" name="SafetyLand"/>
-    </ReactiveFallback>
+      </RetryUntilSuccessful>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsSafetyNominal/>
+          <Sequence>
+            <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
+            <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,2"/>
+            <LandAction descent_velocity_mps="0.8"/>
+          </Sequence>
+        </ReactiveSequence>
+        <LandAction descent_velocity_mps="1.0" name="SafetyLand"/>
+      </ReactiveFallback>
+    </Sequence>
   </BehaviorTree>
 
 </root>

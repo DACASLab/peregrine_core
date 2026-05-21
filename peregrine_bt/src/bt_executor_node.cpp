@@ -18,9 +18,11 @@ public:
   : rclcpp_lifecycle::LifecycleNode("bt_executor", options),
     client_node_(std::make_shared<rclcpp::Node>(
         "bt_client", get_namespace(),
-        rclcpp::NodeOptions().parameter_overrides(
-            {rclcpp::Parameter("use_sim_time",
-                               get_parameter("use_sim_time").as_bool())})))
+        rclcpp::NodeOptions()
+            .use_global_arguments(false)
+            .parameter_overrides(
+                {rclcpp::Parameter("use_sim_time",
+                                   get_parameter("use_sim_time").as_bool())})))
   {
     declare_parameter<std::string>("tree_file", "");
     declare_parameter<double>("tick_rate_hz", 2.0);

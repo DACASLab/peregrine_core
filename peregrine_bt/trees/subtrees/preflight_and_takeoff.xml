@@ -2,10 +2,14 @@
 
   <BehaviorTree ID="PreflightAndTakeoff">
     <Sequence>
-      <IsDependenciesReady/>
-      <IsBatteryAbove threshold_pct="0.2"/>
-      <IsGpsHealthy min_fix_type="3" max_hdop="5.0" max_vdop="5.0"/>
-      <IsSafetyNominal/>
+      <RetryUntilSuccessful num_attempts="500">
+        <Sequence>
+          <IsDependenciesReady/>
+          <IsBatteryAbove threshold_pct="0.2"/>
+          <IsGpsHealthy min_fix_type="3" max_hdop="5.0" max_vdop="5.0"/>
+          <IsSafetyNominal/>
+        </Sequence>
+      </RetryUntilSuccessful>
       <TakeoffAction altitude_m="{altitude_m}" climb_velocity_mps="1.0"/>
     </Sequence>
   </BehaviorTree>

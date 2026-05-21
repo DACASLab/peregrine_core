@@ -14,6 +14,8 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
 {
   BT::RosNodeParams params;
   params.nh = node;
+  params.server_timeout = std::chrono::milliseconds(3000);
+  params.wait_for_server_timeout = std::chrono::milliseconds(0);
 
   // -- UAV state conditions (topic: uav_state) --
   params.default_port_value = "uav_state";
