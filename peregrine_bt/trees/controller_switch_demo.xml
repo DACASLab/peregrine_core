@@ -1,0 +1,14 @@
+<root BTCPP_format="4">
+
+  <BehaviorTree ID="ControllerSwitchDemo">
+    <Sequence>
+      <IsDependenciesReady/>
+      <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
+      <SetModeService mode="se3"/>
+      <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,2"/>
+      <SetModeService mode="passthrough"/>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

@@ -1,0 +1,18 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <BehaviorTree ID="MultiTrajectory">
+    <Sequence>
+      <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
+      <RetryNode num_attempts="3">
+        <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,1"/>
+      </RetryNode>
+      <RetryNode num_attempts="3">
+        <ExecuteTrajectoryAction trajectory_type="figure8" params="2.0,0.6,1"/>
+      </RetryNode>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>
