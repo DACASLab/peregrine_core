@@ -76,6 +76,11 @@ struct StatusSnapshot
   // Timers
   double uptime_s{0.0};
   double flight_time_s{0.0};
+
+  // Command feedback
+  std::string last_command;
+  std::string last_command_result;
+  bool command_pending{false};
 };
 
 class Renderer

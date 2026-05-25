@@ -7,14 +7,19 @@
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
 #include <tui_status/tui_status_parameters.hpp>
 
+#include <peregrine_interfaces/action/land.hpp>
+#include <peregrine_interfaces/action/takeoff.hpp>
 #include <peregrine_interfaces/msg/gps_status.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
 #include <peregrine_interfaces/msg/safety_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/uav_state.hpp>
+#include <peregrine_interfaces/srv/arm.hpp>
+#include <peregrine_interfaces/srv/clear_emergency.hpp>
 
 #include <tui_status/alert_buffer.hpp>
 #include <tui_status/renderer.hpp>
@@ -33,6 +38,13 @@ private:
   std::string topicName(const std::string & base_topic) const;
 
   void onTimer();
+  void handleKeyInput(int key);
+  void sendArm(bool arm);
+  void sendTakeoff();
+  void sendLand();
+  void sendClearEmergency();
+  void setCommandStatus(const std::string & command, const std::string & result, bool pending = false);
+
   void onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg);
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
   void onSafetyStatus(const peregrine_interfaces::msg::SafetyStatus::SharedPtr msg);
@@ -108,6 +120,22 @@ private:
   rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
 
   rclcpp::TimerBase::SharedPtr refreshTimer_;
+
+  // Command clients
+  rclcpp::Client<peregrine_interfaces::srv::Arm>::SharedPtr armClient_;
+  rclcpp::Client<peregrine_interfaces::srv::ClearEmergency>::SharedPtr clearEmergencyClient_;
+  rclcpp_action::Client<peregrine_interfaces::action::Takeoff>::SharedPtr takeoffClient_;
+  rclcpp_action::Client<peregrine_interfaces::action::Land>::SharedPtr landClient_;
+
+  // Command feedback state
+  std::string lastCommand_;
+  std::string lastCommandResult_;
+  bool commandPending_{false};
+
+  // Arm confirmation (double-press within timeout)
+  bool armConfirmPending_{false};
+  bool disarmConfirmPending_{false};
+  rclcpp::Time confirmDeadline_;
 };
 
 }  // namespace tui_status

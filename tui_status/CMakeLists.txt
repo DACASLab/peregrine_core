@@ -10,6 +10,7 @@ find_package(Curses REQUIRED)
 find_package(generate_parameter_library REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 
 generate_parameter_library(
   tui_status_parameters
@@ -40,6 +41,7 @@ target_link_libraries(tui_status_node
 ament_target_dependencies(tui_status_node
   peregrine_interfaces
   rclcpp
+  rclcpp_action
 )
 
 install(TARGETS tui_status_node
@@ -59,6 +61,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(generate_parameter_library peregrine_interfaces rclcpp)
+ament_export_dependencies(generate_parameter_library peregrine_interfaces rclcpp rclcpp_action)
 
 ament_package()

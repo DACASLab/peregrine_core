@@ -102,6 +102,15 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
     topicName("gps_status"), qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
 
+  // Command clients
+  armClient_ = this->create_client<peregrine_interfaces::srv::Arm>(topicName("arm"));
+  clearEmergencyClient_ = this->create_client<peregrine_interfaces::srv::ClearEmergency>(
+    topicName("uav_manager/clear_emergency"));
+  takeoffClient_ = rclcpp_action::create_client<peregrine_interfaces::action::Takeoff>(
+    this, topicName("uav_manager/takeoff"));
+  landClient_ = rclcpp_action::create_client<peregrine_interfaces::action::Land>(
+    this, topicName("uav_manager/land"));
+
   const auto period = std::chrono::duration<double>(1.0 / std::max(1.0, refreshRateHz));
   refreshTimer_ = this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
@@ -142,36 +151,9 @@ void TuiNode::onTimer()
   }
 
   for (int key = renderer_->pollKey(); key != ERR; key = renderer_->pollKey()) {
-    if (key == 'q' || key == 'Q') {
-      {
-        std::scoped_lock lock(mutex_);
-        exitRequested_ = true;
-      }
-      rclcpp::shutdown();
+    handleKeyInput(key);
+    if (shouldExit()) {
       return;
-    }
-
-    if (key == 'c' || key == 'C') {
-      alertBuffer_.clear();
-      std::scoped_lock lock(mutex_);
-      alertScroll_ = 0;
-      continue;
-    }
-
-    if (key == KEY_UP) {
-      const std::size_t count = alertBuffer_.size();
-      std::scoped_lock lock(mutex_);
-      if (alertScroll_ + 1 < count) {
-        ++alertScroll_;
-      }
-      continue;
-    }
-
-    if (key == KEY_DOWN) {
-      std::scoped_lock lock(mutex_);
-      if (alertScroll_ > 0) {
-        --alertScroll_;
-      }
     }
   }
 
@@ -190,6 +172,230 @@ void TuiNode::onTimer()
   }
 
   renderer_->render(snapshot, alerts, scroll, params_.uav_namespace);
+}
+
+void TuiNode::handleKeyInput(int key)
+{
+  if (key == 'q' || key == 'Q') {
+    {
+      std::scoped_lock lock(mutex_);
+      exitRequested_ = true;
+    }
+    rclcpp::shutdown();
+    return;
+  }
+
+  if (key == 'c' || key == 'C') {
+    alertBuffer_.clear();
+    std::scoped_lock lock(mutex_);
+    alertScroll_ = 0;
+    return;
+  }
+
+  if (key == KEY_UP) {
+    const std::size_t count = alertBuffer_.size();
+    std::scoped_lock lock(mutex_);
+    if (alertScroll_ + 1 < count) {
+      ++alertScroll_;
+    }
+    return;
+  }
+
+  if (key == KEY_DOWN) {
+    std::scoped_lock lock(mutex_);
+    if (alertScroll_ > 0) {
+      --alertScroll_;
+    }
+    return;
+  }
+
+  // Expire arm/disarm confirmation windows
+  const auto now = this->now();
+  if (armConfirmPending_ && now > confirmDeadline_) {
+    armConfirmPending_ = false;
+  }
+  if (disarmConfirmPending_ && now > confirmDeadline_) {
+    disarmConfirmPending_ = false;
+  }
+
+  if (key == 'a') {
+    if (armConfirmPending_) {
+      armConfirmPending_ = false;
+      sendArm(true);
+    } else {
+      armConfirmPending_ = true;
+      disarmConfirmPending_ = false;
+      confirmDeadline_ = now + rclcpp::Duration(2, 0);
+      setCommandStatus("ARM", "press 'a' again to confirm");
+    }
+    return;
+  }
+
+  if (key == 'd') {
+    if (disarmConfirmPending_) {
+      disarmConfirmPending_ = false;
+      sendArm(false);
+    } else {
+      disarmConfirmPending_ = true;
+      armConfirmPending_ = false;
+      confirmDeadline_ = now + rclcpp::Duration(2, 0);
+      setCommandStatus("DISARM", "press 'd' again to confirm");
+    }
+    return;
+  }
+
+  // Any other command key clears pending arm/disarm
+  armConfirmPending_ = false;
+  disarmConfirmPending_ = false;
+
+  if (key == 't') {
+    sendTakeoff();
+    return;
+  }
+
+  if (key == 'l') {
+    sendLand();
+    return;
+  }
+
+  if (key == 'e') {
+    sendClearEmergency();
+    return;
+  }
+}
+
+void TuiNode::setCommandStatus(const std::string & command, const std::string & result, bool pending)
+{
+  std::scoped_lock lock(mutex_);
+  lastCommand_ = command;
+  lastCommandResult_ = result;
+  commandPending_ = pending;
+}
+
+void TuiNode::sendArm(bool arm)
+{
+  if (!armClient_->service_is_ready()) {
+    setCommandStatus(arm ? "ARM" : "DISARM", "service not available");
+    alertBuffer_.push(AlertSeverity::Warning, std::string(arm ? "ARM" : "DISARM") + " service not available");
+    return;
+  }
+
+  auto request = std::make_shared<peregrine_interfaces::srv::Arm::Request>();
+  request->arm = arm;
+  setCommandStatus(arm ? "ARM" : "DISARM", "sending...", true);
+  alertBuffer_.push(AlertSeverity::Info, std::string("Sending ") + (arm ? "ARM" : "DISARM") + " command");
+
+  armClient_->async_send_request(
+    request,
+    [this, arm](rclcpp::Client<peregrine_interfaces::srv::Arm>::SharedFuture future) {
+      auto response = future.get();
+      if (response->success) {
+        setCommandStatus(arm ? "ARM" : "DISARM", "SUCCESS");
+      } else {
+        setCommandStatus(arm ? "ARM" : "DISARM", "FAILED: " + response->message);
+        alertBuffer_.push(AlertSeverity::Error,
+          std::string(arm ? "ARM" : "DISARM") + " failed: " + response->message);
+      }
+    });
+}
+
+void TuiNode::sendTakeoff()
+{
+  if (!takeoffClient_->action_server_is_ready()) {
+    setCommandStatus("TAKEOFF", "action not available");
+    alertBuffer_.push(AlertSeverity::Warning, "Takeoff action server not available");
+    return;
+  }
+
+  auto goal = peregrine_interfaces::action::Takeoff::Goal();
+  goal.target_altitude_m = 5.0;
+  goal.climb_velocity_mps = 1.0;
+  setCommandStatus("TAKEOFF", "sending goal...", true);
+  alertBuffer_.push(AlertSeverity::Info, "Sending takeoff to 5.0m");
+
+  auto options = rclcpp_action::Client<peregrine_interfaces::action::Takeoff>::SendGoalOptions();
+  options.feedback_callback =
+    [this](auto, const auto & feedback) {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "alt=%.1fm progress=%.0f%%",
+        feedback->current_altitude_m, feedback->progress * 100.0F);
+      setCommandStatus("TAKEOFF", buf, true);
+    };
+  options.result_callback =
+    [this](const auto & result) {
+      if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "SUCCESS at %.1fm", result.result->final_altitude_m);
+        setCommandStatus("TAKEOFF", buf);
+        alertBuffer_.push(AlertSeverity::Info, "Takeoff complete");
+      } else {
+        setCommandStatus("TAKEOFF", "FAILED: " + result.result->message);
+        alertBuffer_.push(AlertSeverity::Error, "Takeoff failed: " + result.result->message);
+      }
+    };
+
+  takeoffClient_->async_send_goal(goal, options);
+}
+
+void TuiNode::sendLand()
+{
+  if (!landClient_->action_server_is_ready()) {
+    setCommandStatus("LAND", "action not available");
+    alertBuffer_.push(AlertSeverity::Warning, "Land action server not available");
+    return;
+  }
+
+  auto goal = peregrine_interfaces::action::Land::Goal();
+  goal.descent_velocity_mps = 0.8;
+  setCommandStatus("LAND", "sending goal...", true);
+  alertBuffer_.push(AlertSeverity::Info, "Sending land command");
+
+  auto options = rclcpp_action::Client<peregrine_interfaces::action::Land>::SendGoalOptions();
+  options.feedback_callback =
+    [this](auto, const auto & feedback) {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "alt=%.1fm progress=%.0f%%",
+        feedback->current_altitude_m, feedback->progress * 100.0F);
+      setCommandStatus("LAND", buf, true);
+    };
+  options.result_callback =
+    [this](const auto & result) {
+      if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+        setCommandStatus("LAND", "SUCCESS");
+        alertBuffer_.push(AlertSeverity::Info, "Landing complete");
+      } else {
+        setCommandStatus("LAND", "FAILED: " + result.result->message);
+        alertBuffer_.push(AlertSeverity::Error, "Landing failed: " + result.result->message);
+      }
+    };
+
+  landClient_->async_send_goal(goal, options);
+}
+
+void TuiNode::sendClearEmergency()
+{
+  if (!clearEmergencyClient_->service_is_ready()) {
+    setCommandStatus("CLEAR EMERGENCY", "service not available");
+    alertBuffer_.push(AlertSeverity::Warning, "Clear emergency service not available");
+    return;
+  }
+
+  auto request = std::make_shared<peregrine_interfaces::srv::ClearEmergency::Request>();
+  setCommandStatus("CLEAR EMERGENCY", "sending...", true);
+  alertBuffer_.push(AlertSeverity::Info, "Sending clear emergency");
+
+  clearEmergencyClient_->async_send_request(
+    request,
+    [this](rclcpp::Client<peregrine_interfaces::srv::ClearEmergency>::SharedFuture future) {
+      auto response = future.get();
+      if (response->success) {
+        setCommandStatus("CLEAR EMERGENCY", "SUCCESS");
+        alertBuffer_.push(AlertSeverity::Info, "Emergency cleared");
+      } else {
+        setCommandStatus("CLEAR EMERGENCY", "FAILED: " + response->message);
+        alertBuffer_.push(AlertSeverity::Error, "Clear emergency failed: " + response->message);
+      }
+    });
 }
 
 void TuiNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)
@@ -440,6 +646,10 @@ StatusSnapshot TuiNode::buildSnapshot() const
     snapshot.has_safety_status = false;
     snapshot.safety_reason = "waiting_safety_status";
   }
+
+  snapshot.last_command = lastCommand_;
+  snapshot.last_command_result = lastCommandResult_;
+  snapshot.command_pending = commandPending_;
 
   return snapshot;
 }

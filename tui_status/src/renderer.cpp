@@ -25,7 +25,7 @@ constexpr short kColorPairValue = 7;
 constexpr short kColorPairDim = 8;
 constexpr short kColorPairAccent = 9;
 
-constexpr int kMinRows = 18;
+constexpr int kMinRows = 19;
 constexpr int kMinCols = 90;
 
 constexpr double kStaleThresholdS = 2.0;
@@ -480,7 +480,7 @@ void Renderer::render(
   const int middle_y = top_y + top_h;
   const int middle_h = 5;
   const int alerts_y = middle_y + middle_h;
-  const int alerts_h = rows - alerts_y - 2;
+  const int alerts_h = rows - alerts_y - 3;
   const int left_w = content_w / 2 - 1;
   const int right_x = content_x + left_w + 1;
   const int right_w = content_w - left_w - 1;
@@ -684,10 +684,22 @@ void Renderer::render(
 
   // --- Footer ---
   withColor(hasColors_, kColorPairBorder, A_NORMAL, true);
-  lineAt(rows - 3, 1, cols - 2);
+  lineAt(rows - 4, 1, cols - 2);
   withColor(hasColors_, kColorPairBorder, A_NORMAL, false);
 
-  printDim(hasColors_, rows - 2, 2, "Q:Quit  C:Clear messages  \xe2\x86\x91\xe2\x86\x93:Scroll messages");
+  // Command status line
+  if (!snapshot.last_command.empty()) {
+    const std::string cmdLabel = "CMD: " + snapshot.last_command + " ";
+    printLabel(hasColors_, rows - 3, 2, cmdLabel);
+    const short cmdColor = snapshot.command_pending ? kColorPairWarn :
+      (snapshot.last_command_result.find("SUCCESS") != std::string::npos ? kColorPairGood :
+       (snapshot.last_command_result.find("FAIL") != std::string::npos ? kColorPairBad : kColorPairValue));
+    printBadge(hasColors_, rows - 3, 2 + static_cast<int>(cmdLabel.size()),
+               cmdColor, truncate(snapshot.last_command_result, cols - static_cast<int>(cmdLabel.size()) - 8));
+  }
+
+  printDim(hasColors_, rows - 2, 2,
+    "A:Arm  D:Disarm  T:Takeoff  L:Land  E:ClearEmg  Q:Quit  C:Clear  \xe2\x86\x91\xe2\x86\x93:Scroll");
 
   // Wall clock on right side of footer
   const std::string footerClock = wallClockString();
