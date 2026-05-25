@@ -14,7 +14,12 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
 {
   BT::RosNodeParams params;
   params.nh = node;
-  params.server_timeout = std::chrono::milliseconds(3000);
+  // Goal-acceptance timeout at the ROS action client level. Must exceed the
+  // uav_manager's own service_timeout_s (3s for arm/offboard PX4 calls) to
+  // avoid the BT client timing out while the server is still processing.
+  params.server_timeout = std::chrono::milliseconds(30000);
+  // Don't block during tree construction — preflight retry nodes in the tree
+  // handle the wait for DDS discovery.
   params.wait_for_server_timeout = std::chrono::milliseconds(0);
 
   // -- UAV state conditions (topic: uav_state) --
@@ -71,6 +76,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
 
   // -- Utility nodes --
   factory.registerNodeType<WaitAction>("WaitAction", node);
+  factory.registerNodeType<WaitUntilReady>("WaitUntilReady", node);
 }
 
 }  // namespace peregrine_bt

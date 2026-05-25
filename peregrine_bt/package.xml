@@ -3,7 +3,7 @@
 <package format="3">
   <name>peregrine_bt</name>
   <version>0.1.0</version>
-  <description>Behavior Tree executor and BT-ROS 2 bridge for the Peregrine flight stack.</description>
+  <description>Behavior Tree nodes and TreeExecutionServer for the Peregrine flight stack.</description>
   <maintainer email="vaidyavarad2001@gmail.com">Varad Vaidya</maintainer>
   <license>Apache-2.0</license>
 
@@ -15,7 +15,6 @@
   <depend>peregrine_interfaces</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>rclcpp_lifecycle</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
 

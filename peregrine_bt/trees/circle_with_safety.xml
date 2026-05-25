@@ -2,12 +2,7 @@
 
   <BehaviorTree ID="CircleWithSafety">
     <Sequence>
-      <RetryUntilSuccessful num_attempts="500">
-        <Sequence>
-          <IsDependenciesReady/>
-          <IsSafetyNominal/>
-        </Sequence>
-      </RetryUntilSuccessful>
+      <WaitUntilReady timeout_s="300.0" settle_s="3.0"/>
       <ReactiveFallback>
         <ReactiveSequence>
           <IsSafetyNominal/>

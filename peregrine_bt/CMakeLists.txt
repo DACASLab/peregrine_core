@@ -12,7 +12,6 @@ find_package(btcpp_ros2_interfaces REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(rclcpp_lifecycle REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
@@ -40,30 +39,28 @@ ament_target_dependencies(peregrine_bt_nodes
   peregrine_interfaces
   rclcpp
   rclcpp_action
-  rclcpp_lifecycle
   geometry_msgs
   sensor_msgs
 )
 
-# BT executor node (standalone executable, not composable)
-add_executable(bt_executor_node src/bt_executor_node.cpp)
+# TreeExecutionServer-based executor
+add_executable(peregrine_tree_server src/peregrine_tree_server.cpp)
 
-target_include_directories(bt_executor_node
+target_include_directories(peregrine_tree_server
   PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-target_link_libraries(bt_executor_node peregrine_bt_nodes)
+target_link_libraries(peregrine_tree_server peregrine_bt_nodes)
 
-target_compile_features(bt_executor_node PUBLIC cxx_std_17)
+target_compile_features(peregrine_tree_server PUBLIC cxx_std_17)
 
-ament_target_dependencies(bt_executor_node
+ament_target_dependencies(peregrine_tree_server
   behaviortree_cpp
   behaviortree_ros2
   peregrine_interfaces
   rclcpp
   rclcpp_action
-  rclcpp_lifecycle
 )
 
 install(TARGETS peregrine_bt_nodes
@@ -72,7 +69,7 @@ install(TARGETS peregrine_bt_nodes
   RUNTIME DESTINATION bin
 )
 
-install(TARGETS bt_executor_node
+install(TARGETS peregrine_tree_server
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -84,8 +81,8 @@ install(DIRECTORY trees/
   DESTINATION share/${PROJECT_NAME}/trees
 )
 
-install(DIRECTORY launch/
-  DESTINATION share/${PROJECT_NAME}/launch
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 if(BUILD_TESTING)
@@ -104,7 +101,6 @@ ament_export_dependencies(
   peregrine_interfaces
   rclcpp
   rclcpp_action
-  rclcpp_lifecycle
   geometry_msgs
   sensor_msgs
 )

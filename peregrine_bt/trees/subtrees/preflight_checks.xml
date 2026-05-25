@@ -1,14 +1,7 @@
 <root BTCPP_format="4">
 
   <BehaviorTree ID="PreflightChecks">
-    <RetryUntilSuccessful num_attempts="500">
-      <Sequence>
-        <IsDependenciesReady/>
-        <IsBatteryAbove threshold_pct="0.2"/>
-        <IsGpsHealthy min_fix_type="3" max_hdop="5.0" max_vdop="5.0"/>
-        <IsSafetyNominal/>
-      </Sequence>
-    </RetryUntilSuccessful>
+    <WaitUntilReady timeout_s="300.0" settle_s="3.0"/>
   </BehaviorTree>
 
 </root>

@@ -1,18 +1,20 @@
 """@file
-@brief Launch a BT mission alongside the core flight stack.
+@brief Launch the BT TreeExecutionServer alongside the core flight stack.
 
-Includes core_stack.launch.py and launches the BTExecutorNode as a separate
-process. The BT executor is a lifecycle node — it must be configured and
-activated after launch (e.g. via ros2 lifecycle set).
+Includes core_stack.launch.py and launches PeregrineTreeServer. Missions are
+triggered by sending ExecuteTree action goals to the "execute_tree" action
+server (e.g. from the TUI, GCS, or CLI).
 
 Usage:
-  # Full stack + BT (SITL):
-  ros2 launch peregrine_bringup bt_mission.launch.py \
-      tree_file:=/ros2_ws/install/peregrine_bt/share/peregrine_bt/trees/takeoff_hover_land.xml
+  # Full stack + BT server (SITL):
+  ros2 launch peregrine_bringup bt_mission.launch.py
 
-  # BT only (core stack already running, e.g. hardware):
-  ros2 launch peregrine_bringup bt_mission.launch.py \
-      tree_file:=<path> start_core_stack:=false
+  # BT server only (core stack already running):
+  ros2 launch peregrine_bringup bt_mission.launch.py start_core_stack:=false
+
+  # Trigger a mission:
+  ros2 action send_goal /execute_tree btcpp_ros2_interfaces/action/ExecuteTree \
+      "{target_tree: 'TakeoffHoverLand', payload: ''}"
 """
 
 from launch import LaunchDescription
@@ -23,13 +25,11 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import LifecycleNode
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    tree_file = LaunchConfiguration("tree_file")
-    tick_rate_hz = LaunchConfiguration("tick_rate_hz")
     uav_namespace = LaunchConfiguration("uav_namespace")
     start_core_stack = LaunchConfiguration("start_core_stack")
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -38,17 +38,12 @@ def generate_launch_description() -> LaunchDescription:
         [FindPackageShare("peregrine_bringup"), "launch", "core_stack.launch.py"]
     )
 
+    tree_server_config = PathJoinSubstitution(
+        [FindPackageShare("peregrine_bt"), "config", "tree_server.yaml"]
+    )
+
     return LaunchDescription(
         [
-            DeclareLaunchArgument(
-                "tree_file",
-                description="Absolute path to the BT XML tree file.",
-            ),
-            DeclareLaunchArgument(
-                "tick_rate_hz",
-                default_value="2.0",
-                description="BT tick frequency in Hz.",
-            ),
             DeclareLaunchArgument(
                 "uav_namespace",
                 default_value="",
@@ -72,18 +67,15 @@ def generate_launch_description() -> LaunchDescription:
                     "use_sim_time": use_sim_time,
                 }.items(),
             ),
-            LifecycleNode(
+            Node(
                 package="peregrine_bt",
-                executable="bt_executor_node",
-                name="bt_executor",
+                executable="peregrine_tree_server",
+                name="bt_action_server",
                 namespace=uav_namespace,
                 output="screen",
                 parameters=[
-                    {
-                        "tree_file": tree_file,
-                        "tick_rate_hz": tick_rate_hz,
-                        "use_sim_time": use_sim_time,
-                    },
+                    tree_server_config,
+                    {"use_sim_time": use_sim_time},
                 ],
             ),
         ]
