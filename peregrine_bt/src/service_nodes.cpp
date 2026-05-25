@@ -32,32 +32,6 @@ BT::NodeStatus ArmService::onFailure(BT::ServiceNodeErrorCode error)
 }
 
 // ---------------------------------------------------------------------------
-// SetModeService
-// ---------------------------------------------------------------------------
-
-bool SetModeService::setRequest(Request::SharedPtr& request)
-{
-  getInput("mode", request->mode);
-  RCLCPP_INFO(logger(), "SetModeService: %s", request->mode.c_str());
-  return true;
-}
-
-BT::NodeStatus SetModeService::onResponseReceived(const Response::SharedPtr& response)
-{
-  if (response->success) {
-    return BT::NodeStatus::SUCCESS;
-  }
-  RCLCPP_WARN(logger(), "SetModeService failed: %s", response->message.c_str());
-  return BT::NodeStatus::FAILURE;
-}
-
-BT::NodeStatus SetModeService::onFailure(BT::ServiceNodeErrorCode error)
-{
-  RCLCPP_ERROR(logger(), "SetModeService error: %s", BT::toStr(error));
-  return BT::NodeStatus::FAILURE;
-}
-
-// ---------------------------------------------------------------------------
 // ClearEmergencyService
 // ---------------------------------------------------------------------------
 

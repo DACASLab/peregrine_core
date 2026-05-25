@@ -68,9 +68,6 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
   params.default_port_value = "arm";
   factory.registerNodeType<ArmService>("ArmService", params);
 
-  params.default_port_value = "set_mode";
-  factory.registerNodeType<SetModeService>("SetModeService", params);
-
   params.default_port_value = "uav_manager/clear_emergency";
   factory.registerNodeType<ClearEmergencyService>("ClearEmergencyService", params);
 
