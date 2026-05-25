@@ -67,6 +67,9 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   estimatedStateSub_ = this->create_subscription<peregrine_interfaces::msg::State>(
     "estimated_state", qos,
     [this](peregrine_interfaces::msg::State::SharedPtr msg) { onEstimatedState(msg); });
+  uavStateSub_ = this->create_subscription<peregrine_interfaces::msg::UAVState>(
+    "uav_state", statusQos,
+    [this](peregrine_interfaces::msg::UAVState::SharedPtr msg) { onUavState(msg); });
   trajectorySetpointPub_ = this->create_publisher<peregrine_interfaces::msg::TrajectorySetpoint>(
     "trajectory_setpoint", qos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::ManagerStatus>(
@@ -200,6 +203,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_cleanup(
   publishTimer_.reset();
   statusTimer_.reset();
   estimatedStateSub_.reset();
+  uavStateSub_.reset();
   trajectorySetpointPub_.reset();
   statusPub_.reset();
   goToServer_.reset();
@@ -282,6 +286,33 @@ void TrajectoryManagerNode::onEstimatedState(const peregrine_interfaces::msg::St
   if (!holdGenerator_) {
     holdGenerator_ = std::make_unique<HoldPositionGenerator>(*msg);
     activeModuleName_ = holdGenerator_->name();
+  }
+}
+
+void TrajectoryManagerNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg)
+{
+  if (!configured_) {
+    return;
+  }
+
+  const uint8_t prev = lastUavState_;
+  lastUavState_ = msg->state;
+
+  const bool landedOrIdle =
+    msg->state == peregrine_interfaces::msg::UAVState::STATE_LANDED ||
+    msg->state == peregrine_interfaces::msg::UAVState::STATE_IDLE;
+  const bool wasFlightState =
+    prev != peregrine_interfaces::msg::UAVState::STATE_LANDED &&
+    prev != peregrine_interfaces::msg::UAVState::STATE_IDLE;
+
+  if (landedOrIdle && wasFlightState) {
+    std::scoped_lock lock(mutex_);
+    if (latestState_.has_value() && activeGoalType_ == ActiveGoalType::None) {
+      holdGenerator_ = std::make_unique<HoldPositionGenerator>(*latestState_);
+      activeModuleName_ = holdGenerator_->name();
+      RCLCPP_INFO(get_logger(), "Reset hold to current position on supervisor %s",
+        msg->state == peregrine_interfaces::msg::UAVState::STATE_LANDED ? "LANDED" : "IDLE");
+    }
   }
 }
 

@@ -39,6 +39,7 @@
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/msg/trajectory_setpoint.hpp>
+#include <peregrine_interfaces/msg/uav_state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
@@ -125,6 +126,7 @@ private:
    */
   void stopPublishing();
   void onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg);
+  void onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr msg);
 
   /**
    * @brief Publishes trajectory setpoint at fixed rate.
@@ -226,8 +228,12 @@ private:
   /// True while node is lifecycle-active.
   bool active_{false};
 
+  /// Tracks the last supervisor state to detect LANDED/IDLE transitions.
+  uint8_t lastUavState_{peregrine_interfaces::msg::UAVState::STATE_IDLE};
+
   /// Estimated state input from estimation_manager.
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr estimatedStateSub_;
+  rclcpp::Subscription<peregrine_interfaces::msg::UAVState>::SharedPtr uavStateSub_;
   /// Lifecycle-gated trajectory setpoint output for control_manager.
   rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::TrajectorySetpoint>::SharedPtr
     trajectorySetpointPub_;
