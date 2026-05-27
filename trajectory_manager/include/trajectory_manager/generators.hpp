@@ -19,8 +19,11 @@
 
 #include <trajectory_manager/trajectory_generator_base.hpp>
 
+#include <Eigen/Core>
 #include <geometry_msgs/msg/point.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
+
+#include <vector>
 
 namespace trajectory_manager
 {
@@ -221,6 +224,35 @@ private:
   double startAltitude_{0.0};
   double targetAltitude_{0.0};
   double descentVelocity_{0.5};
+  rclcpp::Time startTime_{0, 0, RCL_ROS_TIME};
+};
+
+/**
+ * @class WaypointTrajectoryGenerator
+ * @brief Follows a pre-computed smooth 2D waypoint path at constant altitude.
+ *
+ * Time-parameterizes the path by arc-length at constant cruise velocity.
+ * Provides position + velocity feedforward + forward yaw at each sample.
+ */
+class WaypointTrajectoryGenerator : public TrajectoryGeneratorBase
+{
+public:
+  WaypointTrajectoryGenerator(
+    const std::vector<Eigen::Vector2d> & waypoints_enu,
+    const std::vector<double> & yaw,
+    double altitude,
+    double velocity_mps,
+    const rclcpp::Time & startTime);
+
+  TrajectorySample sample(const rclcpp::Time & now) override;
+
+private:
+  std::vector<Eigen::Vector2d> waypoints_;
+  std::vector<double> yaw_;
+  std::vector<double> cumArcLength_;
+  double altitude_{0.0};
+  double velocity_{1.0};
+  double totalDuration_{0.0};
   rclcpp::Time startTime_{0, 0, RCL_ROS_TIME};
 };
 

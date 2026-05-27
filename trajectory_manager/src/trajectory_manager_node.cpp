@@ -1,7 +1,10 @@
 #include <trajectory_manager/trajectory_manager_node.hpp>
 
+#include <trajectory_manager/coverage_planner.hpp>
 #include <trajectory_manager/generators.hpp>
+#include <trajectory_manager/path_smoothing.hpp>
 
+#include <frame_transforms/conversions.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <cmath>
@@ -608,6 +611,9 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
   //   figure8:  [radius_m, angular_velocity_radps, num_loops]
   //   step_response:
   //             [dx_m, dy_m, dz_m, dyaw_rad, pre_step_hold_s, post_step_hold_s]
+  //   coverage_sweep:
+  //             [grid_origin_lat, grid_origin_lon, cell_size, n_cols, n_rows,
+  //              altitude, velocity, footprint_w, N, cell_0, ..., cell_N-1]
   if (goal.trajectory_type == "hold") {
     return std::make_unique<HoldPositionGenerator>(state);
   }
@@ -654,6 +660,134 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
     stepOffset.z = goal.params[2];
     return std::make_unique<StepResponseGenerator>(
       state, stepOffset, goal.params[3], goal.params[4], goal.params[5], startTime);
+  }
+
+  if (goal.trajectory_type == "coverage_sweep") {
+    if (goal.params.size() < 10U) {
+      return nullptr;
+    }
+
+    const double origin_lat = goal.params[0];
+    const double origin_lon = goal.params[1];
+    const double cell_size = goal.params[2];
+    const int n_cols = static_cast<int>(goal.params[3]);
+    const int n_rows = static_cast<int>(goal.params[4]);
+    const double altitude = goal.params[5];
+    const double velocity = goal.params[6];
+    const double footprint_w = goal.params[7];
+    const int n_cells = static_cast<int>(goal.params[8]);
+
+    if (goal.params.size() != static_cast<size_t>(9 + n_cells)) {
+      return nullptr;
+    }
+
+    std::vector<int> cell_seq;
+    cell_seq.reserve(n_cells);
+    for (int i = 0; i < n_cells; ++i) {
+      cell_seq.push_back(static_cast<int>(goal.params[9 + i]));
+    }
+
+    // Convert grid origin from GPS to local ENU.
+    const double home_lat = params_.home_lat_deg;
+    const double home_lon = params_.home_lon_deg;
+    auto enu_offset = frame_transforms::geodeticToEnu(
+        home_lat, home_lon, 0.0, origin_lat, origin_lon, 0.0);
+    const double origin_e = enu_offset.x();
+    const double origin_n = enu_offset.y();
+
+    auto grid = buildGrid(origin_e, origin_n, cell_size, n_cols, n_rows);
+    auto boundary_pts = buildBoundaryPoints(grid.cell_polys, 3);
+
+    Point start_pos(state.pose.pose.position.x, state.pose.pose.position.y);
+
+    const std::vector<double> thetas = {0.0, M_PI / 2.0, M_PI / 4.0, 3.0 * M_PI / 4.0};
+    auto plan_result = planSequence(
+        grid.cells, cell_seq, footprint_w, thetas, boundary_pts, start_pos);
+
+    if (plan_result.full_path.empty()) {
+      return nullptr;
+    }
+
+    // Build cell bounds map for shrinking.
+    std::map<int, std::array<double, 4>> cell_bounds;
+    for (const auto & [id, poly] : grid.cells) {
+      double xmin = poly[0].x(), xmax = poly[0].x();
+      double ymin = poly[0].y(), ymax = poly[0].y();
+      for (const auto & p : poly) {
+        xmin = std::min(xmin, p.x());
+        xmax = std::max(xmax, p.x());
+        ymin = std::min(ymin, p.y());
+        ymax = std::max(ymax, p.y());
+      }
+      cell_bounds[id] = {xmin, xmax, ymin, ymax};
+    }
+
+    // Shrink per-cell sub-paths inside cell bounds, then concatenate.
+    SmoothingParams smooth_params;
+    std::vector<Eigen::Vector2d> concatenated;
+
+    for (size_t c = 0; c < plan_result.cell_point_ranges.size(); ++c) {
+      auto [start_idx, end_idx] = plan_result.cell_point_ranges[c];
+      int cid = plan_result.cell_ids[c];
+
+      // Add transit points (from end of previous cell to start of this cell).
+      if (c == 0 && start_idx > 0) {
+        for (size_t i = 0; i < start_idx; ++i) {
+          concatenated.push_back(plan_result.full_path[i]);
+        }
+      }
+
+      // Extract cell sub-path and shrink.
+      std::vector<Eigen::Vector2d> cell_pts(
+          plan_result.full_path.begin() + start_idx,
+          plan_result.full_path.begin() + end_idx);
+
+      auto shrunk = shrinkPathInsideCell(cell_pts, cell_bounds[cid], smooth_params.inside_margin);
+      for (const auto & p : shrunk) {
+        if (concatenated.empty() || (p - concatenated.back()).norm() > 1e-9) {
+          concatenated.push_back(p);
+        }
+      }
+
+      // Add transit to next cell.
+      if (c + 1 < plan_result.cell_point_ranges.size()) {
+        size_t next_start = plan_result.cell_point_ranges[c + 1].first;
+        for (size_t i = end_idx; i < next_start; ++i) {
+          if (concatenated.empty() ||
+              (plan_result.full_path[i] - concatenated.back()).norm() > 1e-9)
+          {
+            concatenated.push_back(plan_result.full_path[i]);
+          }
+        }
+      }
+    }
+
+    if (concatenated.size() < 2) {
+      return nullptr;
+    }
+
+    // Smooth the full path (only modifies corners).
+    auto smooth_path = smoothPolylineWithQuinticFillets(concatenated, smooth_params);
+
+    if (smooth_path.size() < 2) {
+      return nullptr;
+    }
+
+    auto yaw = computeForwardYaw(smooth_path);
+
+    RCLCPP_INFO(get_logger(),
+        "coverage_sweep: %zu cells, %zu C0 pts -> %zu smooth pts, path_len=%.1fm",
+        cell_seq.size(), concatenated.size(), smooth_path.size(),
+        [&]() {
+          double len = 0.0;
+          for (size_t i = 1; i < smooth_path.size(); ++i) {
+            len += (smooth_path[i] - smooth_path[i - 1]).norm();
+          }
+          return len;
+        }());
+
+    return std::make_unique<WaypointTrajectoryGenerator>(
+        smooth_path, yaw, altitude, velocity, startTime);
   }
 
   return nullptr;

@@ -28,3 +28,15 @@ trajectory_manager:
     default_value: true
     description: "Auto-configure and activate on startup"
     read_only: true
+
+  home_lat_deg:
+    type: double
+    default_value: 47.397971
+    description: "Home GPS latitude for geodetic-to-ENU conversion"
+    read_only: true
+
+  home_lon_deg:
+    type: double
+    default_value: 8.546164
+    description: "Home GPS longitude for geodetic-to-ENU conversion"
+    read_only: true

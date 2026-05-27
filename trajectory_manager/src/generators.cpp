@@ -362,4 +362,93 @@ TrajectorySample LandGenerator::sample(const rclcpp::Time & now)
   return sample;
 }
 
+WaypointTrajectoryGenerator::WaypointTrajectoryGenerator(
+  const std::vector<Eigen::Vector2d> & waypoints_enu,
+  const std::vector<double> & yaw,
+  double altitude,
+  double velocity_mps,
+  const rclcpp::Time & startTime)
+: TrajectoryGeneratorBase("coverage_sweep"),
+  waypoints_(waypoints_enu),
+  yaw_(yaw),
+  altitude_(altitude),
+  velocity_(std::max(0.1, std::abs(velocity_mps))),
+  startTime_(startTime)
+{
+  cumArcLength_.resize(waypoints_.size(), 0.0);
+  for (size_t i = 1; i < waypoints_.size(); ++i) {
+    cumArcLength_[i] = cumArcLength_[i - 1] + (waypoints_[i] - waypoints_[i - 1]).norm();
+  }
+  double totalLength = cumArcLength_.empty() ? 0.0 : cumArcLength_.back();
+  totalDuration_ = (totalLength > 1e-6) ? totalLength / velocity_ : 0.0;
+}
+
+TrajectorySample WaypointTrajectoryGenerator::sample(const rclcpp::Time & now)
+{
+  TrajectorySample sample;
+  sample.setpoint = makeBaseSetpoint(now);
+
+  if (waypoints_.empty()) {
+    sample.progress = 1.0F;
+    return sample;
+  }
+
+  const double elapsedS = std::max(0.0, (now - startTime_).seconds());
+  const double totalLength = cumArcLength_.back();
+
+  if (totalLength < 1e-6 || totalDuration_ < 1e-6) {
+    sample.setpoint.position.x = waypoints_.front().x();
+    sample.setpoint.position.y = waypoints_.front().y();
+    sample.setpoint.position.z = altitude_;
+    sample.setpoint.yaw = yaw_.empty() ? 0.0 : yaw_.front();
+    sample.progress = 1.0F;
+    return sample;
+  }
+
+  double s = velocity_ * elapsedS;
+  s = std::clamp(s, 0.0, totalLength);
+
+  // Binary search for the segment containing distance s.
+  auto it = std::upper_bound(cumArcLength_.begin(), cumArcLength_.end(), s);
+  size_t idx = (it == cumArcLength_.begin()) ? 0 : static_cast<size_t>(std::distance(cumArcLength_.begin(), it) - 1);
+  idx = std::min(idx, waypoints_.size() - 2);
+
+  double seg_start = cumArcLength_[idx];
+  double seg_end = cumArcLength_[idx + 1];
+  double seg_len = seg_end - seg_start;
+  double t = (seg_len > 1e-9) ? (s - seg_start) / seg_len : 0.0;
+  t = std::clamp(t, 0.0, 1.0);
+
+  Eigen::Vector2d pos = waypoints_[idx] + t * (waypoints_[idx + 1] - waypoints_[idx]);
+  sample.setpoint.position.x = pos.x();
+  sample.setpoint.position.y = pos.y();
+  sample.setpoint.position.z = altitude_;
+
+  // Interpolate yaw (shortest angular path).
+  if (!yaw_.empty() && idx < yaw_.size() - 1) {
+    double yaw_a = yaw_[idx];
+    double yaw_b = yaw_[idx + 1];
+    double diff = yaw_b - yaw_a;
+    while (diff > kPi) { diff -= 2.0 * kPi; }
+    while (diff < -kPi) { diff += 2.0 * kPi; }
+    sample.setpoint.yaw = yaw_a + t * diff;
+  } else if (!yaw_.empty()) {
+    sample.setpoint.yaw = yaw_.back();
+  }
+
+  // Velocity feedforward along the tangent direction.
+  Eigen::Vector2d tangent = waypoints_[idx + 1] - waypoints_[idx];
+  double tangent_norm = tangent.norm();
+  if (tangent_norm > 1e-9) {
+    tangent /= tangent_norm;
+    sample.setpoint.use_velocity = true;
+    sample.setpoint.velocity.x = velocity_ * tangent.x();
+    sample.setpoint.velocity.y = velocity_ * tangent.y();
+    sample.setpoint.velocity.z = 0.0;
+  }
+
+  sample.progress = static_cast<float>(clamp01(s / totalLength));
+  return sample;
+}
+
 }  // namespace trajectory_manager

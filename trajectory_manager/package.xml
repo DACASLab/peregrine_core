@@ -9,6 +9,8 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <build_depend>eigen</build_depend>
+  <depend>frame_transforms</depend>
   <depend>peregrine_interfaces</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
