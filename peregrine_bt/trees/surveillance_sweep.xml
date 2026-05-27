@@ -1,0 +1,25 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <!--
+    Parameterized surveillance sweep tree.
+    Intended to be triggered via ExecuteTree with JSON params:
+      altitude_m:       takeoff altitude (default 5.0)
+      pre_sweep_wait_s: wait after takeoff before sweep (default 2.0)
+      sweep_params:     comma-separated coverage_sweep params string
+  -->
+
+  <BehaviorTree ID="SurveillanceSweep">
+    <Sequence>
+      <SubTree ID="PreflightAndTakeoff" altitude_m="{altitude_m}"/>
+      <WaitAction duration_s="{pre_sweep_wait_s}"/>
+      <ExecuteTrajectoryAction
+        trajectory_type="coverage_sweep"
+        params="{sweep_params}"/>
+      <WaitAction duration_s="2.0"/>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

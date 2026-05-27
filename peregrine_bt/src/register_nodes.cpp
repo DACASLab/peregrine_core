@@ -17,7 +17,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
   // Goal-acceptance timeout at the ROS action client level. Must exceed the
   // uav_manager's own service_timeout_s (3s for arm/offboard PX4 calls) to
   // avoid the BT client timing out while the server is still processing.
-  params.server_timeout = std::chrono::milliseconds(30000);
+  params.server_timeout = std::chrono::milliseconds(120000);
   // Don't block during tree construction — preflight retry nodes in the tree
   // handle the wait for DDS discovery.
   params.wait_for_server_timeout = std::chrono::milliseconds(0);

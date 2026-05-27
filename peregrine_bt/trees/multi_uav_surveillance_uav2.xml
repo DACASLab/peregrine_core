@@ -1,0 +1,29 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <!--
+    Multi-UAV surveillance: UAV2 sweeps all 6 cells top-left then bottom-right.
+    Cell sequence: 5 -> 4 -> 3 -> 0 -> 1 -> 2
+
+    This is the diametrically opposite pattern to UAV1's 0->1->2->5->4->3.
+
+    UAV2 flies at 10m (vs UAV1's 5m) for vertical separation. Steps 1 and 4
+    have the UAVs in adjacent cells (same column), where lateral separation
+    within the lawnmower pattern can drop below safe thresholds. The 5m
+    altitude offset provides an additional safety margin.
+  -->
+
+  <BehaviorTree ID="MultiUavSurveillanceUav2">
+    <Sequence>
+      <SubTree ID="PreflightAndTakeoff" altitude_m="10.0"/>
+      <WaitAction duration_s="2.0"/>
+      <ExecuteTrajectoryAction
+        trajectory_type="coverage_sweep"
+        params="47.398050,8.546250,5.0,3,2,10.0,0.75,1.5,6,5,4,3,0,1,2"/>
+      <WaitAction duration_s="2.0"/>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

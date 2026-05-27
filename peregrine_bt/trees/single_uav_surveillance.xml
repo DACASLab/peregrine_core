@@ -1,0 +1,31 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <!--
+    Single-UAV surveillance over a 3x2 grid (5m cells) at 5m altitude.
+
+    Grid layout (row-major cell IDs):
+      [3] [4] [5]
+      [0] [1] [2]
+
+    Snake pattern: 0 -> 1 -> 2 -> 5 -> 4 -> 3
+
+    coverage_sweep params:
+      grid_origin_lat, grid_origin_lon, cell_size, n_cols, n_rows,
+      altitude, velocity, footprint_w, N, cell_0, ..., cell_N-1
+  -->
+
+  <BehaviorTree ID="SingleUavSurveillance">
+    <Sequence>
+      <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
+      <WaitAction duration_s="2.0"/>
+      <ExecuteTrajectoryAction
+        trajectory_type="coverage_sweep"
+        params="47.398050,8.546250,5.0,3,2,5.0,0.75,1.5,6,0,1,2,5,4,3"/>
+      <WaitAction duration_s="2.0"/>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>
