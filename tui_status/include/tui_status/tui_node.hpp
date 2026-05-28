@@ -12,6 +12,7 @@
 
 #include <peregrine_interfaces/action/land.hpp>
 #include <peregrine_interfaces/action/takeoff.hpp>
+#include <peregrine_interfaces/msg/compute_status.hpp>
 #include <peregrine_interfaces/msg/gps_status.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
@@ -56,6 +57,7 @@ private:
     const char * label);
   void onPx4Status(const peregrine_interfaces::msg::PX4Status::SharedPtr msg);
   void onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg);
+  void onComputeStatus(const peregrine_interfaces::msg::ComputeStatus::SharedPtr msg);
 
   StatusSnapshot buildSnapshot() const;
 
@@ -64,7 +66,6 @@ private:
 
   std::shared_ptr<Renderer> renderer_;
   AlertBuffer alertBuffer_;
-  rclcpp::Time startTime_;
 
   mutable std::mutex mutex_;
   bool exitRequested_{false};
@@ -85,9 +86,16 @@ private:
   bool hadFirstControlStatus_{false};
   bool hadFirstTrajectoryStatus_{false};
 
-  // Flight timer tracking
+  // Timer tracking
   bool inFlight_{false};
   rclcpp::Time flightStartTime_;
+  double accumulatedFlightS_{0.0};
+
+  bool wasArmed_{false};
+  rclcpp::Time armStartTime_;
+  double accumulatedArmedS_{0.0};
+
+  rclcpp::Time firstUavStateTime_;
 
   // Staleness timestamps (steady_clock-based via rclcpp)
   rclcpp::Time lastUavStateTime_;
@@ -109,6 +117,7 @@ private:
   std::optional<peregrine_interfaces::msg::ManagerStatus> latestTrajectoryStatus_;
   std::optional<peregrine_interfaces::msg::PX4Status> latestPx4Status_;
   std::optional<peregrine_interfaces::msg::GpsStatus> latestGpsStatus_;
+  std::optional<peregrine_interfaces::msg::ComputeStatus> latestComputeStatus_;
 
   rclcpp::Subscription<peregrine_interfaces::msg::UAVState>::SharedPtr uavStateSub_;
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr estimatedStateSub_;
@@ -118,6 +127,7 @@ private:
   rclcpp::Subscription<peregrine_interfaces::msg::ManagerStatus>::SharedPtr trajectoryStatusSub_;
   rclcpp::Subscription<peregrine_interfaces::msg::PX4Status>::SharedPtr px4StatusSub_;
   rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
+  rclcpp::Subscription<peregrine_interfaces::msg::ComputeStatus>::SharedPtr computeStatusSub_;
 
   rclcpp::TimerBase::SharedPtr refreshTimer_;
 

@@ -7,7 +7,7 @@ than defining their own ComposableNodeContainer.
 
 Nodes launched (all composable, single process):
   hardware_abstraction, frame_transforms, estimation_manager, control_manager,
-  trajectory_manager, safety_monitor, uav_manager
+  trajectory_manager, safety_monitor, uav_manager, compute_monitor
 
 Optional extras (via launch args):
   MicroXRCEAgent, Gazebo clock bridge, flight visualizer, RViz2
@@ -204,6 +204,12 @@ def generate_launch_description() -> LaunchDescription:
                         name="uav_manager",
                         namespace=uav_namespace,
                         parameters=[uav_params_file, config_overrides, {"use_sim_time": use_sim_time}],
+                    ),
+                    ComposableNode(
+                        package="compute_monitor",
+                        plugin="compute_monitor::ComputeMonitorNode",
+                        name="compute_monitor",
+                        namespace=uav_namespace,
                     ),
                 ],
             ),

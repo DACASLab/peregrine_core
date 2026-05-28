@@ -128,6 +128,49 @@ short batteryColorPair(const float battery_percent)
   return kColorPairGood;
 }
 
+short cpuColorPair(const float percent)
+{
+  if (percent < 0.0F) {
+    return kColorPairDim;
+  }
+  if (percent > 85.0F) {
+    return kColorPairBad;
+  }
+  if (percent > 65.0F) {
+    return kColorPairWarn;
+  }
+  return kColorPairGood;
+}
+
+short tempColorPair(const float temp_c)
+{
+  if (temp_c < 0.0F) {
+    return kColorPairDim;
+  }
+  if (temp_c > 80.0F) {
+    return kColorPairBad;
+  }
+  if (temp_c > 65.0F) {
+    return kColorPairWarn;
+  }
+  return kColorPairGood;
+}
+
+short ramColorPair(const float used, const float total)
+{
+  if (total <= 0.0F) {
+    return kColorPairDim;
+  }
+  const float ratio = used / total;
+  if (ratio > 0.85F) {
+    return kColorPairBad;
+  }
+  if (ratio > 0.70F) {
+    return kColorPairWarn;
+  }
+  return kColorPairGood;
+}
+
 short gpsColorPair(const uint8_t fix_type)
 {
   if (fix_type >= 3U) {
@@ -205,9 +248,19 @@ std::string wallClockString()
   const auto now = std::chrono::system_clock::now();
   const std::time_t t = std::chrono::system_clock::to_time_t(now);
   std::tm tm{};
-  localtime_r(&t, &tm);
-  char buf[16];
-  std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
+  gmtime_r(&t, &tm);
+  // IST = UTC+5:30
+  tm.tm_hour += 5;
+  tm.tm_min += 30;
+  if (tm.tm_min >= 60) {
+    tm.tm_min -= 60;
+    tm.tm_hour += 1;
+  }
+  if (tm.tm_hour >= 24) {
+    tm.tm_hour -= 24;
+  }
+  char buf[48];
+  std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d IST", tm.tm_hour, tm.tm_min, tm.tm_sec);
   return std::string(buf);
 }
 
@@ -453,19 +506,29 @@ void Renderer::render(
   printBadge(hasColors_, 0, healthPos, healthColorPair(health), healthBadge);
   printDim(hasColors_, 0, cols - static_cast<int>(clock.size()) - 3, clock);
 
-  // --- Header row 1: namespace + uptime + flight timer ---
+  // --- Header row 1: namespace + UAV uptime + armed time + flight time ---
   const std::string ns = uav_namespace.empty() ? std::string("/") : uav_namespace;
   const std::string nsStr = " namespace: " + ns;
   withColor(hasColors_, kColorPairAccent, A_BOLD, true);
-  mvaddnstr(1, 2, nsStr.c_str(), cols / 2);
+  mvaddnstr(1, 2, nsStr.c_str(), cols / 3);
   withColor(hasColors_, kColorPairAccent, A_BOLD, false);
 
-  const std::string uptimeStr = "uptime: " + formatDuration(snapshot.uptime_s);
-  printDim(hasColors_, 1, cols / 2, uptimeStr);
+  int tc = cols / 3 + 2;
+  if (snapshot.uav_uptime_s >= 0.0) {
+    const std::string upStr = "up:" + formatDuration(snapshot.uav_uptime_s);
+    printDim(hasColors_, 1, tc, upStr);
+    tc += static_cast<int>(upStr.size()) + 2;
+  }
+
+  if (snapshot.armed_time_s > 0.0) {
+    const std::string armStr = "armed:" + formatDuration(snapshot.armed_time_s);
+    printBadge(hasColors_, 1, tc, kColorPairWarn, armStr);
+    tc += static_cast<int>(armStr.size()) + 4;
+  }
 
   if (snapshot.flight_time_s > 0.0) {
-    const std::string flightStr = "flight: " + formatDuration(snapshot.flight_time_s);
-    printBadge(hasColors_, 1, cols / 2 + static_cast<int>(uptimeStr.size()) + 2, kColorPairGood, flightStr);
+    const std::string flightStr = "flight:" + formatDuration(snapshot.flight_time_s);
+    printBadge(hasColors_, 1, tc, kColorPairGood, flightStr);
   }
 
   withColor(hasColors_, kColorPairBorder, A_NORMAL, true);
@@ -487,7 +550,7 @@ void Renderer::render(
 
   drawPanel(hasColors_, top_y, content_x, top_h, content_w, "Flight");
   drawPanel(hasColors_, middle_y, content_x, middle_h, left_w, "Managers / Readiness");
-  drawPanel(hasColors_, middle_y, right_x, middle_h, right_w, "Safety / Hardware");
+  drawPanel(hasColors_, middle_y, right_x, middle_h, right_w, "Safety / OBC");
   drawPanel(hasColors_, alerts_y, content_x, alerts_h, content_w, "Messages");
 
   // --- Flight panel row 1: state/mode/badges ---
@@ -621,15 +684,39 @@ void Renderer::render(
     printDim(hasColors_, row, col + 13, "not enabled in this launch");
   }
 
-  // PX4 row — only show when something noteworthy (disconnected or failsafe)
+  // Compute stats row — CPU%, freq, temp, RAM from onboard computer
   row = middle_y + 2;
-  printLabel(hasColors_, row, col, "PX4:");
-  if (!snapshot.connected) {
-    printBadge(hasColors_, row, col + 5, kColorPairBad, "DISCONNECTED", A_BOLD);
-  } else if (snapshot.failsafe) {
-    printBadge(hasColors_, row, col + 5, kColorPairBad, "FAILSAFE ACTIVE", A_BOLD);
+  if (snapshot.has_compute_status) {
+    int cc = col;
+    char buf[16];
+
+    printLabel(hasColors_, row, cc, "CPU:");
+    cc += 5;
+    std::snprintf(buf, sizeof(buf), "%2.0f%%", snapshot.compute.cpu_percent);
+    printBadge(hasColors_, row, cc, cpuColorPair(snapshot.compute.cpu_percent), buf);
+    cc += static_cast<int>(std::string(buf).size()) + 3;
+
+    if (snapshot.compute.cpu_freq_ghz > 0.0F) {
+      std::snprintf(buf, sizeof(buf), "%.1fGHz", snapshot.compute.cpu_freq_ghz);
+      printValue(hasColors_, row, cc, buf);
+      cc += static_cast<int>(std::string(buf).size()) + 1;
+    }
+
+    if (snapshot.compute.cpu_temp_c > 0.0F) {
+      std::snprintf(buf, sizeof(buf), "%.0f\xc2\xb0""C", snapshot.compute.cpu_temp_c);
+      printBadge(hasColors_, row, cc, tempColorPair(snapshot.compute.cpu_temp_c), buf);
+      cc += static_cast<int>(std::string(buf).size()) + 3;
+    }
+
+    std::snprintf(buf, sizeof(buf), "%.1f/%.1fG",
+      snapshot.compute.ram_used_gb, snapshot.compute.ram_total_gb);
+    printLabel(hasColors_, row, cc, "RAM:");
+    cc += 4;
+    printBadge(hasColors_, row, cc,
+      ramColorPair(snapshot.compute.ram_used_gb, snapshot.compute.ram_total_gb), buf);
   } else {
-    printBadge(hasColors_, row, col + 5, kColorPairGood, "OK", A_DIM);
+    printLabel(hasColors_, row, col, "OBC:");
+    printDim(hasColors_, row, col + 5, "waiting compute_status...");
   }
 
   // Battery row - visual bar

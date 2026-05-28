@@ -16,6 +16,15 @@ struct SafetyCheckerView
   std::string reason;
 };
 
+struct ComputeStats
+{
+  float cpu_percent{-1.0F};
+  float cpu_freq_ghz{-1.0F};
+  float cpu_temp_c{-1.0F};
+  float ram_used_gb{-1.0F};
+  float ram_total_gb{-1.0F};
+};
+
 struct StatusSnapshot
 {
   std::string state{"UNKNOWN"};
@@ -66,6 +75,9 @@ struct StatusSnapshot
   std::string safety_reason{"unknown"};
   std::vector<SafetyCheckerView> checker_levels;
 
+  bool has_compute_status{false};
+  ComputeStats compute;
+
   // Staleness ages in seconds (-1 = never received)
   double estimated_state_age_s{-1.0};
   double safety_status_age_s{-1.0};
@@ -74,7 +86,8 @@ struct StatusSnapshot
   double uav_state_age_s{-1.0};
 
   // Timers
-  double uptime_s{0.0};
+  double uav_uptime_s{-1.0};
+  double armed_time_s{0.0};
   double flight_time_s{0.0};
 
   // Command feedback

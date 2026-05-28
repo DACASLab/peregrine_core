@@ -60,7 +60,7 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
 , params_(paramListener_->get_params())
 , renderer_(renderer)
 , alertBuffer_(static_cast<std::size_t>(std::max(int64_t{1}, params_.alert_buffer_size)))
-, startTime_(this->now())
+
 {
 
   const double refreshRateHz = params_.refresh_rate_hz;
@@ -101,6 +101,10 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
 
   gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
     topicName("gps_status"), qos, [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
+
+  computeStatusSub_ = this->create_subscription<peregrine_interfaces::msg::ComputeStatus>(
+    topicName("compute_status"), qos,
+    [this](peregrine_interfaces::msg::ComputeStatus::SharedPtr msg) { onComputeStatus(msg); });
 
   // Command clients
   armClient_ = this->create_client<peregrine_interfaces::srv::Arm>(topicName("arm"));
@@ -150,6 +154,19 @@ void TuiNode::onTimer()
     return;
   }
 
+  // Expire arm/disarm confirmation windows on each tick, not just on keypress
+  {
+    const auto now = this->now();
+    if (armConfirmPending_ && now > confirmDeadline_) {
+      armConfirmPending_ = false;
+      setCommandStatus("ARM", "confirmation timed out");
+    }
+    if (disarmConfirmPending_ && now > confirmDeadline_) {
+      disarmConfirmPending_ = false;
+      setCommandStatus("DISARM", "confirmation timed out");
+    }
+  }
+
   for (int key = renderer_->pollKey(); key != ERR; key = renderer_->pollKey()) {
     handleKeyInput(key);
     if (shouldExit()) {
@@ -176,6 +193,8 @@ void TuiNode::onTimer()
 
 void TuiNode::handleKeyInput(int key)
 {
+  const auto now = this->now();
+
   if (key == 'q' || key == 'Q') {
     {
       std::scoped_lock lock(mutex_);
@@ -207,15 +226,6 @@ void TuiNode::handleKeyInput(int key)
       --alertScroll_;
     }
     return;
-  }
-
-  // Expire arm/disarm confirmation windows
-  const auto now = this->now();
-  if (armConfirmPending_ && now > confirmDeadline_) {
-    armConfirmPending_ = false;
-  }
-  if (disarmConfirmPending_ && now > confirmDeadline_) {
-    disarmConfirmPending_ = false;
   }
 
   if (key == 'a') {
@@ -418,11 +428,27 @@ void TuiNode::onUavState(const peregrine_interfaces::msg::UAVState::SharedPtr ms
     }
   }
 
-  // Flight timer tracking
+  const auto now = this->now();
+
+  // UAV uptime: time since first uav_state message
+  if (!hadFirstUavState_) {
+    firstUavStateTime_ = now;
+  }
+
+  // Armed time: accumulate while armed
+  if (msg->armed && !wasArmed_) {
+    armStartTime_ = now;
+  } else if (!msg->armed && wasArmed_) {
+    accumulatedArmedS_ += (now - armStartTime_).seconds();
+  }
+  wasArmed_ = msg->armed;
+
+  // Flight timer: accumulate across takeoff/land cycles
   if (isFlightState(msg->state) && !inFlight_) {
     inFlight_ = true;
-    flightStartTime_ = this->now();
+    flightStartTime_ = now;
   } else if (!isFlightState(msg->state) && inFlight_) {
+    accumulatedFlightS_ += (now - flightStartTime_).seconds();
     inFlight_ = false;
   }
 
@@ -520,6 +546,12 @@ void TuiNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr 
   latestGpsStatus_ = *msg;
 }
 
+void TuiNode::onComputeStatus(const peregrine_interfaces::msg::ComputeStatus::SharedPtr msg)
+{
+  std::scoped_lock lock(mutex_);
+  latestComputeStatus_ = *msg;
+}
+
 StatusSnapshot TuiNode::buildSnapshot() const
 {
   StatusSnapshot snapshot;
@@ -528,14 +560,21 @@ StatusSnapshot TuiNode::buildSnapshot() const
 
   const rclcpp::Time now = this->now();
 
-  // Uptime
-  snapshot.uptime_s = (now - startTime_).seconds();
+  // UAV uptime (time since first uav_state message from onboard stack)
+  if (hadFirstUavState_) {
+    snapshot.uav_uptime_s = (now - firstUavStateTime_).seconds();
+  }
 
-  // Flight time
+  // Armed time (accumulated + current arm session if still armed)
+  snapshot.armed_time_s = accumulatedArmedS_;
+  if (wasArmed_) {
+    snapshot.armed_time_s += (now - armStartTime_).seconds();
+  }
+
+  // Flight time (accumulated + current flight if still in air)
+  snapshot.flight_time_s = accumulatedFlightS_;
   if (inFlight_) {
-    snapshot.flight_time_s = (now - flightStartTime_).seconds();
-  } else {
-    snapshot.flight_time_s = 0.0;
+    snapshot.flight_time_s += (now - flightStartTime_).seconds();
   }
 
   // Staleness
@@ -645,6 +684,15 @@ StatusSnapshot TuiNode::buildSnapshot() const
   } else {
     snapshot.has_safety_status = false;
     snapshot.safety_reason = "waiting_safety_status";
+  }
+
+  if (latestComputeStatus_.has_value()) {
+    snapshot.has_compute_status = true;
+    snapshot.compute.cpu_percent = latestComputeStatus_->cpu_percent;
+    snapshot.compute.cpu_freq_ghz = latestComputeStatus_->cpu_freq_ghz;
+    snapshot.compute.cpu_temp_c = latestComputeStatus_->cpu_temp_c;
+    snapshot.compute.ram_used_gb = latestComputeStatus_->ram_used_gb;
+    snapshot.compute.ram_total_gb = latestComputeStatus_->ram_total_gb;
   }
 
   snapshot.last_command = lastCommand_;
