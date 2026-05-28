@@ -32,7 +32,14 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description() -> LaunchDescription:
     uav_namespace = LaunchConfiguration("uav_namespace")
     start_core_stack = LaunchConfiguration("start_core_stack")
+    start_microxrce_agent = LaunchConfiguration("start_microxrce_agent")
+    microxrce_port = LaunchConfiguration("microxrce_port")
+    ros_localhost_only = LaunchConfiguration("ros_localhost_only")
+    ros_domain_id = LaunchConfiguration("ros_domain_id")
+    px4_namespace = LaunchConfiguration("px4_namespace")
+    target_system_id = LaunchConfiguration("target_system_id")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    groot2_port = LaunchConfiguration("groot2_port")
 
     core_stack_launch = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "launch", "core_stack.launch.py"]
@@ -55,15 +62,56 @@ def generate_launch_description() -> LaunchDescription:
                 description="Include core_stack.launch.py (set false if stack is already running).",
             ),
             DeclareLaunchArgument(
+                "start_microxrce_agent",
+                default_value="true",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
+                "microxrce_port",
+                default_value="8888",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
+                "ros_localhost_only",
+                default_value="1",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
+                "ros_domain_id",
+                default_value="0",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
+                "px4_namespace",
+                default_value="",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
+                "target_system_id",
+                default_value="1",
+                description="Forwarded to core_stack.launch.py when start_core_stack is true.",
+            ),
+            DeclareLaunchArgument(
                 "use_sim_time",
                 default_value="false",
                 description="Use simulation time.",
+            ),
+            DeclareLaunchArgument(
+                "groot2_port",
+                default_value="1667",
+                description="Port used by the Groot2 publisher for this BT server.",
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(core_stack_launch),
                 condition=IfCondition(start_core_stack),
                 launch_arguments={
                     "uav_namespace": uav_namespace,
+                    "start_microxrce_agent": start_microxrce_agent,
+                    "microxrce_port": microxrce_port,
+                    "ros_localhost_only": ros_localhost_only,
+                    "ros_domain_id": ros_domain_id,
+                    "px4_namespace": px4_namespace,
+                    "target_system_id": target_system_id,
                     "use_sim_time": use_sim_time,
                 }.items(),
             ),
@@ -75,7 +123,20 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     tree_server_config,
-                    {"use_sim_time": use_sim_time},
+                    {
+                        # YAML node keys do not match once this node is placed
+                        # in a UAV namespace, so keep the critical tree server
+                        # parameters inline as namespace-safe overrides.
+                        "action_name": "execute_tree",
+                        "tick_frequency": 10,
+                        "groot2_port": groot2_port,
+                        "ros_plugins_timeout": 1000,
+                        "behavior_trees": [
+                            "peregrine_bt/trees",
+                            "peregrine_bt/trees/subtrees",
+                        ],
+                        "use_sim_time": use_sim_time,
+                    },
                 ],
             ),
         ]

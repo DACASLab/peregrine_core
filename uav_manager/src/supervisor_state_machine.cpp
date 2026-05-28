@@ -22,6 +22,10 @@ const std::vector<SupervisorStateMachine::TransitionRule> & SupervisorStateMachi
       SupervisorState::Armed, "ARM_ACCEPTED"},
     {SupervisorState::Landed, SupervisorEvent::ArmRequested, GuardId::TakeoffReady,
       SupervisorState::Armed, "ARM_ACCEPTED"},
+    {SupervisorState::Idle, SupervisorEvent::ExternalArmDetected, GuardId::Always,
+      SupervisorState::Armed, "EXTERNAL_ARM_DETECTED"},
+    {SupervisorState::Landed, SupervisorEvent::ExternalArmDetected, GuardId::Always,
+      SupervisorState::Armed, "EXTERNAL_ARM_DETECTED"},
 
     // --- Takeoff: Armed -> TakingOff, with completion/failure returning to Hovering/Armed ---
     {SupervisorState::Armed, SupervisorEvent::TakeoffRequested, GuardId::TakeoffReady,
@@ -169,6 +173,8 @@ const char * SupervisorStateMachine::toString(const SupervisorEvent event)
   switch (event) {
     case SupervisorEvent::ArmRequested:
       return "arm_requested";
+    case SupervisorEvent::ExternalArmDetected:
+      return "external_arm_detected";
     case SupervisorEvent::TakeoffRequested:
       return "takeoff_requested";
     case SupervisorEvent::TakeoffCompleted:

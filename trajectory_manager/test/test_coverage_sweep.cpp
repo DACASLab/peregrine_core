@@ -1,9 +1,11 @@
 #include <trajectory_manager/coverage_planner.hpp>
+#include <trajectory_manager/generators.hpp>
 #include <trajectory_manager/path_smoothing.hpp>
 
 #include <cmath>
 #include <cstdio>
 #include <cassert>
+#include <limits>
 
 using namespace trajectory_manager;
 
@@ -148,6 +150,51 @@ void test_forward_yaw()
   printf("  East yaw~0, North yaw~pi/2. PASS\n");
 }
 
+void test_waypoint_speed_profile()
+{
+  printf("=== test_waypoint_speed_profile ===\n");
+
+  const rclcpp::Time start(0, 0, RCL_ROS_TIME);
+  std::vector<Eigen::Vector2d> straight_path = {
+    {0.0, 0.0}, {5.0, 0.0}, {10.0, 0.0}};
+  auto straight_yaw = computeForwardYaw(straight_path);
+  WaypointTrajectoryGenerator straight(straight_path, straight_yaw, 5.0, 1.5, start);
+
+  auto straight_sample = straight.sample(start + rclcpp::Duration::from_seconds(1.0));
+  const double straight_speed = std::hypot(
+    straight_sample.setpoint.velocity.x,
+    straight_sample.setpoint.velocity.y);
+  assert(straight_sample.setpoint.use_velocity);
+  assert(std::abs(straight_speed - 1.5) < 0.05);
+
+  std::vector<Eigen::Vector2d> corner_path = {
+    {0.0, 0.0}, {5.0, 0.0}, {5.0, 5.0}};
+  SmoothingParams params;
+  params.samples_per_corner = 50;
+  auto smooth_corner = smoothPolylineWithQuinticFillets(corner_path, params);
+  auto corner_yaw = computeForwardYaw(smooth_corner);
+  WaypointTrajectoryGenerator corner(smooth_corner, corner_yaw, 5.0, 1.5, start);
+
+  double min_speed = std::numeric_limits<double>::infinity();
+  double max_speed = 0.0;
+  for (double t = 0.0; t <= 16.0; t += 0.1) {
+    auto sample = corner.sample(start + rclcpp::Duration::from_seconds(t));
+    if (!sample.setpoint.use_velocity) {
+      continue;
+    }
+    const double speed = std::hypot(sample.setpoint.velocity.x, sample.setpoint.velocity.y);
+    min_speed = std::min(min_speed, speed);
+    max_speed = std::max(max_speed, speed);
+  }
+
+  assert(min_speed < 0.65);
+  assert(max_speed > 1.35);
+
+  printf(
+    "  straight=%.2fm/s, corner min=%.2fm/s, max=%.2fm/s. PASS\n",
+    straight_speed, min_speed, max_speed);
+}
+
 void test_full_pipeline()
 {
   printf("=== test_full_pipeline (3x2 grid, snake pattern) ===\n");
@@ -249,6 +296,7 @@ int main()
   test_straight_line_unchanged();
   test_shrink_path();
   test_forward_yaw();
+  test_waypoint_speed_profile();
   test_full_pipeline();
 
   printf("\n=== ALL TESTS PASSED ===\n");

@@ -231,7 +231,8 @@ private:
  * @class WaypointTrajectoryGenerator
  * @brief Follows a pre-computed smooth 2D waypoint path at constant altitude.
  *
- * Time-parameterizes the path by arc-length at constant cruise velocity.
+ * Time-parameterizes the path by arc-length with slower curved sections and
+ * acceleration-limited ramps between corner and straight speeds.
  * Provides position + velocity feedforward + forward yaw at each sample.
  */
 class WaypointTrajectoryGenerator : public TrajectoryGeneratorBase
@@ -250,8 +251,11 @@ private:
   std::vector<Eigen::Vector2d> waypoints_;
   std::vector<double> yaw_;
   std::vector<double> cumArcLength_;
+  std::vector<double> cumTime_;
+  std::vector<double> speedProfile_;
+  std::vector<double> speedSlope_;
   double altitude_{0.0};
-  double velocity_{1.0};
+  double cruiseVelocity_{1.0};
   double totalDuration_{0.0};
   rclcpp::Time startTime_{0, 0, RCL_ROS_TIME};
 };

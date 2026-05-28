@@ -10,6 +10,10 @@ namespace
 
 // This unnamed namespace keeps helper functions private to this .cpp translation unit.
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kCoverageCornerSpeedMps = 0.5;
+constexpr double kCoverageRampAccelerationMps2 = 0.75;
+constexpr double kCornerTurnThresholdRad = 0.01;
+constexpr double kCornerCurvatureThresholdRadPerM = 0.05;
 
 /// Clamps value to [0, 1].
 double clamp01(const double value)
@@ -29,6 +33,129 @@ double norm3d(const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Poi
   const double dy = a.y - b.y;
   const double dz = a.z - b.z;
   return std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+}
+
+std::vector<double> buildCurvatureAwareSpeedProfile(
+  const std::vector<Eigen::Vector2d> & waypoints,
+  const std::vector<double> & cumArcLength,
+  const double cruiseSpeed)
+{
+  std::vector<double> speed(waypoints.size(), cruiseSpeed);
+  if (waypoints.size() < 3) {
+    return speed;
+  }
+
+  const double cornerSpeed = std::min(kCoverageCornerSpeedMps, cruiseSpeed);
+  for (size_t i = 1; i + 1 < waypoints.size(); ++i) {
+    Eigen::Vector2d inbound = waypoints[i] - waypoints[i - 1];
+    Eigen::Vector2d outbound = waypoints[i + 1] - waypoints[i];
+    const double inboundLen = inbound.norm();
+    const double outboundLen = outbound.norm();
+    if (inboundLen < 1e-6 || outboundLen < 1e-6) {
+      continue;
+    }
+
+    inbound /= inboundLen;
+    outbound /= outboundLen;
+    const double dot = std::clamp(inbound.dot(outbound), -1.0, 1.0);
+    const double cross = (inbound.x() * outbound.y()) - (inbound.y() * outbound.x());
+    const double turn = std::abs(std::atan2(cross, dot));
+    const double curvature = turn / std::max(0.5 * (inboundLen + outboundLen), 1e-3);
+    if (turn > kCornerTurnThresholdRad && curvature > kCornerCurvatureThresholdRadPerM) {
+      speed[i] = std::min(speed[i], cornerSpeed);
+    }
+  }
+
+  for (size_t i = 1; i < speed.size(); ++i) {
+    const double ds = cumArcLength[i] - cumArcLength[i - 1];
+    const double reachable =
+      std::sqrt((speed[i - 1] * speed[i - 1]) + (2.0 * kCoverageRampAccelerationMps2 * ds));
+    speed[i] = std::min(speed[i], reachable);
+  }
+
+  for (size_t i = speed.size() - 1; i > 0; --i) {
+    const double ds = cumArcLength[i] - cumArcLength[i - 1];
+    const double reachable =
+      std::sqrt((speed[i] * speed[i]) + (2.0 * kCoverageRampAccelerationMps2 * ds));
+    speed[i - 1] = std::min(speed[i - 1], reachable);
+  }
+
+  return speed;
+}
+
+std::vector<double> computeMonotoneCubicSlopes(
+  const std::vector<double> & s,
+  const std::vector<double> & v)
+{
+  const size_t n = v.size();
+  std::vector<double> m(n, 0.0);
+  if (n < 2) { return m; }
+
+  std::vector<double> delta(n - 1);
+  for (size_t i = 0; i < n - 1; ++i) {
+    double ds = s[i + 1] - s[i];
+    delta[i] = (ds > 1e-12) ? (v[i + 1] - v[i]) / ds : 0.0;
+  }
+
+  if (n == 2) {
+    m[0] = delta[0];
+    m[1] = delta[0];
+    return m;
+  }
+
+  m[0] = delta[0];
+  m[n - 1] = delta[n - 2];
+  for (size_t i = 1; i < n - 1; ++i) {
+    if (delta[i - 1] * delta[i] <= 0.0) {
+      m[i] = 0.0;
+    } else {
+      m[i] = 2.0 * delta[i - 1] * delta[i] / (delta[i - 1] + delta[i]);
+    }
+  }
+
+  for (size_t i = 0; i < n - 1; ++i) {
+    if (std::abs(delta[i]) < 1e-12) {
+      m[i] = 0.0;
+      m[i + 1] = 0.0;
+      continue;
+    }
+    double alpha = m[i] / delta[i];
+    double beta = m[i + 1] / delta[i];
+    double r2 = alpha * alpha + beta * beta;
+    if (r2 > 9.0) {
+      double tau = 3.0 / std::sqrt(r2);
+      m[i] = tau * alpha * delta[i];
+      m[i + 1] = tau * beta * delta[i];
+    }
+  }
+
+  return m;
+}
+
+double evalCubicHermiteSpeed(
+  double v0, double v1, double m0, double m1, double h, double t)
+{
+  double t2 = t * t;
+  double t3 = t2 * t;
+  return (2.0 * t3 - 3.0 * t2 + 1.0) * v0
+       + (t3 - 2.0 * t2 + t) * h * m0
+       + (-2.0 * t3 + 3.0 * t2) * v1
+       + (t3 - t2) * h * m1;
+}
+
+double integrateTimeOverFraction(
+  double v0, double v1, double m0, double m1, double h, double u)
+{
+  if (u < 1e-12 || h < 1e-12) { return 0.0; }
+  constexpr int N = 4;
+  double sum = 0.0;
+  for (int k = 0; k <= N; ++k) {
+    double t = u * static_cast<double>(k) / N;
+    double v = std::max(evalCubicHermiteSpeed(v0, v1, m0, m1, h, t), 0.01);
+    double w = (k == 0 || k == N) ? 1.0 : ((k % 2 == 0) ? 2.0 : 4.0);
+    sum += w / v;
+  }
+  return h * u * sum / (3.0 * N);
 }
 
 peregrine_interfaces::msg::TrajectorySetpoint makeBaseSetpoint(const rclcpp::Time & now)
@@ -372,15 +499,24 @@ WaypointTrajectoryGenerator::WaypointTrajectoryGenerator(
   waypoints_(waypoints_enu),
   yaw_(yaw),
   altitude_(altitude),
-  velocity_(std::max(0.1, std::abs(velocity_mps))),
+  cruiseVelocity_(std::max(0.1, std::abs(velocity_mps))),
   startTime_(startTime)
 {
   cumArcLength_.resize(waypoints_.size(), 0.0);
   for (size_t i = 1; i < waypoints_.size(); ++i) {
     cumArcLength_[i] = cumArcLength_[i - 1] + (waypoints_[i] - waypoints_[i - 1]).norm();
   }
-  double totalLength = cumArcLength_.empty() ? 0.0 : cumArcLength_.back();
-  totalDuration_ = (totalLength > 1e-6) ? totalLength / velocity_ : 0.0;
+  speedProfile_ = buildCurvatureAwareSpeedProfile(waypoints_, cumArcLength_, cruiseVelocity_);
+  speedSlope_ = computeMonotoneCubicSlopes(cumArcLength_, speedProfile_);
+
+  cumTime_.resize(waypoints_.size(), 0.0);
+  for (size_t i = 1; i < waypoints_.size(); ++i) {
+    double h = cumArcLength_[i] - cumArcLength_[i - 1];
+    cumTime_[i] = cumTime_[i - 1] + integrateTimeOverFraction(
+      speedProfile_[i - 1], speedProfile_[i],
+      speedSlope_[i - 1], speedSlope_[i], h, 1.0);
+  }
+  totalDuration_ = cumTime_.empty() ? 0.0 : cumTime_.back();
 }
 
 TrajectorySample WaypointTrajectoryGenerator::sample(const rclcpp::Time & now)
@@ -405,19 +541,32 @@ TrajectorySample WaypointTrajectoryGenerator::sample(const rclcpp::Time & now)
     return sample;
   }
 
-  double s = velocity_ * elapsedS;
-  s = std::clamp(s, 0.0, totalLength);
+  const double profileTimeS = std::clamp(elapsedS, 0.0, totalDuration_);
 
-  // Binary search for the segment containing distance s.
-  auto it = std::upper_bound(cumArcLength_.begin(), cumArcLength_.end(), s);
-  size_t idx = (it == cumArcLength_.begin()) ? 0 : static_cast<size_t>(std::distance(cumArcLength_.begin(), it) - 1);
+  // Binary search for the segment containing the current profile time.
+  auto it = std::upper_bound(cumTime_.begin(), cumTime_.end(), profileTimeS);
+  size_t idx = (it == cumTime_.begin()) ? 0 :
+    static_cast<size_t>(std::distance(cumTime_.begin(), it) - 1);
   idx = std::min(idx, waypoints_.size() - 2);
 
-  double seg_start = cumArcLength_[idx];
-  double seg_end = cumArcLength_[idx + 1];
-  double seg_len = seg_end - seg_start;
-  double t = (seg_len > 1e-9) ? (s - seg_start) / seg_len : 0.0;
-  t = std::clamp(t, 0.0, 1.0);
+  double seg_len = cumArcLength_[idx + 1] - cumArcLength_[idx];
+  double seg_time = cumTime_[idx + 1] - cumTime_[idx];
+  double tau = profileTimeS - cumTime_[idx];
+
+  double v0 = speedProfile_[idx];
+  double v1 = speedProfile_[idx + 1];
+  double m0 = speedSlope_[idx];
+  double m1 = speedSlope_[idx + 1];
+  double h = seg_len;
+
+  // Newton-Raphson: find arc-length fraction u such that T(u) = tau.
+  double u = (seg_time > 1e-9) ? std::clamp(tau / seg_time, 0.0, 1.0) : 0.0;
+  for (int iter = 0; iter < 3; ++iter) {
+    double Tu = integrateTimeOverFraction(v0, v1, m0, m1, h, u);
+    double vu = std::max(evalCubicHermiteSpeed(v0, v1, m0, m1, h, u), 0.01);
+    u = std::clamp(u - (Tu - tau) * vu / std::max(h, 1e-9), 0.0, 1.0);
+  }
+  double t = u;
 
   Eigen::Vector2d pos = waypoints_[idx] + t * (waypoints_[idx + 1] - waypoints_[idx]);
   sample.setpoint.position.x = pos.x();
@@ -441,13 +590,16 @@ TrajectorySample WaypointTrajectoryGenerator::sample(const rclcpp::Time & now)
   double tangent_norm = tangent.norm();
   if (tangent_norm > 1e-9) {
     tangent /= tangent_norm;
+    double feedforwardSpeed = evalCubicHermiteSpeed(v0, v1, m0, m1, h, t);
+    feedforwardSpeed = std::max(feedforwardSpeed, 0.01);
     sample.setpoint.use_velocity = true;
-    sample.setpoint.velocity.x = velocity_ * tangent.x();
-    sample.setpoint.velocity.y = velocity_ * tangent.y();
+    sample.setpoint.velocity.x = feedforwardSpeed * tangent.x();
+    sample.setpoint.velocity.y = feedforwardSpeed * tangent.y();
     sample.setpoint.velocity.z = 0.0;
   }
 
-  sample.progress = static_cast<float>(clamp01(s / totalLength));
+  sample.progress = static_cast<float>(clamp01(
+    (cumArcLength_[idx] + t * seg_len) / totalLength));
   return sample;
 }
 

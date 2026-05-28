@@ -144,6 +144,24 @@ TEST(SupervisorStateMachineTest, RejectsGuardFailureWithReason)
   EXPECT_EQ(fsm.state(), uav_manager::SupervisorState::Idle);
 }
 
+// External arming is reconciliation of observed PX4 reality, not an operator
+// request. It bypasses TakeoffReady so the FSM reflects the physical armed
+// state even when a dependency is unhealthy.
+TEST(SupervisorStateMachineTest, ExternalArmDetectedBypassesReadinessGuard)
+{
+  uav_manager::SupervisorStateMachine fsm;
+  uav_manager::TransitionGuard guard;
+  auto snapshot = readySnapshot();
+  snapshot.controlManager.healthy = false;
+  snapshot.controlManager.reasonCode = "CONTROL_UNHEALTHY";
+
+  const auto out =
+    fsm.apply(uav_manager::SupervisorEvent::ExternalArmDetected, guard, snapshot);
+  EXPECT_TRUE(out.accepted);
+  EXPECT_EQ(out.reasonCode, "EXTERNAL_ARM_DETECTED");
+  EXPECT_EQ(fsm.state(), uav_manager::SupervisorState::Armed);
+}
+
 // Verifies that FailsafeDetected is a "wildcard" event that preempts from any
 // non-Emergency state. The FSM transition table has rows matching (*, FailsafeDetected)
 // with GuardId::Always, so this event always succeeds regardless of current state.

@@ -410,6 +410,19 @@ void UavManagerNode::onPx4Status(const peregrine_interfaces::msg::PX4Status::Sha
 
   if (msg->failsafe) {
     (void)applyEvent(SupervisorEvent::FailsafeDetected);
+    return;
+  }
+
+  SupervisorState state = SupervisorState::Idle;
+  {
+    std::scoped_lock lock(mutex_);
+    state = supervisor_.state();
+  }
+
+  if (msg->armed && (state == SupervisorState::Idle || state == SupervisorState::Landed)) {
+    (void)applyEvent(SupervisorEvent::ExternalArmDetected);
+  } else if (!msg->armed && (state == SupervisorState::Armed || state == SupervisorState::Landed)) {
+    (void)applyEvent(SupervisorEvent::DisarmCompleted);
   }
 }
 
@@ -895,7 +908,14 @@ void UavManagerNode::onLandAccepted(const std::shared_ptr<GoalHandleLand> goalHa
     disarmed = latestPx4Status_.has_value() && !latestPx4Status_->armed;
   }
   if (disarmed) {
-    (void)applyEvent(SupervisorEvent::DisarmCompleted);
+    SupervisorState state = SupervisorState::Idle;
+    {
+      std::scoped_lock lock(mutex_);
+      state = supervisor_.state();
+    }
+    if (state == SupervisorState::Armed || state == SupervisorState::Landed) {
+      (void)applyEvent(SupervisorEvent::DisarmCompleted);
+    }
   }
 
   result->success = true;

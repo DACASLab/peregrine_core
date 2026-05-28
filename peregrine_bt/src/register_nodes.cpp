@@ -14,10 +14,11 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory,
 {
   BT::RosNodeParams params;
   params.nh = node;
-  // Goal-acceptance timeout at the ROS action client level. Must exceed the
-  // uav_manager's own service_timeout_s (3s for arm/offboard PX4 calls) to
-  // avoid the BT client timing out while the server is still processing.
-  params.server_timeout = std::chrono::milliseconds(120000);
+  // Timeout used by the BehaviorTree ROS action wrapper while waiting for the
+  // action goal handshake/cancel paths. Long surveillance sweeps can run for
+  // several minutes, and the wrapper reports SEND_GOAL_TIMEOUT if this window
+  // is shorter than the mission action lifetime.
+  params.server_timeout = std::chrono::milliseconds(900000);
   // Don't block during tree construction — preflight retry nodes in the tree
   // handle the wait for DDS discovery.
   params.wait_for_server_timeout = std::chrono::milliseconds(0);

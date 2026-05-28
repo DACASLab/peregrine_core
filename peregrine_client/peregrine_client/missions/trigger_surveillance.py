@@ -67,39 +67,41 @@ def send_execute_tree(
         "Tree completed: status=%s msg=%s"
         % (result.result.node_status, result.result.return_message)
     )
-    return True
+    return result.status == 4
 
 
-def run_single():
-    node = Node("surveillance_trigger_single")
+def run_single(namespace: str):
+    node = Node("surveillance_trigger_single", namespace=namespace)
     try:
-        send_execute_tree(node, "execute_tree", "SingleUavSurveillance")
+        return send_execute_tree(node, "execute_tree", "SingleUavSurveillance")
     finally:
         node.destroy_node()
 
 
-def _run_uav(namespace: str, tree_name: str):
+def _run_uav(namespace: str, tree_name: str, results: dict[str, bool]):
     node = Node("surveillance_trigger_%s" % namespace, namespace=namespace)
     try:
-        send_execute_tree(node, "execute_tree", tree_name, timeout_s=600.0)
+        results[namespace] = send_execute_tree(node, "execute_tree", tree_name, timeout_s=600.0)
     finally:
         node.destroy_node()
 
 
-def run_multi():
+def run_multi() -> bool:
+    results: dict[str, bool] = {}
     t1 = Thread(
         target=_run_uav,
-        args=("uav1", "MultiUavSurveillanceUav1"),
+        args=("uav1", "MultiUavSurveillanceUav1", results),
     )
     t2 = Thread(
         target=_run_uav,
-        args=("uav2", "MultiUavSurveillanceUav2"),
+        args=("uav2", "MultiUavSurveillanceUav2", results),
     )
 
     t1.start()
     t2.start()
     t1.join()
     t2.join()
+    return results.get("uav1", False) and results.get("uav2", False)
 
 
 def main():
@@ -110,17 +112,24 @@ def main():
         default="single",
         help="single = 1 UAV, multi = 2 UAVs with opposite sweep patterns",
     )
+    parser.add_argument(
+        "--namespace",
+        default="uav1",
+        help="UAV namespace for single mode, for example uav1. Use '' for root namespace.",
+    )
     args = parser.parse_args()
 
     rclpy.init()
     try:
         if args.mode == "single":
-            run_single()
+            success = run_single(args.namespace)
         else:
-            run_multi()
+            success = run_multi()
     finally:
         rclpy.shutdown()
 
+    return 0 if success else 1
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

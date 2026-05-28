@@ -65,6 +65,7 @@ enum class SupervisorState : uint8_t
 enum class SupervisorEvent : uint8_t
 {
   ArmRequested,
+  ExternalArmDetected,
   TakeoffRequested,
   TakeoffCompleted,
   TakeoffFailed,
