@@ -3,14 +3,17 @@
   <include path="subtrees/preflight_and_takeoff.xml"/>
 
   <BehaviorTree ID="MultiTrajectory">
-    <Sequence>
-      <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
-      <WaitAction duration_s="1.0"/>
-      <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,1"/>
-      <ExecuteTrajectoryAction trajectory_type="figure8" params="2.0,0.6,1"/>
-      <WaitAction duration_s="1.0"/>
+    <ReactiveFallback>
+      <Sequence>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
+        <WaitAction duration_s="1.0"/>
+        <ExecuteTrajectoryAction trajectory_type="circle" params="2.0,0.6,1"/>
+        <ExecuteTrajectoryAction trajectory_type="figure8" params="2.0,0.6,1"/>
+        <WaitAction duration_s="1.0"/>
+        <LandAction descent_velocity_mps="0.8"/>
+      </Sequence>
       <LandAction descent_velocity_mps="0.8"/>
-    </Sequence>
+    </ReactiveFallback>
   </BehaviorTree>
 
 </root>
