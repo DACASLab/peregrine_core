@@ -6,10 +6,10 @@
 
     # Trajectories executed after switching to SE3.
     circle_radius_m: 2.0
-    circle_angular_velocity_radps: 0.6
+    circle_angular_velocity_radps: 0.5
     circle_loops: 1.0
     figure8_radius_m: 2.0
-    figure8_angular_velocity_radps: 0.6
+    figure8_angular_velocity_radps: 0.5
     figure8_loops: 1.0
 
     preflight_wait_s: 30.0

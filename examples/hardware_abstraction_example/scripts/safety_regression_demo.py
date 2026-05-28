@@ -50,6 +50,9 @@ class SafetyRegressionDemo(Node):
 
         self.preflight_wait_s = float(self.declare_parameter("preflight_wait_s", 60.0).value)
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
+        self.goal_accept_timeout_s = float(
+            self.declare_parameter("goal_accept_timeout_s", 5.0).value
+        )
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 180.0).value)
         self.recovery_wait_s = float(self.declare_parameter("recovery_wait_s", 90.0).value)
         self.pre_fault_hold_s = float(self.declare_parameter("pre_fault_hold_s", 3.0).value)
@@ -765,7 +768,9 @@ class SafetyRegressionDemo(Node):
         )
         goal_future = self.go_to_client.send_goal_async(goal)
         # Wait only for goal acceptance (not result)
-        if self._wait_future(goal_future, 10.0, "go_to_fire_and_forget_send"):
+        if self._wait_future(
+            goal_future, self.goal_accept_timeout_s, "go_to_fire_and_forget_send"
+        ):
             goal_handle = goal_future.result()
             if goal_handle is not None and goal_handle.accepted:
                 self.get_logger().info("Fire-and-forget go_to accepted")
@@ -784,7 +789,9 @@ class SafetyRegressionDemo(Node):
 
         self.get_logger().info("Sending %s goal (expect_success=%s)" % (label, str(expect_success)))
         goal_future = client.send_goal_async(goal_msg)
-        if not self._wait_future(goal_future, timeout_s, "%s_goal_send" % label):
+        if not self._wait_future(
+            goal_future, self.goal_accept_timeout_s, "%s_goal_send" % label
+        ):
             return False
 
         goal_handle = goal_future.result()

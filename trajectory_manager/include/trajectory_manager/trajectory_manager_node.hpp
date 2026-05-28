@@ -10,14 +10,15 @@
  *   - go_to: point-to-point flight with acceptance radius
  *   - execute_trajectory: named trajectory types (takeoff, circle, figure8, land, hold)
  *
+ * Threading model (requires MultiThreadedExecutor / component_container_mt):
+ *   - Default group (MutuallyExclusive): subscriptions + setpoint/status timers
+ *   - actionCbGroup_ (Reentrant): action server goal/cancel/accepted callbacks
+ *
  * Design: "timer-driven, action-accepting"
- *   Unlike uav_manager (where accepted callbacks block for goal duration), this node's
- *   accepted callbacks are NON-BLOCKING. They swap the active generator under lock and
+ *   Accepted callbacks are NON-BLOCKING. They swap the active generator under lock and
  *   return immediately. All trajectory sampling, feedback emission, and goal completion
- *   are driven by the periodic publishTrajectorySetpoint timer callback. This means:
- *   - Setpoint cadence is guaranteed by the timer, not by action server timing
- *   - A MutuallyExclusive callback group is sufficient (no Reentrant needed)
- *   - Goal lifecycle is resolved outside the mutex to avoid deadlock
+ *   are driven by the periodic publishTrajectorySetpoint timer callback. Goal lifecycle
+ *   is resolved outside the mutex to avoid deadlock.
  *
  * Single-goal policy: only one trajectory (GoTo or ExecuteTrajectory) runs at a time.
  * New goals are rejected while another is active. The caller must cancel or wait for
@@ -241,6 +242,8 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::ManagerStatus>::SharedPtr
     statusPub_;
 
+  /// Reentrant callback group used by trajectory action server callbacks.
+  rclcpp::CallbackGroup::SharedPtr actionCbGroup_;
   /// Action server for point-to-point goals.
   rclcpp_action::Server<GoTo>::SharedPtr goToServer_;
   /// Action server for named trajectories (takeoff/land/circle/figure8/...).

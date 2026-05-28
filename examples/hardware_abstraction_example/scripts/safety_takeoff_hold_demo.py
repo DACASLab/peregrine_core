@@ -32,6 +32,9 @@ class SafetyTakeoffHoldDemo(Node):
         )
         self.preflight_wait_s = float(self.declare_parameter("preflight_wait_s", 40.0).value)
         self.server_wait_s = float(self.declare_parameter("server_wait_s", 20.0).value)
+        self.goal_accept_timeout_s = float(
+            self.declare_parameter("goal_accept_timeout_s", 5.0).value
+        )
         self.action_timeout_s = float(self.declare_parameter("action_timeout_s", 180.0).value)
         self.auto_takeoff = bool(self.declare_parameter("auto_takeoff", True).value)
         self.auto_land_after_hold = bool(self.declare_parameter("auto_land_after_hold", True).value)
@@ -129,7 +132,9 @@ class SafetyTakeoffHoldDemo(Node):
     def _send_goal(self, client: ActionClient, goal_msg, label: str) -> bool:
         self.get_logger().info("Sending %s goal" % label)
         goal_future = client.send_goal_async(goal_msg)
-        rclpy.spin_until_future_complete(self, goal_future, timeout_sec=self.action_timeout_s)
+        rclpy.spin_until_future_complete(
+            self, goal_future, timeout_sec=self.goal_accept_timeout_s
+        )
         if not goal_future.done():
             self.get_logger().error("%s goal send timeout" % label)
             return False

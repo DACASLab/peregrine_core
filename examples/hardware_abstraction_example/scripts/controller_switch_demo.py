@@ -35,12 +35,12 @@ class ControllerSwitchDemo(Node):
         )
         self.circle_radius_m = float(self.declare_parameter("circle_radius_m", 2.0).value)
         self.circle_angular_velocity_radps = float(
-            self.declare_parameter("circle_angular_velocity_radps", 0.6).value
+            self.declare_parameter("circle_angular_velocity_radps", 0.5).value
         )
         self.circle_loops = float(self.declare_parameter("circle_loops", 1.0).value)
         self.figure8_radius_m = float(self.declare_parameter("figure8_radius_m", 2.0).value)
         self.figure8_angular_velocity_radps = float(
-            self.declare_parameter("figure8_angular_velocity_radps", 0.6).value
+            self.declare_parameter("figure8_angular_velocity_radps", 0.5).value
         )
         self.figure8_loops = float(self.declare_parameter("figure8_loops", 1.0).value)
         self.preflight_wait_s = float(self.declare_parameter("preflight_wait_s", 30.0).value)

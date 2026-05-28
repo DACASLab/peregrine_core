@@ -36,10 +36,12 @@ class PeregrineClient:
         node: Node,
         *,
         server_wait_s: float = 20.0,
+        goal_accept_timeout_s: float = 5.0,
         action_timeout_s: float = 240.0,
     ) -> None:
         self._node = node
         self._server_wait_s = server_wait_s
+        self._goal_accept_timeout_s = goal_accept_timeout_s
         self._action_timeout_s = action_timeout_s
 
         self._uav_state: Optional[UAVState] = None
@@ -205,7 +207,9 @@ class PeregrineClient:
         self._log_info("Sending %s goal" % operation)
 
         goal_future = client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self._node, goal_future, timeout_sec=timeout)
+        rclpy.spin_until_future_complete(
+            self._node, goal_future, timeout_sec=self._goal_accept_timeout_s
+        )
         if not goal_future.done():
             raise ActionTimeout(operation, "goal send")
 

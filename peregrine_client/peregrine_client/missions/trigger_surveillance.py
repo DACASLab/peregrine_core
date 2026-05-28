@@ -43,7 +43,7 @@ def send_execute_tree(
 
     logger.info("Sending ExecuteTree: %s -> %s" % (action_name, tree_name))
     goal_future = client.send_goal_async(goal)
-    rclpy.spin_until_future_complete(node, goal_future, timeout_sec=30.0)
+    rclpy.spin_until_future_complete(node, goal_future, timeout_sec=5.0)
 
     if not goal_future.done():
         logger.error("Goal send timed out")

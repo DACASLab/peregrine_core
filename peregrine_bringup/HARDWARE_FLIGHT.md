@@ -69,7 +69,7 @@ The mission script waits for `uav_state.dependencies_ready`, then executes:
 |---|---|---|
 | takeoff_altitude_m | 3.0 | 5.0 |
 | circle_radius_m | 1.5 | 2.0 |
-| angular_velocity_radps | 0.4 | 0.6 |
+| angular_velocity_radps | 0.4 | 0.5 |
 | climb_velocity_mps | 0.5 | 1.0 |
 | descent_velocity_mps | 0.5 | 0.8 |
 

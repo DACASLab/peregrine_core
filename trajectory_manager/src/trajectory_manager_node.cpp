@@ -61,6 +61,8 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
 TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
   const rclcpp_lifecycle::State &)
 {
+  actionCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+
   const auto qos = rclcpp::QoS(20).reliable();
   const auto statusQos = rclcpp::QoS(10).reliable();
 
@@ -79,19 +81,16 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
     "trajectory_status",
     statusQos);
 
-  // Action servers use the default MutuallyExclusive callback group. This is safe because
-  // the accepted callbacks (onGoToAccepted, onExecuteAccepted) are non-blocking: they just
-  // swap the active generator under lock and return immediately. All trajectory computation,
-  // feedback emission, and goal completion happen in the publishTrajectorySetpoint timer
-  // callback, so there is no need for a Reentrant callback group (unlike uav_manager, whose
-  // accepted callbacks block for the duration of the goal).
+  rcl_action_server_options_t actionOpts = rcl_action_server_get_default_options();
+
   goToServer_ = rclcpp_action::create_server<GoTo>(
     this, "~/go_to",
     [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const GoTo::Goal> goal) {
       return onGoToGoal(uuid, goal);
     },
     [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { return onGoToCancel(goalHandle); },
-    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { onGoToAccepted(goalHandle); });
+    [this](const std::shared_ptr<GoalHandleGoTo> goalHandle) { onGoToAccepted(goalHandle); },
+    actionOpts, actionCbGroup_);
 
   executeServer_ = rclcpp_action::create_server<ExecuteTrajectory>(
     this, "~/execute_trajectory",
@@ -103,7 +102,8 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_configure(
     },
     [this](const std::shared_ptr<GoalHandleExecuteTrajectory> goalHandle) {
       onExecuteAccepted(goalHandle);
-    });
+    },
+    actionOpts, actionCbGroup_);
 
   // Create-then-cancel pattern: timers must exist before on_activate, but should not
   // fire until the node transitions to ACTIVE. on_activate calls reset() to re-arm them.
@@ -211,6 +211,7 @@ TrajectoryManagerNode::CallbackReturn TrajectoryManagerNode::on_cleanup(
   statusPub_.reset();
   goToServer_.reset();
   executeServer_.reset();
+  actionCbGroup_.reset();
 
   {
     std::scoped_lock lock(mutex_);
@@ -516,8 +517,9 @@ rclcpp_action::CancelResponse TrajectoryManagerNode::onGoToCancel(
 
 // This accepted callback is intentionally non-blocking: it swaps activeGenerator_ under
 // lock and returns immediately. The timer (publishTrajectorySetpoint) picks up the new
-// generator on its next tick and begins sampling it. This is why a MutuallyExclusive
-// callback group is sufficient -- there is no long-running work to block the executor.
+// generator on its next tick and begins sampling it. The action callback group is
+// Reentrant so action goal/cancel/accepted callbacks are not serialized with the
+// default subscription and timer callbacks; mutex_ still serializes shared state.
 void TrajectoryManagerNode::onGoToAccepted(const std::shared_ptr<GoalHandleGoTo> goalHandle)
 {
   std::scoped_lock lock(mutex_);
