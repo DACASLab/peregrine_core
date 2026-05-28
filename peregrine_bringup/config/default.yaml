@@ -1,9 +1,8 @@
 /**:
   ros__parameters:
-    # PX4 Gazebo default world origin (Zurich, Switzerland).
-    # Keep this aligned with /opt/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf.
-    home_lat_deg: 47.397971057728974
-    home_lon_deg: 8.546163739800146
+    # GPS home origin (Bangalore, India).
+    home_lat_deg: 13.018526
+    home_lon_deg: 77.565041
 
     # Shared GPS quality thresholds — used by both frame_transforms (home origin
     # init gate) and safety_monitor (continuous flight safety). Change here to

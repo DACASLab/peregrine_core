@@ -11,6 +11,8 @@ Usage:
 
 import math
 import platform
+import re
+from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -20,6 +22,9 @@ from launch.actions import (
     OpaqueFunction,
     TimerAction,
 )
+
+SITL_HOME_LAT = "13.018526"
+SITL_HOME_LON = "77.565041"
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -114,8 +119,18 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
-    # ── Shared Gazebo world ──────────────────────────────────────────────
+    # ── Patch Gazebo world GPS home ────────────────────────────────────
     gz_world_path = f"{px4_dir}/Tools/simulation/gz/worlds/{gz_world}.sdf"
+    sdf = Path(gz_world_path)
+    if sdf.exists():
+        text = sdf.read_text(encoding="utf-8")
+        text = re.sub(r"<latitude_deg>[^<]+</latitude_deg>",
+                       f"<latitude_deg>{SITL_HOME_LAT}</latitude_deg>", text)
+        text = re.sub(r"<longitude_deg>[^<]+</longitude_deg>",
+                       f"<longitude_deg>{SITL_HOME_LON}</longitude_deg>", text)
+        sdf.write_text(text, encoding="utf-8")
+
+    # ── Shared Gazebo world ──────────────────────────────────────────────
     gz_model_path = f"{px4_dir}/Tools/simulation/gz/models"
     gz_server_config = f"{px4_dir}/Tools/simulation/gz/server.config"
     gz_build_dir = f"{px4_dir}/build/px4_sitl_default/build_gz"

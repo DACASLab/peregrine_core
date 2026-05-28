@@ -51,13 +51,13 @@ frame_transforms:
 
   home_lat_deg:
     type: double
-    default_value: 47.397971
+    default_value: 13.018526
     description: "Default home latitude (overwritten by first valid GPS fix)"
     read_only: true
 
   home_lon_deg:
     type: double
-    default_value: 8.546164
+    default_value: 77.565041
     description: "Default home longitude (overwritten by first valid GPS fix)"
     read_only: true
 
