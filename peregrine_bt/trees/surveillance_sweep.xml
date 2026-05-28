@@ -11,7 +11,7 @@
   -->
 
   <BehaviorTree ID="SurveillanceSweep">
-    <ReactiveFallback>
+    <Fallback>
       <Sequence>
         <SubTree ID="PreflightAndTakeoff" altitude_m="{altitude_m}"/>
         <WaitAction duration_s="{pre_sweep_wait_s}"/>
@@ -22,7 +22,7 @@
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
       <LandAction descent_velocity_mps="0.8"/>
-    </ReactiveFallback>
+    </Fallback>
   </BehaviorTree>
 
 </root>

@@ -17,7 +17,7 @@
   -->
 
   <BehaviorTree ID="SingleUavSurveillance">
-    <ReactiveFallback>
+    <Fallback>
       <Sequence>
         <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
         <WaitAction duration_s="2.0"/>
@@ -28,7 +28,7 @@
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
       <LandAction descent_velocity_mps="0.8"/>
-    </ReactiveFallback>
+    </Fallback>
   </BehaviorTree>
 
 </root>

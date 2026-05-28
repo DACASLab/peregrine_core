@@ -1,7 +1,7 @@
 <root BTCPP_format="4">
 
   <BehaviorTree ID="TakeoffHoverLand">
-    <ReactiveFallback>
+    <Fallback>
       <Sequence>
         <WaitUntilReady timeout_s="300.0" settle_s="3.0"/>
         <TakeoffAction altitude_m="5.0" climb_velocity_mps="1.0"/>
@@ -9,7 +9,7 @@
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
       <LandAction descent_velocity_mps="0.8"/>
-    </ReactiveFallback>
+    </Fallback>
   </BehaviorTree>
 
 </root>

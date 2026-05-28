@@ -1,0 +1,29 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <!--
+    Test tree: forces a trajectory timeout at 100s to verify the
+    Fallback land-on-failure pattern. The surveillance sweep takes
+    ~200s, so the Timeout decorator will halt it mid-flight and
+    return FAILURE, which the Fallback catches to trigger a land.
+  -->
+
+  <BehaviorTree ID="TestFallbackLand">
+    <Fallback>
+      <Sequence>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
+        <WaitAction duration_s="2.0"/>
+        <Timeout msec="100000">
+          <ExecuteTrajectoryAction
+            trajectory_type="coverage_sweep"
+            params="47.398050,8.546250,5.0,3,2,5.0,1.5,1.5,6,0,1,2,5,4,3"/>
+        </Timeout>
+        <WaitAction duration_s="2.0"/>
+        <LandAction descent_velocity_mps="0.8"/>
+      </Sequence>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Fallback>
+  </BehaviorTree>
+
+</root>

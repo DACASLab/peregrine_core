@@ -3,7 +3,7 @@
   <include path="subtrees/preflight_and_takeoff.xml"/>
 
   <BehaviorTree ID="MultiTrajectory">
-    <ReactiveFallback>
+    <Fallback>
       <Sequence>
         <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
         <WaitAction duration_s="1.0"/>
@@ -13,7 +13,7 @@
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
       <LandAction descent_velocity_mps="0.8"/>
-    </ReactiveFallback>
+    </Fallback>
   </BehaviorTree>
 
 </root>
