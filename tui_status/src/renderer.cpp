@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
+#include <cstring>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -171,15 +172,15 @@ short ramColorPair(const float used, const float total)
   return kColorPairGood;
 }
 
-short gpsColorPair(const uint8_t fix_type)
+short gpsColorPair(const uint8_t fix_type, const float eph, const float epv)
 {
-  if (fix_type >= 3U) {
-    return kColorPairGood;
+  if (fix_type < 2U) {
+    return kColorPairBad;
   }
-  if (fix_type >= 2U) {
+  if (fix_type < 3U || eph > 3.0F || epv > 5.0F) {
     return kColorPairWarn;
   }
-  return kColorPairBad;
+  return kColorPairGood;
 }
 
 std::string gpsFixString(const uint8_t fix_type)
@@ -705,7 +706,8 @@ void Renderer::render(
     if (snapshot.compute.cpu_temp_c > 0.0F) {
       std::snprintf(buf, sizeof(buf), "%.0f\xc2\xb0""C", snapshot.compute.cpu_temp_c);
       printBadge(hasColors_, row, cc, tempColorPair(snapshot.compute.cpu_temp_c), buf);
-      cc += static_cast<int>(std::string(buf).size()) + 3;
+      // degree symbol (°) is 2 bytes but 1 display column; subtract 1 from byte size
+      cc += static_cast<int>(std::string(buf).size()) - 1 + 3;
     }
 
     std::snprintf(buf, sizeof(buf), "%.1f/%.1fG",
@@ -731,9 +733,12 @@ void Renderer::render(
   // GPS — appended to battery row
   {
     const std::string fixStr = gpsFixString(snapshot.gps_fix_type);
-    char gps[48];
-    formatTo(gps, sizeof(gps), "GPS:%s s=%u", fixStr.c_str(), snapshot.gps_satellites);
-    printBadge(hasColors_, row, col + right_w - static_cast<int>(fixStr.size()) - 12, gpsColorPair(snapshot.gps_fix_type), gps);
+    char gps[64];
+    formatTo(gps, sizeof(gps), "GPS:%s s=%u eph=%.1f epv=%.1f",
+      fixStr.c_str(), snapshot.gps_satellites, snapshot.gps_eph, snapshot.gps_epv);
+    const int gps_len = static_cast<int>(std::strlen(gps));
+    printBadge(hasColors_, row, col + right_w - gps_len - 3,
+      gpsColorPair(snapshot.gps_fix_type, snapshot.gps_eph, snapshot.gps_epv), gps);
   }
 
 

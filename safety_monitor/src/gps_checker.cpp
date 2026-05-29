@@ -31,6 +31,16 @@ CheckResult GpsChecker::check(const CheckerContext & ctx) const
     return {SafetyLevel::Critical, oss.str()};
   }
 
+  if (gps.eph > config_.max_eph) {
+    oss << "eph=" << gps.eph << "m > max=" << config_.max_eph << "m";
+    return {SafetyLevel::Warning, oss.str()};
+  }
+
+  if (gps.epv > config_.max_epv) {
+    oss << "epv=" << gps.epv << "m > max=" << config_.max_epv << "m";
+    return {SafetyLevel::Warning, oss.str()};
+  }
+
   if (gps.hdop > config_.max_hdop) {
     oss << "hdop=" << gps.hdop << " > max=" << config_.max_hdop;
     return {SafetyLevel::Warning, oss.str()};

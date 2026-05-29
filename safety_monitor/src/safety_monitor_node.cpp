@@ -85,6 +85,8 @@ SafetyMonitorNode::CallbackReturn SafetyMonitorNode::on_configure(
     cfg.min_fix_type = params_.gps.min_fix_type;
     cfg.max_hdop = static_cast<float>(params_.gps.max_hdop);
     cfg.max_vdop = static_cast<float>(params_.gps.max_vdop);
+    cfg.max_eph = static_cast<float>(params_.gps.max_eph);
+    cfg.max_epv = static_cast<float>(params_.gps.max_epv);
     cfg.min_satellites = params_.gps.min_satellites;
     RuleConfig rule;
     rule.enabled = true;

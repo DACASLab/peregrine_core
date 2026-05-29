@@ -69,6 +69,8 @@ struct StatusSnapshot
   uint8_t gps_satellites{0};
   float gps_hdop{0.0F};
   float gps_vdop{0.0F};
+  float gps_eph{99.0F};
+  float gps_epv{99.0F};
 
   uint8_t safety_level{0};
   bool has_safety_status{false};

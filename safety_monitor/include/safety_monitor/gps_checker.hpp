@@ -8,8 +8,10 @@ namespace safety_monitor
 struct GpsCheckerConfig
 {
   int min_fix_type{3};
-  float max_hdop{5.0f};
-  float max_vdop{5.0f};
+  float max_hdop{1.8f};
+  float max_vdop{1.8f};
+  float max_eph{3.0f};
+  float max_epv{5.0f};
   int min_satellites{6};
 };
 

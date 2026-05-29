@@ -115,16 +115,32 @@ safety_monitor:
 
     max_hdop:
       type: double
-      default_value: 5.0
-      description: "Maximum horizontal dilution of precision"
+      default_value: 1.8
+      description: "Maximum horizontal dilution of precision (PX4 PDOP=2.5 ~ HDOP+VDOP<=1.8 each)"
       read_only: true
       validation:
         gt<>: [0.0]
 
     max_vdop:
       type: double
+      default_value: 1.8
+      description: "Maximum vertical dilution of precision (PX4 PDOP=2.5 ~ HDOP+VDOP<=1.8 each)"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_eph:
+      type: double
+      default_value: 3.0
+      description: "Maximum horizontal position accuracy in meters (matches PX4 EKF2_REQ_EPH)"
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    max_epv:
+      type: double
       default_value: 5.0
-      description: "Maximum vertical dilution of precision"
+      description: "Maximum vertical position accuracy in meters (matches PX4 EKF2_REQ_EPV)"
       read_only: true
       validation:
         gt<>: [0.0]

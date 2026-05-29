@@ -670,6 +670,8 @@ StatusSnapshot TuiNode::buildSnapshot() const
     snapshot.gps_satellites = latestGpsStatus_->satellites_used;
     snapshot.gps_hdop = latestGpsStatus_->hdop;
     snapshot.gps_vdop = latestGpsStatus_->vdop;
+    snapshot.gps_eph = latestGpsStatus_->eph;
+    snapshot.gps_epv = latestGpsStatus_->epv;
   }
 
   if (latestSafetyStatus_.has_value()) {
