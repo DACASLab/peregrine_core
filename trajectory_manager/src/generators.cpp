@@ -10,7 +10,7 @@ namespace
 
 // This unnamed namespace keeps helper functions private to this .cpp translation unit.
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kCoverageCornerSpeedMps = 0.5;
+constexpr double kCoverageCornerSpeedMps = 0.25;
 constexpr double kCoverageRampAccelerationMps2 = 0.75;
 constexpr double kCornerTurnThresholdRad = 0.01;
 constexpr double kCornerCurvatureThresholdRadPerM = 0.05;
