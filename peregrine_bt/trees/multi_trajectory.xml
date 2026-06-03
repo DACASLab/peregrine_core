@@ -7,8 +7,8 @@
       <Sequence>
         <SubTree ID="PreflightAndTakeoff" altitude_m="3.0"/>
         <WaitAction duration_s="1.0"/>
-        <ExecuteTrajectoryAction trajectory_type="circle" params="6.0,0.167,1"/>
-        <ExecuteTrajectoryAction trajectory_type="figure8" params="6.0,0.167,1"/>
+        <ExecuteTrajectoryAction trajectory_type="circle" params="6.0,0.0833,1"/>
+        <ExecuteTrajectoryAction trajectory_type="figure8" params="6.0,0.0833,1"/>
         <WaitAction duration_s="1.0"/>
         <LandAction descent_velocity_mps="0.5"/>
       </Sequence>

@@ -318,10 +318,10 @@ void TuiNode::sendTakeoff()
   }
 
   auto goal = peregrine_interfaces::action::Takeoff::Goal();
-  goal.target_altitude_m = 5.0;
+  goal.target_altitude_m = 3.0;
   goal.climb_velocity_mps = 1.0;
   setCommandStatus("TAKEOFF", "sending goal...", true);
-  alertBuffer_.push(AlertSeverity::Info, "Sending takeoff to 5.0m");
+  alertBuffer_.push(AlertSeverity::Info, "Sending takeoff to 3.0m");
 
   auto options = rclcpp_action::Client<peregrine_interfaces::action::Takeoff>::SendGoalOptions();
   options.feedback_callback =

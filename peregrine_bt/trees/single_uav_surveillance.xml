@@ -3,7 +3,7 @@
   <include path="subtrees/preflight_and_takeoff.xml"/>
 
   <!--
-    Single-UAV surveillance over a 3x2 grid (5m cells) at 5m altitude.
+    Single-UAV surveillance over a 3x2 grid (5m cells) at 3m altitude.
 
     Grid layout (row-major cell IDs):
       [3] [4] [5]
@@ -19,11 +19,11 @@
   <BehaviorTree ID="SingleUavSurveillance">
     <Fallback>
       <Sequence>
-        <SubTree ID="PreflightAndTakeoff" altitude_m="5.0"/>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="3.0"/>
         <WaitAction duration_s="2.0"/>
         <ExecuteTrajectoryAction
           trajectory_type="coverage_sweep"
-          params="13.018481,77.564971,5.0,3,2,5.0,1.5,1.5,6,0,1,2,5,4,3"/>
+          params="13.018481,77.564971,5.0,3,2,3.0,0.5,1.5,6,0,1,2,5,4,3"/>
         <WaitAction duration_s="2.0"/>
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
