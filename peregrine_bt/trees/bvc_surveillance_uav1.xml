@@ -1,0 +1,28 @@
+<root BTCPP_format="4">
+
+  <include path="subtrees/preflight_and_takeoff.xml"/>
+
+  <!--
+    BVC test mission — UAV1. Same pattern as MultiUavSurveillanceUav1 but flown at
+    the SAME altitude as UAV2 (3 m) so the adjacent-cell lawnmower conflict actually
+    occurs horizontally and the Buffered Voronoi Cell layer must keep the pair apart
+    (no vertical offset to hide behind). Cell sequence: 0 -> 1 -> 2 -> 5 -> 4 -> 3.
+    Pair with bvc_surveillance_uav2.xml (opposite sweep, same 3 m altitude).
+  -->
+
+  <BehaviorTree ID="BvcSurveillanceUav1">
+    <Fallback>
+      <Sequence>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="3.0"/>
+        <WaitAction duration_s="2.0"/>
+        <ExecuteTrajectoryAction
+          trajectory_type="coverage_sweep"
+          params="13.018481,77.564971,5.0,3,2,3.0,0.5,1.5,6,0,1,2,5,4,3"/>
+        <WaitAction duration_s="2.0"/>
+        <LandAction descent_velocity_mps="0.8"/>
+      </Sequence>
+      <LandAction descent_velocity_mps="0.8"/>
+    </Fallback>
+  </BehaviorTree>
+
+</root>

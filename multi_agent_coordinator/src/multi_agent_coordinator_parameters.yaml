@@ -1,0 +1,142 @@
+multi_agent_coordinator:
+  uav_id:
+    type: string
+    default_value: "uav1"
+    description: "This UAV's id / namespace (no leading slash). Used to tag own broadcast and filter self out of neighbors."
+    read_only: true
+
+  enabled:
+    type: bool
+    default_value: false
+    description: "Master switch. When false the node is a transparent passthrough (raw -> trajectory_setpoint), so single-UAV flight is unchanged."
+    read_only: true
+
+  fleet_frame:
+    type: string
+    default_value: "map"
+    description: "Shared frame in which BVC is computed and FleetAgentState is broadcast. Flip to 'world' once GPS world-pinning lands."
+    read_only: true
+
+  broadcast_rate_hz:
+    type: double
+    default_value: 30.0
+    description: "Rate at which this UAV's FleetAgentState is published to peers."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  status_rate_hz:
+    type: double
+    default_value: 5.0
+    description: "Rate of the multi_agent/bvc_status debug publication."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  state_timeout_s:
+    type: double
+    default_value: 0.5
+    description: "Own estimated_state staleness threshold before falling back to passthrough hold."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  # ── BVC geometry ────────────────────────────────────────────────────────────
+  safety_radius_m:
+    type: double
+    default_value: 2.5
+    description: "Per-agent safety radius r_s. Pairwise min separation = 2*r_s. Must cover GPS relative-position error."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  sensing_range_m:
+    type: double
+    default_value: 25.0
+    description: "Neighbors farther than this (in fleet frame, horizontal) are ignored."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  planning_horizon_s:
+    type: double
+    default_value: 1.5
+    description: "Neighbor positions are predicted forward by velocity*horizon when building half-planes."
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  brake_gain_s:
+    type: double
+    default_value: 1.5
+    description: "Velocity-aware buffer: per-pair safety radius is inflated by brake_gain_s * own inbound closing speed (m/s) toward the neighbor. Compensates setpoint->position tracking lag so the ACTUAL separation (not just the setpoint) stays >= 2*r_s. Set 0 to disable."
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  altitude_band_m:
+    type: double
+    default_value: 2.0
+    description: "Neighbors whose altitude differs by more than this are vertically deconflicted and skipped."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  # ── neighbor staleness ──────────────────────────────────────────────────────
+  stale_timeout_s:
+    type: double
+    default_value: 0.4
+    description: "Neighbor age beyond this -> stale: inflate buffer and extend prediction."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  lost_timeout_s:
+    type: double
+    default_value: 1.5
+    description: "Neighbor age beyond this -> lost: freeze last position as a static obstacle and raise a diagnostic."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  stale_buffer_mult:
+    type: double
+    default_value: 1.5
+    description: "Safety-radius multiplier applied to stale/lost neighbors."
+    read_only: true
+    validation:
+      gt_eq<>: [1.0]
+
+  # ── right-hand-rule deadlock breaking ───────────────────────────────────────
+  rh_progress_frac:
+    type: double
+    default_value: 0.3
+    description: "Blocked if projected progress toward goal < this fraction of desired travel."
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  rh_cone_deg:
+    type: double
+    default_value: 60.0
+    description: "Half-angle of the forward cone used to decide a neighbor is 'ahead'."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  rh_gain_m:
+    type: double
+    default_value: 1.0
+    description: "Lateral (right-hand) nudge magnitude when deadlocked."
+    read_only: true
+    validation:
+      gt_eq<>: [0.0]
+
+  # ── infeasible recovery ─────────────────────────────────────────────────────
+  retreat_step_m:
+    type: double
+    default_value: 0.5
+    description: "Step taken directly away from an offender when already closer than 2*r_s."
+    read_only: true
+    validation:
+      gt<>: [0.0]

@@ -40,6 +40,7 @@ def generate_launch_description() -> LaunchDescription:
     target_system_id = LaunchConfiguration("target_system_id")
     use_sim_time = LaunchConfiguration("use_sim_time")
     groot2_port = LaunchConfiguration("groot2_port")
+    enable_avoidance = LaunchConfiguration("enable_avoidance")
 
     core_stack_launch = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "launch", "core_stack.launch.py"]
@@ -101,6 +102,11 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="1667",
                 description="Port used by the Groot2 publisher for this BT server.",
             ),
+            DeclareLaunchArgument(
+                "enable_avoidance",
+                default_value="false",
+                description="Enable inter-UAV BVC collision avoidance (forwarded to core_stack).",
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(core_stack_launch),
                 condition=IfCondition(start_core_stack),
@@ -113,6 +119,7 @@ def generate_launch_description() -> LaunchDescription:
                     "px4_namespace": px4_namespace,
                     "target_system_id": target_system_id,
                     "use_sim_time": use_sim_time,
+                    "enable_avoidance": enable_avoidance,
                 }.items(),
             ),
             Node(

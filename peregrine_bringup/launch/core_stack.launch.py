@@ -22,7 +22,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import ComposableNodeContainer, Node
-from launch_ros.descriptions import ComposableNode
+from launch_ros.descriptions import ComposableNode, ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -42,6 +42,7 @@ def generate_launch_description() -> LaunchDescription:
     start_visualizer = LaunchConfiguration("start_visualizer")
     start_rviz = LaunchConfiguration("start_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
+    enable_avoidance = LaunchConfiguration("enable_avoidance")
 
     bringup_default_overrides = PathJoinSubstitution(
         [FindPackageShare("peregrine_bringup"), "config", "default.yaml"]
@@ -123,6 +124,11 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=default_rviz_config,
                 description="RViz config file to load when start_rviz:=true.",
             ),
+            DeclareLaunchArgument(
+                "enable_avoidance",
+                default_value="false",
+                description="Enable inter-UAV BVC collision avoidance (multi-UAV only).",
+            ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),
             ExecuteProcess(
@@ -189,7 +195,21 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="trajectory_manager::TrajectoryManagerNode",
                         name="trajectory_manager",
                         namespace=uav_namespace,
+                        # Output is intercepted by multi_agent_coordinator, which
+                        # republishes the BVC-projected setpoint on trajectory_setpoint.
+                        remappings=[("trajectory_setpoint", "trajectory_setpoint_raw")],
                         parameters=[config_overrides, {"use_sim_time": use_sim_time}],
+                    ),
+                    ComposableNode(
+                        package="multi_agent_coordinator",
+                        plugin="multi_agent_coordinator::MultiAgentCoordinatorNode",
+                        name="multi_agent_coordinator",
+                        namespace=uav_namespace,
+                        parameters=[config_overrides, {
+                            "uav_id": ParameterValue(uav_namespace, value_type=str),
+                            "enabled": ParameterValue(enable_avoidance, value_type=bool),
+                            "use_sim_time": use_sim_time,
+                        }],
                     ),
                     ComposableNode(
                         package="safety_monitor",

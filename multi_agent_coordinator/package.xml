@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>multi_agent_coordinator</name>
+  <version>0.1.0</version>
+  <description>Per-UAV Buffered Voronoi Cell inter-agent collision avoidance. Intercepts the trajectory setpoint and projects it into a collision-free region using neighbor states shared over the fleet bus.</description>
+  <maintainer email="vaidyavarad2001@gmail.com">px4ros2</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>generate_parameter_library</buildtool_depend>
+
+  <depend>peregrine_interfaces</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>eigen</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
