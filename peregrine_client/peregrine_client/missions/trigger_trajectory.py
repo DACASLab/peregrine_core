@@ -89,7 +89,6 @@ def _run_uav(namespace: str, tree_name: str, timeout_s: float, results: dict[str
 KNOWN_TREES = {
     "MultiTrajectory": "Preflight -> takeoff(3m) -> circle(6m@0.5m/s) -> figure8(6m@0.5m/s) -> land",
     "TakeoffHoverLand": "Preflight -> takeoff(3m) -> hover 10s -> land",
-    "SurveillanceSweep": "Grid-based surveillance sweep",
     "SingleUavSurveillance": "Single-agent surveillance mission",
     "MultiUavSurveillanceUav1": "Multi-agent surveillance (UAV 1 pattern)",
     "MultiUavSurveillanceUav2": "Multi-agent surveillance (UAV 2 pattern)",
