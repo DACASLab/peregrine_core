@@ -5,7 +5,7 @@
   <BehaviorTree ID="MultiTrajectory">
     <Fallback>
       <Sequence>
-        <SubTree ID="PreflightAndTakeoff" altitude_m="3.0"/>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="2.0"/>
         <WaitAction duration_s="1.0"/>
         <ExecuteTrajectoryAction trajectory_type="circle" params="6.0,0.0833,1"/>
         <ExecuteTrajectoryAction trajectory_type="figure8" params="6.0,0.0833,1"/>

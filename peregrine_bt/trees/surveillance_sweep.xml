@@ -5,7 +5,7 @@
   <!--
     Parameterized surveillance sweep tree.
     Intended to be triggered via ExecuteTree with JSON params:
-      altitude_m:       takeoff altitude (default 3.0)
+      altitude_m:       takeoff altitude (default 2.0)
       pre_sweep_wait_s: wait after takeoff before sweep (default 2.0)
       sweep_params:     comma-separated coverage_sweep params string
   -->

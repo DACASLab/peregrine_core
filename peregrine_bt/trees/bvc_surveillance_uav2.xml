@@ -3,7 +3,7 @@
   <include path="subtrees/preflight_and_takeoff.xml"/>
 
   <!--
-    BVC test mission — UAV2. Same altitude as UAV1 (3 m) and sweeps each ROW from the
+    BVC test mission — UAV2. Same altitude as UAV1 (2 m) and sweeps each ROW from the
     OPPOSITE end at the same time, so the two UAVs run head-on toward each other along
     every row (bottom row, then top row) — two genuine same-altitude crossings that the
     Buffered Voronoi Cell layer (with right-hand-rule) must resolve, instead of the
@@ -14,11 +14,11 @@
   <BehaviorTree ID="BvcSurveillanceUav2">
     <Fallback>
       <Sequence>
-        <SubTree ID="PreflightAndTakeoff" altitude_m="3.0"/>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="2.0"/>
         <WaitAction duration_s="2.0"/>
         <ExecuteTrajectoryAction
           trajectory_type="coverage_sweep"
-          params="13.018481,77.564971,5.0,3,2,3.0,0.5,1.5,6,2,1,0,3,4,5"/>
+          params="13.018481,77.564971,5.0,3,2,2.0,0.5,1.5,6,2,1,0,3,4,5"/>
         <WaitAction duration_s="2.0"/>
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
