@@ -7,8 +7,8 @@ multi_agent_coordinator:
 
   enabled:
     type: bool
-    default_value: false
-    description: "Master switch. When false the node is a transparent passthrough (raw -> trajectory_setpoint), so single-UAV flight is unchanged."
+    default_value: true
+    description: "Master switch. On by default. When false the node is a transparent passthrough (raw -> trajectory_setpoint), so single-UAV flight is unchanged."
     read_only: true
 
   fleet_frame:

@@ -126,8 +126,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "enable_avoidance",
-                default_value="false",
-                description="Enable inter-UAV BVC collision avoidance (multi-UAV only).",
+                default_value="true",
+                description="Enable inter-UAV BVC collision avoidance (multi-UAV only). "
+                "On by default; set false for an avoidance-off baseline.",
             ),
             SetEnvironmentVariable("ROS_LOCALHOST_ONLY", ros_localhost_only),
             SetEnvironmentVariable("ROS_DOMAIN_ID", ros_domain_id),

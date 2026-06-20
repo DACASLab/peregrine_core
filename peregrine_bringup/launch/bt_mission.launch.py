@@ -104,8 +104,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "enable_avoidance",
-                default_value="false",
-                description="Enable inter-UAV BVC collision avoidance (forwarded to core_stack).",
+                default_value="true",
+                description="Enable inter-UAV BVC collision avoidance (forwarded to core_stack). "
+                "On by default; set false for an avoidance-off baseline.",
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(core_stack_launch),
