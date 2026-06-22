@@ -33,6 +33,7 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <peregrine_interfaces/msg/control_output.hpp>
+#include <peregrine_interfaces/msg/frame_anchor.hpp>
 #include <peregrine_interfaces/msg/px4_status.hpp>
 #include <peregrine_interfaces/msg/state.hpp>
 #include <peregrine_interfaces/srv/arm.hpp>
@@ -44,6 +45,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_attitude_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <px4_msgs/msg/vehicle_rates_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
@@ -55,6 +57,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cmath>
+#include <mutex>
 #include <string>
 
 namespace hardware_abstraction
@@ -85,9 +88,18 @@ public:
 
 private:
   /**
-   * @brief Handles PX4 odometry and publishes manager-facing state.
+   * @brief Handles PX4 odometry and publishes manager-facing state (anchored to world).
    */
   void onVehicleOdometry(const px4_msgs::msg::VehicleOdometry::SharedPtr msg);
+  /**
+   * @brief Consumes VehicleLocalPosition for ref_*, validity, reset counters and deltas.
+   *
+   * Maintains the map->odom reset offset (INVERSE of the PX4 estimate jump), latches the
+   * world->map anchor, captures the ground datum, and publishes FrameAnchor. The raw pose
+   * still comes from VehicleOdometry (onVehicleOdometry); this only drives the anchor.
+   * See docs/investigations/world-frame-anchoring-plan.md.
+   */
+  void onVehicleLocalPosition(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
   /**
    * @brief Converts battery telemetry into ROS battery status.
    */
@@ -158,14 +170,58 @@ private:
   std::string px4Namespace_;
   /// MAV_SYS_ID of the PX4 instance this stack commands (instance N → N+1).
   uint8_t targetSystemId_;
-  /// Frame used for published odometry parent.
+  /// Frame used for published odometry parent (per-UAV, e.g. uav1/odom).
   std::string odomFrame_;
-  /// Frame used for published odometry child.
+  /// Frame used for published odometry child (per-UAV, e.g. uav1/base_link).
   std::string baseLinkFrame_;
+  /// Per-UAV map frame id (e.g. uav1/map).
+  std::string mapFrame_;
+  /// Shared, fleet-wide world frame id (NOT namespaced). Parent of the anchored State.
+  std::string worldFrame_;
   /// Frame used for published GPS messages.
   std::string gpsFrame_;
   /// PX4 SensorGps topic suffix under px4_namespace.
   std::string sensorGpsTopicSuffix_;
+
+  /**
+   * @brief Anchor state relating the world frame to PX4's local estimator frame.
+   *
+   * Stored as scalars (no Eigen in the header). All ENU. Mutated only in
+   * onVehicleLocalPosition, read in onVehicleOdometry (State) and handleTrajectoryMode
+   * (setpoints) under anchorMutex_. See world-frame-anchoring-plan.md §5.2/§6.2.
+   */
+  struct FrameAnchorState
+  {
+    // map->odom translation (ENU) = INVERSE of accumulated PX4 estimate jumps.
+    // Pure translation (frames north-aligned). Steps only on a reset-counter change.
+    double mapToOdomX{0.0};
+    double mapToOdomY{0.0};
+    double mapToOdomZ{0.0};
+    // map->odom yaw (ENU) = inverse of accumulated heading-reset deltas (orientation only).
+    double mapToOdomYaw{0.0};
+    // world->map horizontal placement (ENU), latched once from first valid ref_* + datum.
+    double worldToMapX{0.0};
+    double worldToMapY{0.0};
+    // Ground datum: map-frame Z taken as ground (so world z=0 == ground). Tracked while
+    // disarmed, frozen at arm.
+    double groundDatumZ{0.0};
+    bool groundDatumValid{false};
+    // Last-seen reset counters (for change detection).
+    uint8_t xyResetCounter{0};
+    uint8_t zResetCounter{0};
+    uint8_t headingResetCounter{0};
+    bool countersInit{false};
+    // Latched global reference of the EKF origin (world->map source).
+    double refLat{0.0};
+    double refLon{0.0};
+    double refAlt{0.0};
+    uint64_t refTimestamp{0};
+    bool refValid{false};
+  };
+  FrameAnchorState anchor_;
+  mutable std::mutex anchorMutex_;
+  /// True while PX4 reports ARMED; gates ground-datum freezing.
+  std::atomic<bool> vehicleArmed_{false};
 
 
   // These members are std::atomic because they are written from PX4 subscription callbacks
@@ -191,11 +247,13 @@ private:
   rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr statePub_;
   rclcpp::Publisher<peregrine_interfaces::msg::PX4Status>::SharedPtr statusPub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometryPub_;
+  rclcpp::Publisher<peregrine_interfaces::msg::FrameAnchor>::SharedPtr frameAnchorPub_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr batteryPub_;
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gpsPub_;
   rclcpp::Publisher<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusPub_;
 
   rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr vehicleOdometrySub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr vehicleLocalPositionSub_;
   rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr batteryStatusSub_;
   rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr sensorGpsSub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicleStatusSub_;

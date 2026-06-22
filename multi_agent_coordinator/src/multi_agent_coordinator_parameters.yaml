@@ -13,8 +13,8 @@ multi_agent_coordinator:
 
   fleet_frame:
     type: string
-    default_value: "map"
-    description: "Shared frame in which BVC is computed and FleetAgentState is broadcast. Flip to 'world' once GPS world-pinning lands."
+    default_value: "world"
+    description: "Shared frame in which BVC is computed and FleetAgentState is broadcast. World-pinning landed (world-frame-anchoring-plan.md): estimated_state is now world-anchored, so this is 'world'."
     read_only: true
 
   broadcast_rate_hz:

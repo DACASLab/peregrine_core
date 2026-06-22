@@ -11,16 +11,22 @@ frame_transforms:
     description: "Odometry input topic name"
     read_only: true
 
+  frame_anchor_topic:
+    type: string
+    default_value: "frame_anchor"
+    description: "FrameAnchor input topic (from hardware_abstraction)"
+    read_only: true
+
   world_frame:
     type: string
     default_value: "world"
-    description: "Global world reference frame (shared across fleet)"
+    description: "Shared, fleet-wide world frame (NOT namespaced)"
     read_only: true
 
   map_frame:
     type: string
     default_value: "map"
-    description: "Global map reference frame (shared across fleet)"
+    description: "Per-UAV map frame (prefixed with frame_prefix). EKF origin placed in world."
     read_only: true
 
   odom_frame:
@@ -49,47 +55,26 @@ frame_transforms:
     validation:
       gt<>: [0.0]
 
-  home_lat_deg:
-    type: double
-    default_value: 13.018526
-    description: "Default home latitude (overwritten by first valid GPS fix)"
+  world_datum_set:
+    type: bool
+    default_value: false
+    description: "If true, place this UAV's map in world using world_datum_*; else world==map horizontally."
     read_only: true
 
-  home_lon_deg:
+  world_datum_lat:
     type: double
-    default_value: 77.565041
-    description: "Default home longitude (overwritten by first valid GPS fix)"
+    default_value: 0.0
+    description: "Shared fleet world-datum latitude (deg). Must match hardware_abstraction and the fleet."
     read_only: true
 
-  gps:
-    min_fix_type:
-      type: int
-      default_value: 3
-      description: "Minimum GPS fix type for home origin initialization"
-      read_only: true
-      validation:
-        bounds<>: [0, 6]
+  world_datum_lon:
+    type: double
+    default_value: 0.0
+    description: "Shared fleet world-datum longitude (deg). Must match hardware_abstraction and the fleet."
+    read_only: true
 
-    min_satellites:
-      type: int
-      default_value: 6
-      description: "Minimum satellite count for home origin initialization"
-      read_only: true
-      validation:
-        gt_eq<>: [0]
-
-    max_hdop:
-      type: double
-      default_value: 5.0
-      description: "Maximum HDOP for home origin initialization"
-      read_only: true
-      validation:
-        gt<>: [0.0]
-
-    max_vdop:
-      type: double
-      default_value: 5.0
-      description: "Maximum VDOP for home origin initialization"
-      read_only: true
-      validation:
-        gt<>: [0.0]
+  world_datum_alt:
+    type: double
+    default_value: 0.0
+    description: "Shared fleet world-datum altitude (AMSL m). Must match hardware_abstraction and the fleet."
+    read_only: true

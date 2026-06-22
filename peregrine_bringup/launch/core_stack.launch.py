@@ -189,7 +189,10 @@ def generate_launch_description() -> LaunchDescription:
                         plugin="control_manager::ControlManagerNode",
                         name="control_manager",
                         namespace=uav_namespace,
-                        parameters=[config_overrides, {"use_sim_time": use_sim_time}],
+                        parameters=[
+                            config_overrides,
+                            {"frame_prefix": uav_namespace, "use_sim_time": use_sim_time},
+                        ],
                     ),
                     ComposableNode(
                         package="trajectory_manager",

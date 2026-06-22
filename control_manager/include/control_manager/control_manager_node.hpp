@@ -95,6 +95,9 @@ private:
   bool configured_{false};
   bool active_{false};
 
+  /// Per-UAV base_link frame id (from frame_prefix), used to label body-rate outputs.
+  std::string baseLinkFrame_{"base_link"};
+
   std::shared_ptr<const CachedState> cachedState_;
   std::shared_ptr<const peregrine_interfaces::msg::TrajectorySetpoint> cachedSetpoint_;
 

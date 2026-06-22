@@ -27,6 +27,17 @@ ControlManagerNode::ControlManagerNode(const rclcpp::NodeOptions & options)
       get_node_parameters_interface());
   params_ = paramListener_->get_params();
 
+  // Per-UAV base_link frame for labeling body-rate outputs. Derived from frame_prefix because
+  // the estimated_state frame is now the shared 'world' (no per-UAV prefix to extract).
+  {
+    std::string prefix = params_.frame_prefix;
+    if (!prefix.empty()) {
+      if (prefix.front() == '/') prefix.erase(prefix.begin());
+      while (!prefix.empty() && prefix.back() == '/') prefix.pop_back();
+    }
+    baseLinkFrame_ = prefix.empty() ? std::string("base_link") : prefix + "/base_link";
+  }
+
   if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
       200ms,
@@ -210,11 +221,11 @@ void ControlManagerNode::onEstimatedState(const peregrine_interfaces::msg::State
         "estimated_state frame_id changed: '%s' -> '%s'",
         prevOdom.c_str(), msg->header.frame_id.c_str());
     }
+    // odomFrame tracks the estimated_state frame (now the shared 'world'); used to label
+    // trajectory/attitude outputs. base_link comes from frame_prefix (the state frame no longer
+    // contains a per-UAV 'odom' to extract from).
     snap->odomFrame = msg->header.frame_id;
-    const auto pos = snap->odomFrame.rfind("odom");
-    if (pos != std::string::npos) {
-      snap->baseLinkFrame = snap->odomFrame.substr(0, pos) + "base_link";
-    }
+    snap->baseLinkFrame = baseLinkFrame_;
   } else if (prev) {
     snap->odomFrame = prev->odomFrame;
     snap->baseLinkFrame = prev->baseLinkFrame;

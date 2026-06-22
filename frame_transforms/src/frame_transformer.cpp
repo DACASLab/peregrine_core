@@ -91,8 +91,9 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
   params_ = paramListener_->get_params();
 
   framePrefix_ = normalizePrefix(params_.frame_prefix);
+  // world is shared across the fleet (NOT prefixed); map/odom/base_link are per-UAV.
   worldFrame_ = params_.world_frame;
-  mapFrame_ = params_.map_frame;
+  mapFrame_ = composeFrame(framePrefix_, params_.map_frame);
   odomFrame_ = composeFrame(framePrefix_, params_.odom_frame);
   baseLinkFrame_ = composeFrame(framePrefix_, params_.base_link_frame);
   baseLinkFrdFrame_ = composeFrame(framePrefix_, params_.base_link_frd_frame);
@@ -106,15 +107,14 @@ FrameTransformer::FrameTransformer(const rclcpp::NodeOptions& options)
 
   publishStaticTransforms();
 
-  // GNSS and GPS status subscriptions for home origin initialization
-  gnssSub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      "gnss", rclcpp::QoS(10).reliable(),
-      [this](sensor_msgs::msg::NavSatFix::SharedPtr msg) { onGnss(msg); });
-  gpsStatusSub_ = this->create_subscription<peregrine_interfaces::msg::GpsStatus>(
-      "gps_status", rclcpp::QoS(10).reliable(),
-      [this](peregrine_interfaces::msg::GpsStatus::SharedPtr msg) { onGpsStatus(msg); });
+  // FrameAnchor drives world->map (latched once) and map->odom (dynamic, steps on PX4 reset).
+  // transient_local matches hardware_abstraction so we get the latest anchor even if we start
+  // after it.
+  frameAnchorSub_ = this->create_subscription<peregrine_interfaces::msg::FrameAnchor>(
+      params_.frame_anchor_topic, rclcpp::QoS(1).reliable().transient_local(),
+      [this](peregrine_interfaces::msg::FrameAnchor::SharedPtr msg) { onFrameAnchor(msg); });
 
-  // Timer periodically emits the latest odom->base_link transform.
+  // Timer periodically emits the dynamic TF edges (world->map, map->odom, odom->base_link).
   const auto period = std::chrono::duration<double>(1.0 / params_.publish_rate_hz);
   dynamicTfTimer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
@@ -135,28 +135,10 @@ void FrameTransformer::odometryCallback(const nav_msgs::msg::Odometry::SharedPtr
 
 void FrameTransformer::publishStaticTransforms()
 {
-  std::vector<geometry_msgs::msg::TransformStamped> transforms;
-  transforms.reserve(3);
-
+  // Only base_link->base_link_frd is static now. world->map and map->odom are dynamic and
+  // driven by FrameAnchor (see publishDynamicTransforms).
   const auto now = this->get_clock()->now();
 
-  // Keep world->map identity in this package; global fleet/world alignment belongs elsewhere.
-  geometry_msgs::msg::TransformStamped worldToMap;
-  worldToMap.header.stamp = now;
-  worldToMap.header.frame_id = worldFrame_;
-  worldToMap.child_frame_id = mapFrame_;
-  worldToMap.transform = identityTransform();
-  transforms.push_back(worldToMap);
-
-  // map->odom starts as identity; higher-level localization can own this later if needed.
-  geometry_msgs::msg::TransformStamped mapToOdom;
-  mapToOdom.header.stamp = now;
-  mapToOdom.header.frame_id = mapFrame_;
-  mapToOdom.child_frame_id = odomFrame_;
-  mapToOdom.transform = identityTransform();
-  transforms.push_back(mapToOdom);
-
-  // Explicitly publish FLU->FRD relationship for packages that consume PX4-body conventions.
   geometry_msgs::msg::TransformStamped baseLinkToFrd;
   baseLinkToFrd.header.stamp = now;
   baseLinkToFrd.header.frame_id = baseLinkFrame_;
@@ -165,9 +147,8 @@ void FrameTransformer::publishStaticTransforms()
   baseLinkToFrd.transform.translation.y = 0.0;
   baseLinkToFrd.transform.translation.z = 0.0;
   baseLinkToFrd.transform.rotation = toRosQuaternion(Eigen::Quaterniond(fluToFrdMatrix()));
-  transforms.push_back(baseLinkToFrd);
 
-  staticTfBroadcaster_->sendTransform(transforms);
+  staticTfBroadcaster_->sendTransform(baseLinkToFrd);
 }
 
 void FrameTransformer::publishDynamicTransforms()
@@ -234,79 +215,76 @@ void FrameTransformer::publishDynamicTransforms()
   }
   odomToBase.transform.rotation = toRosQuaternion(orientation);
 
-  tfBroadcaster_->sendTransform(odomToBase);
+  std::vector<geometry_msgs::msg::TransformStamped> transforms;
+  transforms.reserve(3);
+
+  // world->map (latched) and map->odom (dynamic) from the latest FrameAnchor. Until an anchor
+  // arrives, fall back to identity so the tree stays connected.
+  std::optional<peregrine_interfaces::msg::FrameAnchor> anchor;
+  Eigen::Vector3d worldToMap{0.0, 0.0, 0.0};
+  {
+    std::scoped_lock lock(anchorMutex_);
+    anchor = latestAnchor_;
+    worldToMap = worldToMapTranslation_;
+  }
+
+  const auto stamp = odomToBase.header.stamp;
+
+  geometry_msgs::msg::TransformStamped worldToMapTf;
+  worldToMapTf.header.stamp = stamp;
+  worldToMapTf.header.frame_id = worldFrame_;
+  worldToMapTf.child_frame_id = mapFrame_;
+  worldToMapTf.transform = identityTransform();
+  worldToMapTf.transform.translation.x = worldToMap.x();
+  worldToMapTf.transform.translation.y = worldToMap.y();
+  worldToMapTf.transform.translation.z = worldToMap.z();
+  transforms.push_back(worldToMapTf);
+
+  // map->odom = INVERSE of the accumulated PX4 estimate jump (translation). yaw-reset
+  // compensation is applied to orientation in hardware_abstraction's State, not rotated into
+  // this TF edge (avoids rotating position about the origin); v1 keeps this a pure translation.
+  geometry_msgs::msg::TransformStamped mapToOdomTf;
+  mapToOdomTf.header.stamp = stamp;
+  mapToOdomTf.header.frame_id = mapFrame_;
+  mapToOdomTf.child_frame_id = odomFrame_;
+  mapToOdomTf.transform = identityTransform();
+  if (anchor.has_value())
+  {
+    mapToOdomTf.transform.translation.x = anchor->map_to_odom_enu.x;
+    mapToOdomTf.transform.translation.y = anchor->map_to_odom_enu.y;
+    mapToOdomTf.transform.translation.z = anchor->map_to_odom_enu.z;
+  }
+  transforms.push_back(mapToOdomTf);
+
+  transforms.push_back(odomToBase);
+
+  tfBroadcaster_->sendTransform(transforms);
 }
 
-void FrameTransformer::onGnss(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+void FrameTransformer::onFrameAnchor(const peregrine_interfaces::msg::FrameAnchor::SharedPtr msg)
 {
-  std::scoped_lock lock(homeMutex_);
-  latestGnss_ = *msg;
-  tryInitHome();
-}
+  std::scoped_lock lock(anchorMutex_);
+  latestAnchor_ = *msg;
 
-void FrameTransformer::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg)
-{
-  std::scoped_lock lock(homeMutex_);
-  latestGpsStatus_ = *msg;
-  tryInitHome();
-}
-
-void FrameTransformer::tryInitHome()
-{
-  // Must be called with homeMutex_ held
-  if (homeInitialized_) {
-    return;
+  // Latch world->map ONCE: horizontal from the first valid ref_* + world_datum; vertical from
+  // the ground datum so world z=0 is the takeoff surface. Subsequent origin moves arrive as
+  // map->odom deltas (already in the anchor), so we do not re-latch (avoids double-counting).
+  if (!worldToMapLatched_ && msg->ref_valid && msg->ground_datum_valid)
+  {
+    Eigen::Vector3d horiz{0.0, 0.0, 0.0};
+    if (params_.world_datum_set)
+    {
+      horiz = geodeticToEnu(
+          params_.world_datum_lat, params_.world_datum_lon, params_.world_datum_alt,
+          msg->ref_lat, msg->ref_lon, msg->ref_alt);
+    }
+    worldToMapTranslation_ = Eigen::Vector3d(horiz.x(), horiz.y(), -msg->ground_datum_z);
+    worldToMapLatched_ = true;
+    RCLCPP_INFO(this->get_logger(),
+        "world->map latched: ref=(%.6f, %.6f, %.2f) datum_set=%d translation=(%.2f, %.2f, %.2f)m",
+        msg->ref_lat, msg->ref_lon, msg->ref_alt, params_.world_datum_set ? 1 : 0,
+        worldToMapTranslation_.x(), worldToMapTranslation_.y(), worldToMapTranslation_.z());
   }
-
-  // Need both GNSS and GPS status
-  if (!latestGnss_.has_value() || !latestGpsStatus_.has_value()) {
-    return;
-  }
-
-  if (params_.home_lat_deg == 0.0 && params_.home_lon_deg == 0.0) {
-    return;
-  }
-
-  const auto & gpsStatus = *latestGpsStatus_;
-
-  if (gpsStatus.fix_type < params_.gps.min_fix_type) {
-    return;
-  }
-  if (gpsStatus.satellites_used < params_.gps.min_satellites) {
-    return;
-  }
-  if (gpsStatus.hdop > params_.gps.max_hdop) {
-    return;
-  }
-  if (gpsStatus.vdop > params_.gps.max_vdop) {
-    return;
-  }
-
-  const auto & gnss = *latestGnss_;
-
-  mapToOdomOffset_ = geodeticToEnu(
-      params_.home_lat_deg, params_.home_lon_deg, 0.0,
-      gnss.latitude, gnss.longitude, 0.0);
-
-  // Republish map->odom static TF with the computed offset
-  geometry_msgs::msg::TransformStamped mapToOdom;
-  mapToOdom.header.stamp = this->get_clock()->now();
-  mapToOdom.header.frame_id = mapFrame_;
-  mapToOdom.child_frame_id = odomFrame_;
-  mapToOdom.transform.translation.x = mapToOdomOffset_.x();
-  mapToOdom.transform.translation.y = mapToOdomOffset_.y();
-  mapToOdom.transform.translation.z = mapToOdomOffset_.z();
-  mapToOdom.transform.rotation.w = 1.0;
-  mapToOdom.transform.rotation.x = 0.0;
-  mapToOdom.transform.rotation.y = 0.0;
-  mapToOdom.transform.rotation.z = 0.0;
-  staticTfBroadcaster_->sendTransform(mapToOdom);
-
-  homeInitialized_ = true;
-  RCLCPP_INFO(this->get_logger(),
-      "Home GPS origin initialized: home=(%.6f, %.6f) gnss=(%.6f, %.6f) offset=(%.2f, %.2f, %.2f)m",
-      params_.home_lat_deg, params_.home_lon_deg, gnss.latitude, gnss.longitude,
-      mapToOdomOffset_.x(), mapToOdomOffset_.y(), mapToOdomOffset_.z());
 }
 
 }  // namespace frame_transforms

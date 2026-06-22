@@ -261,26 +261,14 @@ void SafetyMonitorNode::onGpsStatus(const peregrine_interfaces::msg::GpsStatus::
 
 void SafetyMonitorNode::onEstimatedState(const peregrine_interfaces::msg::State::SharedPtr msg)
 {
-  // Transform position from odom frame to map frame for geofence checking.
-  double px = msg->pose.pose.position.x;
-  double py = msg->pose.pose.position.y;
-  double pz = msg->pose.pose.position.z;
-
-  if (tfBuffer_ && !msg->header.frame_id.empty()) {
-    try {
-      geometry_msgs::msg::PointStamped odomPoint;
-      odomPoint.header = msg->header;
-      odomPoint.point = msg->pose.pose.position;
-      auto mapPoint = tfBuffer_->transform(odomPoint, std::string("map"), tf2::durationFromSec(0.0));
-      px = mapPoint.point.x;
-      py = mapPoint.point.y;
-      pz = mapPoint.point.z;
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 10000,
-        "TF2 odom->map lookup failed, using raw odom position for geofence: %s", ex.what());
-    }
-  }
+  // estimated_state is published ANCHORED TO WORLD (stable, ground-referenced) by
+  // hardware_abstraction, so the geofence operates directly in the world frame -- no TF
+  // transform is needed. (Previously this transformed odom->map, but map is now per-UAV
+  // namespaced and the estimate is already world-anchored.)
+  // See docs/investigations/world-frame-anchoring-plan.md.
+  const double px = msg->pose.pose.position.x;
+  const double py = msg->pose.pose.position.y;
+  const double pz = msg->pose.pose.position.z;
 
   std::scoped_lock lock(mutex_);
   PositionData data;

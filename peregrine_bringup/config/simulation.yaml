@@ -1,10 +1,3 @@
-# Apply to namespaced frame_transformer nodes (e.g. /uav1/frame_transformer).
-/**:
-  ros__parameters:
-    # GPS home origin (Bangalore, India).
-    home_lat_deg: 13.018526
-    home_lon_deg: 77.565041
-
 safety_monitor:
   ros__parameters:
     command_land_enabled: true

@@ -1,4 +1,10 @@
 control_manager:
+  frame_prefix:
+    type: string
+    default_value: ""
+    description: "TF frame name prefix for multi-UAV (e.g. uav1). Used to label the per-UAV base_link frame on body-rate outputs."
+    read_only: true
+
   publish_rate_hz:
     type: double
     default_value: 250.0

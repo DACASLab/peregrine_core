@@ -35,9 +35,8 @@
 #include <frame_transforms/frame_transforms_parameters.hpp>
 
 #include <nav_msgs/msg/odometry.hpp>
-#include <peregrine_interfaces/msg/gps_status.hpp>
+#include <peregrine_interfaces/msg/frame_anchor.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/static_transform_broadcaster.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 
@@ -73,11 +72,15 @@ private:
    */
   void odometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   /**
-   * @brief Publishes static transforms once at startup.
+   * @brief Stores the latest FrameAnchor and latches world->map on first valid sample.
+   */
+  void onFrameAnchor(const peregrine_interfaces::msg::FrameAnchor::SharedPtr msg);
+  /**
+   * @brief Publishes the static base_link -> base_link_frd transform once at startup.
    */
   void publishStaticTransforms();
   /**
-   * @brief Publishes the dynamic odom -> base_link transform.
+   * @brief Publishes the dynamic TF edges: world->map, map->odom, odom->base_link.
    */
   void publishDynamicTransforms();
 
@@ -98,6 +101,7 @@ private:
   std::string baseLinkFrdFrame_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometrySub_;
+  rclcpp::Subscription<peregrine_interfaces::msg::FrameAnchor>::SharedPtr frameAnchorSub_;
   rclcpp::TimerBase::SharedPtr dynamicTfTimer_;
 
   std::unique_ptr<tf2_ros::TransformBroadcaster> tfBroadcaster_;
@@ -106,21 +110,12 @@ private:
   std::mutex odometryMutex_;
   std::optional<nav_msgs::msg::Odometry> latestOdometry_;
 
-  // Home GPS origin members
-  void onGnss(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
-  void onGpsStatus(const peregrine_interfaces::msg::GpsStatus::SharedPtr msg);
-  void tryInitHome();
-
-
-  bool homeInitialized_{false};
-  Eigen::Vector3d mapToOdomOffset_{0.0, 0.0, 0.0};
-
-  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gnssSub_;
-  rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
-
-  std::mutex homeMutex_;
-  std::optional<sensor_msgs::msg::NavSatFix> latestGnss_;
-  std::optional<peregrine_interfaces::msg::GpsStatus> latestGpsStatus_;
+  // Anchor state (from FrameAnchor). map->odom is dynamic (steps on PX4 reset); world->map is
+  // latched once from the first valid ref_* + world_datum and from the ground datum (z).
+  std::mutex anchorMutex_;
+  std::optional<peregrine_interfaces::msg::FrameAnchor> latestAnchor_;
+  bool worldToMapLatched_{false};
+  Eigen::Vector3d worldToMapTranslation_{0.0, 0.0, 0.0};
 };
 
 }  // namespace frame_transforms

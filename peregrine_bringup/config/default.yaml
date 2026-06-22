@@ -1,12 +1,9 @@
 /**:
   ros__parameters:
-    # GPS home origin (Bangalore, India).
-    home_lat_deg: 13.018526
-    home_lon_deg: 77.565041
-
-    # Shared GPS quality thresholds — used by both frame_transforms (home origin
-    # init gate) and safety_monitor (continuous flight safety). Change here to
-    # keep both nodes in sync.
+    # GPS quality thresholds — used by safety_monitor (continuous flight safety).
+    # NOTE: frame_transforms no longer uses GPS/home for frames; it anchors to PX4's
+    # FrameAnchor (ref_*) instead. World placement is via world_datum_* (see below /
+    # world-frame-anchoring-plan.md), shared identically across the fleet.
     gps:
       min_fix_type: 3
       min_satellites: 6

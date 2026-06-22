@@ -147,6 +147,9 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   }
   odomFrame_ = framePrefix.empty() ? std::string("odom") : framePrefix + "/odom";
   baseLinkFrame_ = framePrefix.empty() ? std::string("base_link") : framePrefix + "/base_link";
+  // map is per-UAV (each UAV's EKF origin); world is shared, NOT namespaced.
+  mapFrame_ = framePrefix.empty() ? std::string("map") : framePrefix + "/map";
+  worldFrame_ = params_.world_frame;
   gpsFrame_ = framePrefix.empty() ? std::string("gps") : framePrefix + "/gps";
   sensorGpsTopicSuffix_ = normalizeTopicSuffix(params_.sensor_gps_topic_suffix);
 
@@ -164,6 +167,10 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   statePub_ = this->create_publisher<peregrine_interfaces::msg::State>("state", rosOutputQos);
   statusPub_ = this->create_publisher<peregrine_interfaces::msg::PX4Status>("status", rosOutputQos);
   odometryPub_ = this->create_publisher<nav_msgs::msg::Odometry>("odometry", rosOutputQos);
+  // Anchor relating world<->PX4-local; transient_local so frame_transforms (and late joiners)
+  // always get the latest anchor even if they start after us.
+  frameAnchorPub_ = this->create_publisher<peregrine_interfaces::msg::FrameAnchor>(
+      "frame_anchor", rclcpp::QoS(1).reliable().transient_local());
   batteryPub_ = this->create_publisher<sensor_msgs::msg::BatteryState>("battery", rosOutputQos);
   gpsPub_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("gnss", rosOutputQos);
   gpsStatusPub_ = this->create_publisher<peregrine_interfaces::msg::GpsStatus>("gps_status", rosOutputQos);
@@ -175,6 +182,11 @@ PX4HardwareAbstraction::PX4HardwareAbstraction(const rclcpp::NodeOptions& option
   vehicleOdometrySub_ = this->create_subscription<px4_msgs::msg::VehicleOdometry>(
       px4Topic("/fmu/out/vehicle_odometry" + getMessageNameVersion<px4_msgs::msg::VehicleOdometry>()), px4InputQos,
       [this](px4_msgs::msg::VehicleOdometry::SharedPtr msg) { onVehicleOdometry(msg); });
+  // VehicleLocalPosition drives the anchor only (ref_*, validity, reset counters/deltas).
+  vehicleLocalPositionSub_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
+      px4Topic("/fmu/out/vehicle_local_position" + getMessageNameVersion<px4_msgs::msg::VehicleLocalPosition>()),
+      px4InputQos,
+      [this](px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) { onVehicleLocalPosition(msg); });
   batteryStatusSub_ = this->create_subscription<px4_msgs::msg::BatteryStatus>(
       px4Topic("/fmu/out/battery_status" + getMessageNameVersion<px4_msgs::msg::BatteryStatus>()), px4InputQos,
       [this](px4_msgs::msg::BatteryStatus::SharedPtr msg) { onBatteryStatus(msg); });
@@ -364,15 +376,39 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
 
   odometryPub_->publish(odometry);
 
-  // Publish manager-facing state message used by estimator/controller managers.
+  // Publish manager-facing state ANCHORED TO WORLD. The raw odometry above stays in odom
+  // (it feeds odom->base_link TF); the State that managers/trajectory consume is in the
+  // fixed world frame so absolute-Z commands mean height above ground and reset jumps are
+  // absorbed. world = (world<-map translation) o (map<-odom reset offset). Position is a pure
+  // ENU translation (frames north-aligned); orientation gets the yaw-reset offset.
+  // See world-frame-anchoring-plan.md §6.2.
+  double offX;
+  double offY;
+  double offZ;
+  double offYaw;
+  {
+    std::scoped_lock lock(anchorMutex_);
+    offX = anchor_.mapToOdomX + anchor_.worldToMapX;
+    offY = anchor_.mapToOdomY + anchor_.worldToMapY;
+    offZ = anchor_.mapToOdomZ - anchor_.groundDatumZ;  // world z=0 at the ground datum
+    offYaw = anchor_.mapToOdomYaw;
+  }
+
   peregrine_interfaces::msg::State state;
-  state.header = odometry.header;
+  state.header.stamp = odometry.header.stamp;
+  state.header.frame_id = worldFrame_;
   state.pose = odometry.pose;
-  state.twist = odometry.twist;
+  state.pose.pose.position.x += offX;
+  state.pose.pose.position.y += offY;
+  state.pose.pose.position.z += offZ;
+  const Eigen::Quaterniond qWorld =
+      Eigen::Quaterniond(Eigen::AngleAxisd(offYaw, Eigen::Vector3d::UnitZ())) * qEnuFlu;
+  state.pose.pose.orientation = frame_transforms::toRosQuaternion(qWorld);
+  state.twist = odometry.twist;  // body-frame (child), frame-invariant under the world offset
   state.linear_acceleration.x = 0.0;
   state.linear_acceleration.y = 0.0;
   state.linear_acceleration.z = 0.0;
-  state.source = "px4_vehicle_odometry";
+  state.source = "px4_world_anchored";
 
   if (msg->quality > 0)
   {
@@ -384,6 +420,115 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   }
 
   statePub_->publish(state);
+}
+
+// Drives the world<->PX4-local anchor from VehicleLocalPosition. Does NOT publish state/odom
+// (that stays on VehicleOdometry). Maintains map->odom = -SUM(delta) (inverse of the PX4
+// estimate jump), latches world->map from the first valid ref_*, captures the ground datum,
+// and publishes FrameAnchor. See world-frame-anchoring-plan.md §5.2/§6.2.
+void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg)
+{
+  lastPx4RxTimeNs_.store(this->now().nanoseconds());
+
+  peregrine_interfaces::msg::FrameAnchor anchorMsg;
+  {
+    std::scoped_lock lock(anchorMutex_);
+
+    if (!anchor_.countersInit)
+    {
+      // First sample: baseline the counters; offset stays zero.
+      anchor_.xyResetCounter = msg->xy_reset_counter;
+      anchor_.zResetCounter = msg->z_reset_counter;
+      anchor_.headingResetCounter = msg->heading_reset_counter;
+      anchor_.countersInit = true;
+    }
+    else if (msg->xy_reset_counter < anchor_.xyResetCounter ||
+             msg->z_reset_counter < anchor_.zResetCounter ||
+             msg->heading_reset_counter < anchor_.headingResetCounter)
+    {
+      // A counter ran backward => EKF reinit. Drop the accumulated offset and re-baseline.
+      anchor_.mapToOdomX = 0.0;
+      anchor_.mapToOdomY = 0.0;
+      anchor_.mapToOdomZ = 0.0;
+      anchor_.mapToOdomYaw = 0.0;
+      anchor_.xyResetCounter = msg->xy_reset_counter;
+      anchor_.zResetCounter = msg->z_reset_counter;
+      anchor_.headingResetCounter = msg->heading_reset_counter;
+    }
+    else
+    {
+      // map->odom = -SUM(delta): accumulate the INVERSE of the PX4 local-estimate jump so the
+      // world/map pose stays continuous. Gated on counter change (delta_* is last-reset-only).
+      // Sign is locked by the synthetic stationary-vehicle test (plan §9).
+      if (msg->xy_reset_counter != anchor_.xyResetCounter)
+      {
+        const Eigen::Vector3d dEnu =
+            frame_transforms::nedToEnu(Eigen::Vector3d(msg->delta_xy[0], msg->delta_xy[1], 0.0));
+        anchor_.mapToOdomX -= dEnu.x();
+        anchor_.mapToOdomY -= dEnu.y();
+        anchor_.xyResetCounter = msg->xy_reset_counter;
+      }
+      if (msg->z_reset_counter != anchor_.zResetCounter)
+      {
+        const Eigen::Vector3d dEnu =
+            frame_transforms::nedToEnu(Eigen::Vector3d(0.0, 0.0, msg->delta_z));
+        anchor_.mapToOdomZ -= dEnu.z();
+        anchor_.zResetCounter = msg->z_reset_counter;
+      }
+      if (msg->heading_reset_counter != anchor_.headingResetCounter)
+      {
+        // delta_heading is a NED yaw delta; the ENU yaw delta is its negation, so map->odom yaw
+        // (= -SUM ENU delta) accumulates +delta_heading. Orientation-only: a heading reset does
+        // not rotate the NED position frame.
+        anchor_.mapToOdomYaw =
+            frame_transforms::normalizeAngle(anchor_.mapToOdomYaw + msg->delta_heading);
+        anchor_.headingResetCounter = msg->heading_reset_counter;
+      }
+    }
+
+    // Latch world->map ONCE from the first valid global reference. Subsequent origin moves
+    // arrive as reset deltas (already accumulated above); do not re-latch (avoids double-count).
+    if (!anchor_.refValid && msg->xy_global && msg->z_global)
+    {
+      anchor_.refLat = msg->ref_lat;
+      anchor_.refLon = msg->ref_lon;
+      anchor_.refAlt = msg->ref_alt;
+      anchor_.refTimestamp = msg->ref_timestamp;
+      anchor_.refValid = true;
+      if (params_.world_datum_set)
+      {
+        const Eigen::Vector3d e = frame_transforms::geodeticToEnu(
+            params_.world_datum_lat, params_.world_datum_lon, params_.world_datum_alt,
+            anchor_.refLat, anchor_.refLon, anchor_.refAlt);
+        anchor_.worldToMapX = e.x();
+        anchor_.worldToMapY = e.y();
+      }
+    }
+
+    // Ground datum: map-frame Z of the vehicle while disarmed (on the ground). Frozen at arm so
+    // world z=0 stays the takeoff surface. map_z = odom_z + mapToOdomZ; odom_z(ENU up) = -lpos.z.
+    if (!vehicleArmed_.load() && std::isfinite(msg->z))
+    {
+      anchor_.groundDatumZ = static_cast<double>(-msg->z) + anchor_.mapToOdomZ;
+      anchor_.groundDatumValid = true;
+    }
+
+    anchorMsg.map_to_odom_enu.x = anchor_.mapToOdomX;
+    anchorMsg.map_to_odom_enu.y = anchor_.mapToOdomY;
+    anchorMsg.map_to_odom_enu.z = anchor_.mapToOdomZ;
+    anchorMsg.map_to_odom_yaw = anchor_.mapToOdomYaw;
+    anchorMsg.ref_lat = anchor_.refLat;
+    anchorMsg.ref_lon = anchor_.refLon;
+    anchorMsg.ref_alt = anchor_.refAlt;
+    anchorMsg.ref_valid = anchor_.refValid;
+    anchorMsg.ref_timestamp = anchor_.refTimestamp;
+    anchorMsg.ground_datum_z = anchor_.groundDatumZ;
+    anchorMsg.ground_datum_valid = anchor_.groundDatumValid;
+  }
+
+  anchorMsg.header.stamp = this->now();
+  anchorMsg.header.frame_id = mapFrame_;
+  frameAnchorPub_->publish(anchorMsg);
 }
 
 void PX4HardwareAbstraction::onBatteryStatus(const px4_msgs::msg::BatteryStatus::SharedPtr msg)
@@ -480,6 +625,7 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
   // Cache latest PX4 mode/arming/failsafe state for services, gating, and status output.
   navState_.store(msg->nav_state);
   armingState_.store(msg->arming_state);
+  vehicleArmed_.store(msg->arming_state == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED);
   failureDetectorStatus_.store(msg->failure_detector_status);
   failsafe_.store(msg->failsafe);
 
@@ -577,10 +723,27 @@ void PX4HardwareAbstraction::handleTrajectoryMode(
   setpoint.yaw = nan;
   setpoint.yawspeed = nan;
 
+  // Incoming setpoints are in the world frame. Project world->odom (subtract the anchor
+  // offset, the inverse of what onVehicleOdometry adds), then ENU->NED for PX4. The offset
+  // moves with PX4 resets, so a fixed world goal becomes a moving local setpoint that tracks
+  // the origin -- PX4's tracking error stays ~0. Velocity/acceleration are translation-
+  // invariant (no offset). See world-frame-anchoring-plan.md §6.2.
+  double offX;
+  double offY;
+  double offZ;
+  double offYaw;
+  {
+    std::scoped_lock lock(anchorMutex_);
+    offX = anchor_.mapToOdomX + anchor_.worldToMapX;
+    offY = anchor_.mapToOdomY + anchor_.worldToMapY;
+    offZ = anchor_.mapToOdomZ - anchor_.groundDatumZ;
+    offYaw = anchor_.mapToOdomYaw;
+  }
+
   if (msg.use_position)
   {
-    const Eigen::Vector3d ned =
-        frame_transforms::enuToNed(Eigen::Vector3d(msg.position.x, msg.position.y, msg.position.z));
+    const Eigen::Vector3d odomEnu(msg.position.x - offX, msg.position.y - offY, msg.position.z - offZ);
+    const Eigen::Vector3d ned = frame_transforms::enuToNed(odomEnu);
     setpoint.position[0] = static_cast<float>(ned.x());
     setpoint.position[1] = static_cast<float>(ned.y());
     setpoint.position[2] = static_cast<float>(ned.z());
@@ -606,7 +769,8 @@ void PX4HardwareAbstraction::handleTrajectoryMode(
 
   if (msg.use_yaw)
   {
-    setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg.yaw));
+    // world yaw -> odom yaw (remove the heading-reset offset) -> NED.
+    setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg.yaw - offYaw));
   }
   if (msg.use_yaw_rate)
   {
