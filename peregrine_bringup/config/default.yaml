@@ -1,9 +1,18 @@
 /**:
   ros__parameters:
+    # Shared fleet world datum (world-frame-anchoring-plan.md). All UAVs place their
+    # per-UAV map (EKF origin) into ONE shared world via these coords, so cross-UAV
+    # positions are comparable (required for BVC/coordination). MUST be identical across
+    # the fleet. Single-agent is unaffected (z is anchored to the per-UAV ground datum, not
+    # world_datum_alt; only horizontal placement uses the datum). Matches the SITL home.
+    world_datum_set: true
+    world_datum_lat: 13.018526
+    world_datum_lon: 77.565041
+    world_datum_alt: 0.0
+
     # GPS quality thresholds — used by safety_monitor (continuous flight safety).
     # NOTE: frame_transforms no longer uses GPS/home for frames; it anchors to PX4's
-    # FrameAnchor (ref_*) instead. World placement is via world_datum_* (see below /
-    # world-frame-anchoring-plan.md), shared identically across the fleet.
+    # FrameAnchor (ref_*) instead.
     gps:
       min_fix_type: 3
       min_satellites: 6
