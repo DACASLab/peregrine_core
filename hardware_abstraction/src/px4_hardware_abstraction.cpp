@@ -379,31 +379,29 @@ void PX4HardwareAbstraction::onVehicleOdometry(const px4_msgs::msg::VehicleOdome
   // Publish manager-facing state ANCHORED TO WORLD. The raw odometry above stays in odom
   // (it feeds odom->base_link TF); the State that managers/trajectory consume is in the
   // fixed world frame so absolute-Z commands mean height above ground and reset jumps are
-  // absorbed. world = (world<-map translation) o (map<-odom reset offset). Position is a pure
-  // ENU translation (frames north-aligned); orientation gets the yaw-reset offset.
-  // See world-frame-anchoring-plan.md §6.2.
+  // absorbed. world = (world<-map translation) o (map<-odom reset offset). This is a PURE
+  // ENU translation (world and odom are both north-aligned ENU) -- there is NO yaw between
+  // them, so orientation passes through unchanged. (A heading reset is an EKF correction of
+  // the orientation estimate, identical in both frames, NOT a frame-origin change, so it must
+  // not be "compensated" here -- doing so corrupts the world heading and any velocity rotated
+  // by it, e.g. inter-UAV BVC.) See world-frame-anchoring-plan.md §6.2.
   double offX;
   double offY;
   double offZ;
-  double offYaw;
   {
     std::scoped_lock lock(anchorMutex_);
     offX = anchor_.mapToOdomX + anchor_.worldToMapX;
     offY = anchor_.mapToOdomY + anchor_.worldToMapY;
     offZ = anchor_.mapToOdomZ - anchor_.groundDatumZ;  // world z=0 at the ground datum
-    offYaw = anchor_.mapToOdomYaw;
   }
 
   peregrine_interfaces::msg::State state;
   state.header.stamp = odometry.header.stamp;
   state.header.frame_id = worldFrame_;
-  state.pose = odometry.pose;
+  state.pose = odometry.pose;  // orientation (qEnuFlu) passes through unchanged
   state.pose.pose.position.x += offX;
   state.pose.pose.position.y += offY;
   state.pose.pose.position.z += offZ;
-  const Eigen::Quaterniond qWorld =
-      Eigen::Quaterniond(Eigen::AngleAxisd(offYaw, Eigen::Vector3d::UnitZ())) * qEnuFlu;
-  state.pose.pose.orientation = frame_transforms::toRosQuaternion(qWorld);
   state.twist = odometry.twist;  // body-frame (child), frame-invariant under the world offset
   state.linear_acceleration.x = 0.0;
   state.linear_acceleration.y = 0.0;
@@ -477,11 +475,11 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
       }
       if (msg->heading_reset_counter != anchor_.headingResetCounter)
       {
-        // delta_heading is a NED yaw delta; the ENU yaw delta is its negation, so map->odom yaw
-        // (= -SUM ENU delta) accumulates +delta_heading. Orientation-only: a heading reset does
-        // not rotate the NED position frame.
-        anchor_.mapToOdomYaw =
-            frame_transforms::normalizeAngle(anchor_.mapToOdomYaw + msg->delta_heading);
+        // A heading reset is an EKF correction of the orientation ESTIMATE (toward true
+        // north-referenced heading), not a change in the frame origin. world and odom are both
+        // north-aligned ENU, so there is NO yaw between them: we do NOT accumulate an offset
+        // (compensating it would corrupt the world heading and any velocity rotated by it --
+        // it broke inter-UAV BVC). Track the counter only, for reinit detection.
         anchor_.headingResetCounter = msg->heading_reset_counter;
       }
     }
@@ -731,13 +729,11 @@ void PX4HardwareAbstraction::handleTrajectoryMode(
   double offX;
   double offY;
   double offZ;
-  double offYaw;
   {
     std::scoped_lock lock(anchorMutex_);
     offX = anchor_.mapToOdomX + anchor_.worldToMapX;
     offY = anchor_.mapToOdomY + anchor_.worldToMapY;
     offZ = anchor_.mapToOdomZ - anchor_.groundDatumZ;
-    offYaw = anchor_.mapToOdomYaw;
   }
 
   if (msg.use_position)
@@ -769,8 +765,8 @@ void PX4HardwareAbstraction::handleTrajectoryMode(
 
   if (msg.use_yaw)
   {
-    // world yaw -> odom yaw (remove the heading-reset offset) -> NED.
-    setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg.yaw - offYaw));
+    // world yaw == odom yaw (north-aligned, no yaw offset) -> NED.
+    setpoint.yaw = static_cast<float>(frame_transforms::yawEnuToNed(msg.yaw));
   }
   if (msg.use_yaw_rate)
   {

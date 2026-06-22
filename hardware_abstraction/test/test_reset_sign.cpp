@@ -78,7 +78,9 @@ void applyReset(Offset& o, uint8_t xyC, double dN, double dE, uint8_t zC, double
   }
   if (hC != o.hC)
   {
-    o.yaw = frame_transforms::normalizeAngle(o.yaw + dHeading);
+    // Heading resets are EKF corrections of the orientation estimate, not a frame-origin
+    // change; world and odom are both north-aligned, so NO yaw offset is accumulated.
+    (void)dHeading;
     o.hC = hC;
   }
 }
@@ -131,12 +133,14 @@ int main()
     check("world.y after xy-reset", raw.y() + o.y, trueEnu.y());
   }
 
-  // --- Heading reset: NED delta_heading = +0.1 rad => raw ENU yaw jumps by -0.1 ---
+  // --- Heading reset: NOT compensated. The offset yaw stays 0 (the EKF correction passes
+  //     through to the world orientation; world and odom are north-aligned, no yaw between). ---
   {
     const double dHeadingNed = 0.1;
-    rawYaw = frame_transforms::normalizeAngle(rawYaw - dHeadingNed);  // ENU yaw delta = -NED
     applyReset(o, 1, 0, 0, 1, 0, /*hC*/ 1, dHeadingNed);
-    check("world.yaw after h-reset", frame_transforms::normalizeAngle(rawYaw + o.yaw), trueYaw);
+    check("offset.yaw after h-reset", o.yaw, 0.0);
+    (void)rawYaw;
+    (void)trueYaw;
   }
 
   // --- Simultaneous xy+z reset (common case) ---
