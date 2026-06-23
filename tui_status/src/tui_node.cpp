@@ -114,6 +114,11 @@ TuiNode::TuiNode(const std::shared_ptr<Renderer> & renderer)
     this, topicName("uav_manager/takeoff"));
   landClient_ = rclcpp_action::create_client<peregrine_interfaces::action::Land>(
     this, topicName("uav_manager/land"));
+  // Surveillance triggers the SingleUavSurveillance behavior tree via the same
+  // ExecuteTree action the GCS trigger uses, but from this already-connected TUI
+  // node so the action route stays warm.
+  surveillanceClient_ = rclcpp_action::create_client<btcpp_ros2_interfaces::action::ExecuteTree>(
+    this, topicName("execute_tree"));
 
   const auto period = std::chrono::duration<double>(1.0 / std::max(1.0, refreshRateHz));
   refreshTimer_ = this->create_wall_timer(
@@ -268,6 +273,11 @@ void TuiNode::handleKeyInput(int key)
     return;
   }
 
+  if (key == 's') {
+    sendSurveillance();
+    return;
+  }
+
   if (key == 'e') {
     sendClearEmergency();
     return;
@@ -380,6 +390,50 @@ void TuiNode::sendLand()
     };
 
   landClient_->async_send_goal(goal, options);
+}
+
+void TuiNode::sendSurveillance()
+{
+  if (!surveillanceClient_->action_server_is_ready()) {
+    setCommandStatus("SURVEY", "action not available");
+    alertBuffer_.push(AlertSeverity::Warning, "execute_tree action server not available");
+    return;
+  }
+
+  auto goal = btcpp_ros2_interfaces::action::ExecuteTree::Goal();
+  goal.target_tree = "SingleUavSurveillance";
+  setCommandStatus("SURVEY", "sending goal...", true);
+  alertBuffer_.push(AlertSeverity::Info, "Triggering SingleUavSurveillance");
+
+  auto options =
+    rclcpp_action::Client<btcpp_ros2_interfaces::action::ExecuteTree>::SendGoalOptions();
+  options.goal_response_callback =
+    [this](auto goal_handle) {
+      if (!goal_handle) {
+        setCommandStatus("SURVEY", "goal REJECTED");
+        alertBuffer_.push(AlertSeverity::Error, "Surveillance goal rejected");
+      } else {
+        setCommandStatus("SURVEY", "running...", true);
+        alertBuffer_.push(AlertSeverity::Info, "Surveillance goal accepted");
+      }
+    };
+  options.feedback_callback =
+    [this](auto, const auto & feedback) {
+      const std::string & msg = feedback->message;
+      setCommandStatus("SURVEY", msg.size() > 48 ? msg.substr(0, 48) : msg, true);
+    };
+  options.result_callback =
+    [this](const auto & result) {
+      if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+        setCommandStatus("SURVEY", "SUCCESS: " + result.result->return_message);
+        alertBuffer_.push(AlertSeverity::Info, "Surveillance complete");
+      } else {
+        setCommandStatus("SURVEY", "FAILED: " + result.result->return_message);
+        alertBuffer_.push(AlertSeverity::Error, "Surveillance failed: " + result.result->return_message);
+      }
+    };
+
+  surveillanceClient_->async_send_goal(goal, options);
 }
 
 void TuiNode::sendClearEmergency()

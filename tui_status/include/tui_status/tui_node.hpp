@@ -10,6 +10,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <tui_status/tui_status_parameters.hpp>
 
+#include <btcpp_ros2_interfaces/action/execute_tree.hpp>
 #include <peregrine_interfaces/action/land.hpp>
 #include <peregrine_interfaces/action/takeoff.hpp>
 #include <peregrine_interfaces/msg/compute_status.hpp>
@@ -43,6 +44,7 @@ private:
   void sendArm(bool arm);
   void sendTakeoff();
   void sendLand();
+  void sendSurveillance();
   void sendClearEmergency();
   void setCommandStatus(const std::string & command, const std::string & result, bool pending = false);
 
@@ -136,6 +138,7 @@ private:
   rclcpp::Client<peregrine_interfaces::srv::ClearEmergency>::SharedPtr clearEmergencyClient_;
   rclcpp_action::Client<peregrine_interfaces::action::Takeoff>::SharedPtr takeoffClient_;
   rclcpp_action::Client<peregrine_interfaces::action::Land>::SharedPtr landClient_;
+  rclcpp_action::Client<btcpp_ros2_interfaces::action::ExecuteTree>::SharedPtr surveillanceClient_;
 
   // Command feedback state
   std::string lastCommand_;

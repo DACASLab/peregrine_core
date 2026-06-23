@@ -791,7 +791,7 @@ void Renderer::render(
   }
 
   printDim(hasColors_, rows - 2, 2,
-    "A:Arm  D:Disarm  T:Takeoff  L:Land  E:ClearEmg  Q:Quit  C:Clear  \xe2\x86\x91\xe2\x86\x93:Scroll");
+    "A:Arm  D:Disarm  T:Takeoff  L:Land  S:Survey  E:ClearEmg  Q:Quit  C:Clear  \xe2\x86\x91\xe2\x86\x93:Scroll");
 
   // Wall clock on right side of footer
   const std::string footerClock = wallClockString();

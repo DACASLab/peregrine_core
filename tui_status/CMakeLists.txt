@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(Curses REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(btcpp_ros2_interfaces REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -39,6 +40,7 @@ target_link_libraries(tui_status_node
 )
 
 ament_target_dependencies(tui_status_node
+  btcpp_ros2_interfaces
   peregrine_interfaces
   rclcpp
   rclcpp_action
@@ -61,6 +63,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(generate_parameter_library peregrine_interfaces rclcpp rclcpp_action)
+ament_export_dependencies(generate_parameter_library btcpp_ros2_interfaces peregrine_interfaces rclcpp rclcpp_action)
 
 ament_package()
