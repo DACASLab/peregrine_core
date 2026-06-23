@@ -35,6 +35,7 @@
 #include <trajectory_manager/trajectory_manager_parameters.hpp>
 
 #include <lifecycle_msgs/msg/state.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <peregrine_interfaces/action/execute_trajectory.hpp>
 #include <peregrine_interfaces/action/go_to.hpp>
 #include <peregrine_interfaces/msg/manager_status.hpp>
@@ -45,12 +46,17 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+
+#include <Eigen/Core>
 
 #include <chrono>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace trajectory_manager
 {
@@ -182,6 +188,23 @@ private:
     const rclcpp::Time & startTime) const;
 
   /**
+   * @brief Publishes RViz overlays for a coverage_sweep plan: the survey grid, the raw
+   *        straight-line waypoint reference, and the sensor-footprint swath ribbon.
+   *
+   * NOTE (codebase cleanup): this and its three publishers are viz-only concerns that were
+   * bolted onto the planner for expedience. When the stack is next cleaned up they should be
+   * extracted into a separate, lightweight `coverage_viz` node that subscribes to the plan
+   * (or a published CoveragePlan msg) and owns all marker generation, so trajectory_manager
+   * stays purely a control-path component. Kept here for now because the plan geometry is
+   * only materialized inside createGeneratorForExecuteGoal().
+   */
+  void publishCoverageViz(
+    const std::map<int, std::vector<Eigen::Vector2d>> & cells,
+    const std::vector<Eigen::Vector2d> & reference_path,
+    const std::vector<Eigen::Vector2d> & smooth_path,
+    double altitude, double footprint_w, const std::string & frame_id) const;
+
+  /**
    * @brief Replaces active generator with a hold generator from latest state.
    */
   void switchToHoldFromState(const peregrine_interfaces::msg::State & state);
@@ -218,8 +241,10 @@ private:
   std::shared_ptr<GoalHandleExecuteTrajectory> activeExecuteGoal_;
   /// ManagerStatus.active_module value for observability.
   std::string activeModuleName_{"hold_position"};
-  /// Odom frame name captured from first estimated_state message.
+  /// Odom frame name captured from first estimated_state message (world-anchored: "world").
   std::string odomFrame_{"odom"};
+  /// Index used for this UAV's deterministic viz color (parsed from node namespace).
+  int uavColorIndex_{0};
 
   std::shared_ptr<trajectory_manager::ParamListener> paramListener_;
   trajectory_manager::Params params_;
@@ -241,6 +266,13 @@ private:
   /// Lifecycle-gated manager status output.
   rclcpp_lifecycle::LifecyclePublisher<peregrine_interfaces::msg::ManagerStatus>::SharedPtr
     statusPub_;
+
+  // Coverage-sweep viz outputs (latched / transient_local so a late-joining RViz in the GCS
+  // immediately sees the current plan). Plain (non-lifecycle) publishers: viz must flow
+  // regardless of lifecycle state. See publishCoverageViz() for the extract-to-node note.
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr coverageGridPub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr plannedPathPub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr coverageSwathPub_;
 
   /// Reentrant callback group used by trajectory action server callbacks.
   rclcpp::CallbackGroup::SharedPtr actionCbGroup_;

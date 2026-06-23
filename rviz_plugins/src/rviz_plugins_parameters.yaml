@@ -7,8 +7,8 @@ flight_visualizer:
 
   fixed_frame:
     type: string
-    default_value: "map"
-    description: "RViz fixed frame for all visualizations"
+    default_value: "world"
+    description: "RViz fixed frame for all visualizations (world-anchored stack)"
     read_only: true
 
   publish_rate_hz:

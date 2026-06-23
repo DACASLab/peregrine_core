@@ -5,9 +5,12 @@
 
 #include <rviz_plugins/flight_visualizer_node.hpp>
 
+#include <frame_transforms/viz_colormap.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 #include <string>
@@ -63,6 +66,26 @@ std_msgs::msg::ColorRGBA makeColor(const float r, const float g, const float b, 
   return color;
 }
 
+// Parses the trailing integer of a UAV namespace ("/uav2" -> 2). Returns 0 for root/empty.
+int uavIndexFromNamespace(const std::string & ns)
+{
+  std::string digits;
+  for (auto it = ns.rbegin(); it != ns.rend(); ++it) {
+    if (std::isdigit(static_cast<unsigned char>(*it))) {
+      digits.insert(digits.begin(), *it);
+    } else if (!digits.empty()) {
+      break;
+    }
+  }
+  return digits.empty() ? 0 : std::stoi(digits);
+}
+
+std_msgs::msg::ColorRGBA uavColor(const int uav_index, const float alpha)
+{
+  const auto rgb = frame_transforms::viz::colorForUav(uav_index);
+  return makeColor(rgb[0], rgb[1], rgb[2], alpha);
+}
+
 std_msgs::msg::ColorRGBA safetyLevelColor(const uint8_t level)
 {
   if (level >= peregrine_interfaces::msg::SafetyStatus::LEVEL_CRITICAL) {
@@ -72,30 +95,6 @@ std_msgs::msg::ColorRGBA safetyLevelColor(const uint8_t level)
     return makeColor(0.95F, 0.75F, 0.15F, kAlphaOpaque);
   }
   return makeColor(0.10F, 0.85F, 0.35F, kAlphaOpaque);
-}
-
-std::string uavStateToString(const uint8_t state)
-{
-  switch (state) {
-    case peregrine_interfaces::msg::UAVState::STATE_IDLE:
-      return "IDLE";
-    case peregrine_interfaces::msg::UAVState::STATE_ARMED:
-      return "ARMED";
-    case peregrine_interfaces::msg::UAVState::STATE_TAKING_OFF:
-      return "TAKING_OFF";
-    case peregrine_interfaces::msg::UAVState::STATE_HOVERING:
-      return "HOVERING";
-    case peregrine_interfaces::msg::UAVState::STATE_FLYING:
-      return "FLYING";
-    case peregrine_interfaces::msg::UAVState::STATE_LANDING:
-      return "LANDING";
-    case peregrine_interfaces::msg::UAVState::STATE_LANDED:
-      return "LANDED";
-    case peregrine_interfaces::msg::UAVState::STATE_EMERGENCY:
-      return "EMERGENCY";
-    default:
-      return "UNKNOWN";
-  }
 }
 
 visualization_msgs::msg::Marker makeDeleteMarker(
@@ -135,6 +134,7 @@ FlightVisualizerNode::FlightVisualizerNode(const rclcpp::NodeOptions & options)
     this->get_node_parameters_interface());
   params_ = paramListener_->get_params();
   lastFrameId_ = params_.fixed_frame;
+  uavColorIndex_ = uavIndexFromNamespace(params_.uav_namespace);
 
   // Reliable QoS keeps visualization streams stable across teleop and debugging sessions.
   const auto streamQos = rclcpp::QoS(20).reliable();
@@ -214,7 +214,10 @@ void FlightVisualizerNode::appendPose(
   if (!path.poses.empty()) {
     const auto & last_pose = path.poses.back();
     if (distance3d(last_pose.pose.position, pose.pose.position) < min_separation_m) {
-      path.poses.back() = pose;
+      // Skip near-duplicates, but keep the last COMMITTED point as the spacing reference.
+      // (Replacing it instead would let the reference drift by sub-threshold steps every
+      // sample, so cumulative motion never crosses min_separation and the trail never grows
+      // -- which silently flatlines the path to one point at high state rates.)
       return;
     }
   }
@@ -300,9 +303,14 @@ void FlightVisualizerNode::addOrDeleteVehicleMarkers(
     return;
   }
 
-  const auto color = latestSafetyStatus_.has_value()
+  // Body color encodes UAV identity (per-UAV colormap), so multiple quads are
+  // distinguishable at a glance. Safety overrides it whenever status is not nominal, so a
+  // warning/critical vehicle still flips to amber/red regardless of its identity color.
+  const bool safetyOverride = latestSafetyStatus_.has_value() &&
+    latestSafetyStatus_->level != peregrine_interfaces::msg::SafetyStatus::LEVEL_NOMINAL;
+  const auto color = safetyOverride
     ? safetyLevelColor(latestSafetyStatus_->level)
-    : makeColor(0.10F, 0.75F, 0.95F, kAlphaOpaque);
+    : uavColor(uavColorIndex_, kAlphaOpaque);
 
   auto body = makeBaseMarker(
     latestEstimatedPose_.header.frame_id, stamp, kNsVehicle, kIdVehicleBody,
@@ -321,7 +329,7 @@ void FlightVisualizerNode::addOrDeleteVehicleMarkers(
   heading.scale.x = 0.80;
   heading.scale.y = 0.08;
   heading.scale.z = 0.08;
-  heading.color = makeColor(0.10F, 0.80F, 0.95F, kAlphaOpaque);
+  heading.color = uavColor(uavColorIndex_, kAlphaOpaque);
   markers.push_back(std::move(heading));
 }
 
@@ -378,48 +386,6 @@ void FlightVisualizerNode::addOrDeleteSetpointMarkers(
   velocity_arrow.points.push_back(start);
   velocity_arrow.points.push_back(end);
   markers.push_back(std::move(velocity_arrow));
-}
-
-void FlightVisualizerNode::addSafetyTextMarker(
-  std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const
-{
-  const std::string frame_id = hasEstimatedPose_ ? latestEstimatedPose_.header.frame_id : params_.fixed_frame;
-  auto text = makeBaseMarker(
-    frame_id, stamp, kNsSafety, kIdSafetyText,
-    visualization_msgs::msg::Marker::TEXT_VIEW_FACING);
-
-  if (hasEstimatedPose_) {
-    text.pose.position = latestEstimatedPose_.pose.position;
-    text.pose.position.z += 1.0;
-  } else {
-    text.pose.position.x = 0.0;
-    text.pose.position.y = 0.0;
-    text.pose.position.z = 1.0;
-  }
-  text.pose.orientation.w = 1.0;
-  text.scale.z = 0.35;
-
-  uint8_t level = peregrine_interfaces::msg::SafetyStatus::LEVEL_NOMINAL;
-  std::string reason = "waiting";
-  if (latestSafetyStatus_.has_value()) {
-    level = latestSafetyStatus_->level;
-    if (!latestSafetyStatus_->reason.empty()) {
-      reason = latestSafetyStatus_->reason;
-    }
-  }
-  text.color = safetyLevelColor(level);
-
-  std::ostringstream ss;
-  ss << "Safety L" << static_cast<int>(level);
-  if (latestUavState_.has_value()) {
-    ss << " | " << uavStateToString(latestUavState_->state);
-    ss << (latestUavState_->armed ? " | armed" : " | disarmed");
-    ss << (latestUavState_->offboard ? " | offboard" : " | manual");
-  }
-  ss << "\n" << reason;
-  text.text = ss.str();
-
-  markers.push_back(std::move(text));
 }
 
 void FlightVisualizerNode::addOrDeleteGeofenceMarker(
@@ -486,7 +452,9 @@ void FlightVisualizerNode::onPublishTimer()
 
     addOrDeleteVehicleMarkers(marker_array.markers, now);
     addOrDeleteSetpointMarkers(marker_array.markers, now);
-    addSafetyTextMarker(marker_array.markers, now);
+    // The floating per-vehicle status text (safety level / flight mode / armed) was removed;
+    // keep deleting any previously-published instance so it clears in late-joining RViz too.
+    marker_array.markers.push_back(makeDeleteMarker(params_.fixed_frame, now, kNsSafety, kIdSafetyText));
     addOrDeleteGeofenceMarker(marker_array.markers, now);
   }
 

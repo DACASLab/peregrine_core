@@ -15,13 +15,28 @@ from __future__ import annotations
 
 import argparse
 import sys
-from threading import Thread
+from threading import Event, Thread
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 
 from btcpp_ros2_interfaces.action import ExecuteTree
+
+
+def _wait_future(future, timeout_sec: float):
+    """Block until a rclpy future completes, driven by a separately-spinning executor.
+
+    Returns the future result, or None on timeout. Used instead of
+    spin_until_future_complete so several missions can run concurrently without each
+    grabbing the global executor (whose shared wait set races -> 'wait set index too big').
+    """
+    done = Event()
+    future.add_done_callback(lambda _f: done.set())
+    if not done.wait(timeout_sec):
+        return None
+    return future.result()
 
 
 def send_execute_tree(
@@ -78,30 +93,65 @@ def run_single(namespace: str):
         node.destroy_node()
 
 
-def _run_uav(namespace: str, tree_name: str, results: dict[str, bool]):
-    node = Node("surveillance_trigger_%s" % namespace, namespace=namespace)
+def run_multi(timeout_s: float = 600.0) -> bool:
+    """Dispatch each UAV's surveillance tree concurrently from one spinning executor.
+
+    All trigger nodes share a single SingleThreadedExecutor spun on one background thread, so
+    there is exactly one wait set (no cross-thread race). Goals are sent up front, then we
+    block on every UAV's result future in parallel. Generalizes to N UAVs by extending `specs`.
+    """
+    specs = [
+        ("uav1", "MultiUavSurveillanceUav1"),
+        ("uav2", "MultiUavSurveillanceUav2"),
+    ]
+
+    nodes = [Node("surveillance_trigger_%s" % ns, namespace=ns) for ns, _ in specs]
+    executor = SingleThreadedExecutor()
+    for node in nodes:
+        executor.add_node(node)
+
+    spin_thread = Thread(target=_spin_executor, args=(executor,), daemon=True)
+    spin_thread.start()
+
+    ok: dict[str, bool] = {}
+    result_futures: dict[str, object] = {}
     try:
-        results[namespace] = send_execute_tree(node, "execute_tree", tree_name, timeout_s=600.0)
+        for (ns, tree_name), node in zip(specs, nodes):
+            logger = node.get_logger()
+            client = ActionClient(node, ExecuteTree, "execute_tree")
+            if not client.wait_for_server(timeout_sec=30.0):
+                logger.error("Action server execute_tree not available for %s" % ns)
+                ok[ns] = False
+                continue
+
+            goal = ExecuteTree.Goal()
+            goal.target_tree = tree_name
+            logger.info("Sending ExecuteTree: %s -> %s" % (ns, tree_name))
+            goal_handle = _wait_future(client.send_goal_async(goal), 10.0)
+            if goal_handle is None or not goal_handle.accepted:
+                logger.error("Goal rejected or send timed out for %s" % ns)
+                ok[ns] = False
+                continue
+
+            logger.info("Goal accepted for %s, waiting for result" % ns)
+            result_futures[ns] = goal_handle.get_result_async()
+
+        for ns, fut in result_futures.items():
+            result = _wait_future(fut, timeout_s)
+            ok[ns] = result is not None and result.status == 4
     finally:
-        node.destroy_node()
+        executor.shutdown()
+        for node in nodes:
+            node.destroy_node()
+
+    return all(ok.get(ns, False) for ns, _ in specs)
 
 
-def run_multi() -> bool:
-    results: dict[str, bool] = {}
-    t1 = Thread(
-        target=_run_uav,
-        args=("uav1", "MultiUavSurveillanceUav1", results),
-    )
-    t2 = Thread(
-        target=_run_uav,
-        args=("uav2", "MultiUavSurveillanceUav2", results),
-    )
-
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
-    return results.get("uav1", False) and results.get("uav2", False)
+def _spin_executor(executor: SingleThreadedExecutor) -> None:
+    try:
+        executor.spin()
+    except Exception:  # noqa: BLE001 - executor.spin() raises on shutdown; expected.
+        pass
 
 
 def main():

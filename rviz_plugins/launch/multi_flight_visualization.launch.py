@@ -25,6 +25,14 @@ def _launch_setup(context, *args, **kwargs):
     use_sim_time_raw = context.launch_configurations["use_sim_time"]
     use_sim_time = use_sim_time_raw.strip().lower() in ("1", "true", "yes", "on")
 
+    # Explicit drone ids (e.g. "2,4") win; otherwise default to 1..num_uavs. Keeps this
+    # launch correct for non-contiguous fleets and any N (no hard cap).
+    drone_ids_raw = context.launch_configurations.get("drone_ids", "").strip()
+    if drone_ids_raw:
+        drone_ids = [int(d.strip()) for d in drone_ids_raw.split(",") if d.strip()]
+    else:
+        drone_ids = list(range(1, num_uavs + 1))
+
     start_visualizers = LaunchConfiguration("start_visualizers")
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
@@ -34,8 +42,7 @@ def _launch_setup(context, *args, **kwargs):
     )
 
     actions = []
-    for i in range(num_uavs):
-        uav_id = i + 1
+    for uav_id in drone_ids:
         uav_namespace = _resolve_uav_namespace(namespace_prefix, uav_id)
         actions.append(
             Node(
@@ -54,6 +61,23 @@ def _launch_setup(context, *args, **kwargs):
                 ],
             )
         )
+
+    # Fleet-level inter-UAV separation overlay (one instance for the whole fleet).
+    actions.append(
+        Node(
+            condition=IfCondition(start_visualizers),
+            package="rviz_plugins",
+            executable="fleet_separation_viz_node",
+            name="fleet_separation_viz",
+            output="screen",
+            parameters=[
+                {
+                    "fixed_frame": fixed_frame,
+                    "use_sim_time": use_sim_time,
+                }
+            ],
+        )
+    )
 
     actions.append(
         Node(
@@ -93,8 +117,13 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "fixed_frame",
-                default_value="map",
+                default_value="world",
                 description="Fixed frame used by visualizer overlays.",
+            ),
+            DeclareLaunchArgument(
+                "drone_ids",
+                default_value="",
+                description="Comma-separated drone ids (e.g. 2,4). Empty = 1..num_uavs.",
             ),
             DeclareLaunchArgument(
                 "start_visualizers",

@@ -61,13 +61,14 @@ private:
     std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const;
   void addOrDeleteSetpointMarkers(
     std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const;
-  void addSafetyTextMarker(
-    std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const;
   void addOrDeleteGeofenceMarker(
     std::vector<visualization_msgs::msg::Marker> & markers, const rclcpp::Time & stamp) const;
 
   std::shared_ptr<flight_visualizer::ParamListener> paramListener_;
   flight_visualizer::Params params_;
+
+  /// Index parsed from the UAV namespace; drives this vehicle's deterministic viz color.
+  int uavColorIndex_{0};
 
   std::string lastFrameId_;
 

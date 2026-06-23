@@ -14,6 +14,9 @@ find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 generate_parameter_library(
   trajectory_manager_parameters
@@ -47,6 +50,9 @@ ament_target_dependencies(trajectory_manager_component
   rclcpp_action
   rclcpp_components
   rclcpp_lifecycle
+  nav_msgs
+  std_msgs
+  visualization_msgs
 )
 
 rclcpp_components_register_node(trajectory_manager_component
@@ -83,6 +89,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_dependencies(frame_transforms peregrine_interfaces rclcpp rclcpp_action rclcpp_components rclcpp_lifecycle generate_parameter_library)
+ament_export_dependencies(frame_transforms peregrine_interfaces rclcpp rclcpp_action rclcpp_components rclcpp_lifecycle generate_parameter_library nav_msgs std_msgs visualization_msgs)
 
 ament_package()

@@ -5,12 +5,19 @@
 #include <trajectory_manager/path_smoothing.hpp>
 
 #include <frame_transforms/conversions.hpp>
+#include <frame_transforms/viz_colormap.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
+#include <std_msgs/msg/color_rgba.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace trajectory_manager
 {
@@ -22,6 +29,31 @@ namespace
 // File-local constant with internal linkage (unnamed namespace).
 constexpr char kManagerName[] = "trajectory_manager";
 
+// Parses the trailing integer of a UAV namespace ("/uav3" -> 3) for deterministic viz
+// coloring. Returns 0 when no digits are present (single-UAV / root namespace).
+int uavIndexFromNamespace(const std::string & ns)
+{
+  std::string digits;
+  for (auto it = ns.rbegin(); it != ns.rend(); ++it) {
+    if (std::isdigit(static_cast<unsigned char>(*it))) {
+      digits.insert(digits.begin(), *it);
+    } else if (!digits.empty()) {
+      break;
+    }
+  }
+  return digits.empty() ? 0 : std::stoi(digits);
+}
+
+std_msgs::msg::ColorRGBA makeColorRgba(const std::array<float, 3> & rgb, float alpha)
+{
+  std_msgs::msg::ColorRGBA color;
+  color.r = rgb[0];
+  color.g = rgb[1];
+  color.b = rgb[2];
+  color.a = alpha;
+  return color;
+}
+
 }  // namespace
 
 TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options)
@@ -30,6 +62,17 @@ TrajectoryManagerNode::TrajectoryManagerNode(const rclcpp::NodeOptions & options
   paramListener_ = std::make_shared<trajectory_manager::ParamListener>(
       get_node_parameters_interface());
   params_ = paramListener_->get_params();
+
+  uavColorIndex_ = uavIndexFromNamespace(this->get_namespace());
+
+  // Latched (transient_local) viz outputs so a late-joining RViz in the GCS immediately
+  // receives the current coverage plan. Depth 1: only the latest plan matters.
+  const auto latchedQos = rclcpp::QoS(1).reliable().transient_local();
+  coverageGridPub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "viz/coverage_grid", latchedQos);
+  plannedPathPub_ = this->create_publisher<nav_msgs::msg::Path>("viz/planned_path", latchedQos);
+  coverageSwathPub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "viz/coverage_swath", latchedQos);
 
   if (params_.auto_start) {
     startupTimer_ = this->create_wall_timer(
@@ -777,6 +820,11 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
 
     auto yaw = computeForwardYaw(smooth_path);
 
+    // Publish RViz overlays for this plan. odomFrame_ is the frame the setpoints are stamped
+    // with (world-anchored), so the grid/path/swath overlay exactly on the flown trail.
+    publishCoverageViz(
+      grid.cells, concatenated, smooth_path, altitude, footprint_w, odomFrame_);
+
     RCLCPP_INFO(get_logger(),
         "coverage_sweep: %zu cells, %zu C0 pts -> %zu smooth pts, path_len=%.1fm",
         cell_seq.size(), concatenated.size(), smooth_path.size(),
@@ -793,6 +841,142 @@ std::unique_ptr<TrajectoryGeneratorBase> TrajectoryManagerNode::createGeneratorF
   }
 
   return nullptr;
+}
+
+void TrajectoryManagerNode::publishCoverageViz(
+  const std::map<int, std::vector<Eigen::Vector2d>> & cells,
+  const std::vector<Eigen::Vector2d> & reference_path,
+  const std::vector<Eigen::Vector2d> & smooth_path,
+  double altitude, double footprint_w, const std::string & frame_id) const
+{
+  const auto now = this->now();
+  const auto rgb = frame_transforms::viz::colorForUav(uavColorIndex_);
+
+  auto point_at = [](double x, double y, double z) {
+    geometry_msgs::msg::Point p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    return p;
+  };
+
+  // ---- Grid: the shared ground survey region. Drawn at z=0 in neutral colors and labeling
+  // ALL cells, so every UAV publishes an identical grid that coincides visually (instead of
+  // stacking per-UAV colored copies). Outlines/labels are opaque so overlapping duplicates
+  // from N UAVs look like a single grid. Per-UAV coverage is conveyed by the swath/paths.
+  constexpr double kGridZ = 0.0;
+  visualization_msgs::msg::MarkerArray grid_markers;
+
+  visualization_msgs::msg::Marker outline;
+  outline.header.frame_id = frame_id;
+  outline.header.stamp = now;
+  outline.ns = "coverage_grid";
+  outline.id = 0;
+  outline.type = visualization_msgs::msg::Marker::LINE_LIST;
+  outline.action = visualization_msgs::msg::Marker::ADD;
+  outline.scale.x = 0.15;  // thicker cell edges
+  outline.color = makeColorRgba({0.85F, 0.85F, 0.90F}, 1.0F);
+  outline.pose.orientation.w = 1.0;
+  for (const auto & [id, poly] : cells) {
+    (void)id;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+      const auto & a = poly[i];
+      const auto & b = poly[(i + 1) % poly.size()];
+      outline.points.push_back(point_at(a.x(), a.y(), kGridZ));
+      outline.points.push_back(point_at(b.x(), b.y(), kGridZ));
+    }
+  }
+  grid_markers.markers.push_back(std::move(outline));
+
+  int marker_id = 1;
+  for (const auto & [id, poly] : cells) {
+    if (poly.empty()) {
+      continue;
+    }
+    double xmin = poly[0].x();
+    double xmax = poly[0].x();
+    double ymin = poly[0].y();
+    double ymax = poly[0].y();
+    for (const auto & p : poly) {
+      xmin = std::min(xmin, p.x());
+      xmax = std::max(xmax, p.x());
+      ymin = std::min(ymin, p.y());
+      ymax = std::max(ymax, p.y());
+    }
+    const double cx = 0.5 * (xmin + xmax);
+    const double cy = 0.5 * (ymin + ymax);
+
+    visualization_msgs::msg::Marker label;
+    label.header.frame_id = frame_id;
+    label.header.stamp = now;
+    label.ns = "coverage_cell_ids";
+    label.id = marker_id++;
+    label.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+    label.action = visualization_msgs::msg::Marker::ADD;
+    label.pose.position = point_at(cx, cy, kGridZ + 0.3);
+    label.pose.orientation.w = 1.0;
+    label.scale.z = 0.6;
+    label.color = makeColorRgba({0.95F, 0.95F, 0.95F}, 1.0F);
+    label.text = std::to_string(id);
+    grid_markers.markers.push_back(std::move(label));
+  }
+  coverageGridPub_->publish(grid_markers);
+
+  // ---- Reference path: raw straight-line waypoints (pre-smoothing), at survey altitude.
+  nav_msgs::msg::Path ref;
+  ref.header.frame_id = frame_id;
+  ref.header.stamp = now;
+  ref.poses.reserve(reference_path.size());
+  for (const auto & p : reference_path) {
+    geometry_msgs::msg::PoseStamped ps;
+    ps.header = ref.header;
+    ps.pose.position = point_at(p.x(), p.y(), altitude);
+    ps.pose.orientation.w = 1.0;
+    ref.poses.push_back(std::move(ps));
+  }
+  plannedPathPub_->publish(ref);
+
+  // ---- Swath: footprint_w-wide ribbon swept along the smoothed centerline.
+  visualization_msgs::msg::MarkerArray swath_markers;
+  visualization_msgs::msg::Marker ribbon;
+  ribbon.header.frame_id = frame_id;
+  ribbon.header.stamp = now;
+  ribbon.ns = "coverage_swath";
+  ribbon.id = 0;
+  ribbon.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
+  ribbon.action = visualization_msgs::msg::Marker::ADD;
+  ribbon.scale.x = 1.0;
+  ribbon.scale.y = 1.0;
+  ribbon.scale.z = 1.0;
+  ribbon.pose.orientation.w = 1.0;
+  ribbon.color = makeColorRgba(rgb, 0.12F);
+  const double half = 0.5 * footprint_w;
+  const double swath_z = altitude - 0.03;
+  for (std::size_t i = 0; i + 1 < smooth_path.size(); ++i) {
+    Eigen::Vector2d a = smooth_path[i];
+    Eigen::Vector2d b = smooth_path[i + 1];
+    Eigen::Vector2d d = b - a;
+    const double n = d.norm();
+    if (n < 1e-6) {
+      continue;
+    }
+    d /= n;
+    const Eigen::Vector2d perp(-d.y(), d.x());
+    const Eigen::Vector2d al = a + perp * half;
+    const Eigen::Vector2d ar = a - perp * half;
+    const Eigen::Vector2d bl = b + perp * half;
+    const Eigen::Vector2d br = b - perp * half;
+    ribbon.points.push_back(point_at(al.x(), al.y(), swath_z));
+    ribbon.points.push_back(point_at(ar.x(), ar.y(), swath_z));
+    ribbon.points.push_back(point_at(bl.x(), bl.y(), swath_z));
+    ribbon.points.push_back(point_at(ar.x(), ar.y(), swath_z));
+    ribbon.points.push_back(point_at(br.x(), br.y(), swath_z));
+    ribbon.points.push_back(point_at(bl.x(), bl.y(), swath_z));
+  }
+  if (!ribbon.points.empty()) {
+    swath_markers.markers.push_back(std::move(ribbon));
+  }
+  coverageSwathPub_->publish(swath_markers);
 }
 
 void TrajectoryManagerNode::switchToHoldFromState(const peregrine_interfaces::msg::State & state)

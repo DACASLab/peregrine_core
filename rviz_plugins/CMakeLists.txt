@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(frame_transforms REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(peregrine_interfaces REQUIRED)
@@ -35,6 +36,7 @@ target_compile_features(flight_visualizer_component PUBLIC cxx_std_17)
 target_link_libraries(flight_visualizer_component rviz_plugins_parameters)
 
 ament_target_dependencies(flight_visualizer_component
+  frame_transforms
   geometry_msgs
   nav_msgs
   peregrine_interfaces
@@ -51,9 +53,22 @@ target_link_libraries(flight_visualizer_node flight_visualizer_component)
 target_compile_features(flight_visualizer_node PUBLIC cxx_std_17)
 ament_target_dependencies(flight_visualizer_node rclcpp)
 
+# Fleet-level inter-UAV separation overlay (GCS side). Consumes the already-bridged
+# /fleet/agent_state bus and draws separation lines + a min-separation readout in RViz.
+add_executable(fleet_separation_viz_node src/fleet_separation_viz_node.cpp)
+target_compile_features(fleet_separation_viz_node PUBLIC cxx_std_17)
+ament_target_dependencies(fleet_separation_viz_node
+  frame_transforms
+  geometry_msgs
+  peregrine_interfaces
+  rclcpp
+  visualization_msgs
+)
+
 install(TARGETS
   flight_visualizer_component
   flight_visualizer_node
+  fleet_separation_viz_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -77,6 +92,7 @@ endif()
 ament_export_include_directories(include)
 ament_export_dependencies(
   generate_parameter_library
+  frame_transforms
   geometry_msgs
   nav_msgs
   peregrine_interfaces

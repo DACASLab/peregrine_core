@@ -246,7 +246,7 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[
                     {
                         "uav_namespace": uav_namespace,
-                        "fixed_frame": "map",
+                        "fixed_frame": "world",
                         "use_sim_time": use_sim_time,
                     },
                 ],

@@ -49,17 +49,53 @@ Visualization Manager:
         {}
       Update Interval: 0
       Value: true
-    - Alpha: 1
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: uav1 Markers
+      Namespaces:
+        {}
+      Topic:
+        Depth: 20
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /uav1/viz/markers
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: uav1 Coverage Grid
+      Namespaces:
+        {}
+      Topic:
+        Depth: 20
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /uav1/viz/coverage_grid
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: uav1 Coverage Swath
+      Namespaces:
+        {}
+      Topic:
+        Depth: 20
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /uav1/viz/coverage_swath
+      Value: true
+    - Alpha: 0.4
       Buffer Length: 1
       Class: rviz_default_plugins/Path
-      Color: 25; 220; 80
-      Enabled: false
+      Color: 233; 211; 47
+      Enabled: true
       Head Diameter: 0.1
       Head Length: 0.1
       Length: 0.1
       Line Style: Lines
-      Line Width: 0.05
-      Name: Actual Path
+      Line Width: 0.04
+      Name: uav1 Planned Path
       Offset:
         X: 0
         Y: 0
@@ -71,23 +107,23 @@ Visualization Manager:
       Shaft Length: 0.1
       Topic:
         Depth: 5
-        Durability Policy: Volatile
+        Durability Policy: Transient Local
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: viz/actual_path
+        Value: /uav1/viz/planned_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
-      Color: 250; 135; 30
-      Enabled: false
+      Color: 233; 211; 47
+      Enabled: true
       Head Diameter: 0.1
       Head Length: 0.1
       Length: 0.1
       Line Style: Lines
       Line Width: 0.05
-      Name: Reference Path
+      Name: uav1 Actual Path
       Offset:
         X: 0
         Y: 0
@@ -103,12 +139,24 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: viz/reference_path
+        Value: /uav1/viz/actual_path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Fleet Separation
+      Namespaces:
+        {}
+      Topic:
+        Depth: 20
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fleet/viz/separation
       Value: true
   Enabled: true
   Global Options:
     Background Color: 30; 30; 34
-    Fixed Frame: map
+    Fixed Frame: world
     Frame Rate: 30
   Name: root
   Tools:

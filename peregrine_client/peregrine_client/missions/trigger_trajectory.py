@@ -21,69 +21,85 @@ from __future__ import annotations
 
 import argparse
 import sys
-from threading import Thread
+from threading import Event, Thread
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 
 from btcpp_ros2_interfaces.action import ExecuteTree
 
 
-def send_execute_tree(
-    node: Node,
-    action_name: str,
-    tree_name: str,
-    timeout_s: float = 300.0,
-) -> bool:
-    client = ActionClient(node, ExecuteTree, action_name)
-    logger = node.get_logger()
+def _wait_future(future, timeout_sec: float):
+    """Block until a rclpy future completes, driven by a separately-spinning executor.
 
-    logger.info("Waiting for action server %s" % action_name)
-    if not client.wait_for_server(timeout_sec=30.0):
-        logger.error("Action server %s not available" % action_name)
-        return False
-
-    goal = ExecuteTree.Goal()
-    goal.target_tree = tree_name
-
-    logger.info("Sending ExecuteTree: %s -> %s" % (action_name, tree_name))
-    goal_future = client.send_goal_async(goal)
-    rclpy.spin_until_future_complete(node, goal_future, timeout_sec=5.0)
-
-    if not goal_future.done():
-        logger.error("Goal send timed out")
-        return False
-
-    goal_handle = goal_future.result()
-    if goal_handle is None or not goal_handle.accepted:
-        logger.error("Goal rejected")
-        return False
-
-    logger.info("Goal accepted, waiting for result")
-    result_future = goal_handle.get_result_async()
-    rclpy.spin_until_future_complete(node, result_future, timeout_sec=timeout_s)
-
-    if not result_future.done():
-        logger.error("Result timed out")
-        return False
-
-    result = result_future.result()
-    logger.info(
-        "Tree completed: status=%s msg=%s"
-        % (result.result.node_status, result.result.return_message)
-    )
-    return result.status == 4
+    Returns the future result, or None on timeout. Avoids spin_until_future_complete so
+    several UAVs can run concurrently without each grabbing the global executor (whose
+    shared wait set races -> 'wait set index too big').
+    """
+    done = Event()
+    future.add_done_callback(lambda _f: done.set())
+    if not done.wait(timeout_sec):
+        return None
+    return future.result()
 
 
-def _run_uav(namespace: str, tree_name: str, timeout_s: float, results: dict[str, bool]):
-    node = Node("trajectory_trigger_%s" % namespace, namespace=namespace)
+def _spin_executor(executor: SingleThreadedExecutor) -> None:
     try:
-        results[namespace] = send_execute_tree(
-            node, "execute_tree", tree_name, timeout_s=timeout_s
-        )
+        executor.spin()
+    except Exception:  # noqa: BLE001 - executor.spin() raises on shutdown; expected.
+        pass
+
+
+def run_trees(uav_list: list[str], tree_name: str, timeout_s: float) -> dict[str, bool]:
+    """Dispatch `tree_name` to every UAV concurrently from one spinning executor.
+
+    All trigger nodes share a single SingleThreadedExecutor on one background thread, so there
+    is exactly one wait set (no cross-thread race). Goals are sent up front, then we block on
+    each UAV's result future. Scales to any number of UAVs.
+    """
+    nodes = {ns: Node("trajectory_trigger_%s" % ns, namespace=ns) for ns in uav_list}
+    executor = SingleThreadedExecutor()
+    for node in nodes.values():
+        executor.add_node(node)
+
+    spin_thread = Thread(target=_spin_executor, args=(executor,), daemon=True)
+    spin_thread.start()
+
+    ok: dict[str, bool] = {}
+    result_futures: dict[str, object] = {}
+    try:
+        for ns in uav_list:
+            node = nodes[ns]
+            logger = node.get_logger()
+            client = ActionClient(node, ExecuteTree, "execute_tree")
+            if not client.wait_for_server(timeout_sec=30.0):
+                logger.error("Action server execute_tree not available for %s" % ns)
+                ok[ns] = False
+                continue
+
+            goal = ExecuteTree.Goal()
+            goal.target_tree = tree_name
+            logger.info("Sending ExecuteTree: %s -> %s" % (ns, tree_name))
+            goal_handle = _wait_future(client.send_goal_async(goal), 10.0)
+            if goal_handle is None or not goal_handle.accepted:
+                logger.error("Goal rejected or send timed out for %s" % ns)
+                ok[ns] = False
+                continue
+
+            logger.info("Goal accepted for %s, waiting for result" % ns)
+            result_futures[ns] = goal_handle.get_result_async()
+
+        for ns, fut in result_futures.items():
+            result = _wait_future(fut, timeout_s)
+            ok[ns] = result is not None and result.status == 4
     finally:
-        node.destroy_node()
+        executor.shutdown()
+        for node in nodes.values():
+            node.destroy_node()
+
+    return ok
 
 
 KNOWN_TREES = {
@@ -134,15 +150,7 @@ def main():
 
     rclpy.init()
     try:
-        results: dict[str, bool] = {}
-        threads = [
-            Thread(target=_run_uav, args=(ns, args.tree, args.timeout, results))
-            for ns in uav_list
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        results = run_trees(uav_list, args.tree, args.timeout)
     finally:
         rclpy.shutdown()
 
