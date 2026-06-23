@@ -129,6 +129,15 @@ def generate_launch_description() -> LaunchDescription:
                 name="bt_action_server",
                 namespace=uav_namespace,
                 output="screen",
+                # The BT server can abort (SIGABRT) if the transport delivers a
+                # duplicate ExecuteTree goal request: rclcpp_action throws
+                # "Failed to accept new goal" from inside the executor thread,
+                # which is upstream of handle_goal() so the execution_active_
+                # guard cannot catch it. Without respawn the action server stays
+                # dead and /execute_tree silently disappears until a manual
+                # relaunch. Respawn so the action server recovers within seconds.
+                respawn=True,
+                respawn_delay=2.0,
                 parameters=[
                     tree_server_config,
                     {
