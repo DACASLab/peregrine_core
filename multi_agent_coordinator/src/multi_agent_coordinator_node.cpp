@@ -272,10 +272,22 @@ void MultiAgentCoordinatorNode::onRawSetpoint(
   setpointPub_->publish(out);
 
   std::scoped_lock lock(mutex_);
+  const bool prevAvoidance = avoidanceActive_;
   avoidanceActive_ = modified || retreating;
   activeConstraints_ = static_cast<int>(planes.size());
   lostNeighbors_ = lost;
   lastGoalFleet_ = *desired;
+  // Edge-triggered: log when inter-UAV collision avoidance engages/releases — the key event for
+  // reconstructing multi-UAV interactions (which setpoints were overridden, and why).
+  if (avoidanceActive_ != prevAvoidance) {
+    if (avoidanceActive_) {
+      RCLCPP_WARN(get_logger(),
+                  "BVC avoidance ENGAGED (%zu constraint plane(s), %d lost neighbor(s))",
+                  planes.size(), lost);
+    } else {
+      RCLCPP_INFO(get_logger(), "BVC avoidance released — setpoint passthrough resumed");
+    }
+  }
 }
 
 void MultiAgentCoordinatorNode::passthrough(
@@ -283,8 +295,12 @@ void MultiAgentCoordinatorNode::passthrough(
 {
   setpointPub_->publish(raw);
   std::scoped_lock lock(mutex_);
+  const bool prevAvoidance = avoidanceActive_;
   avoidanceActive_ = false;
   activeConstraints_ = 0;
+  if (prevAvoidance) {
+    RCLCPP_INFO(get_logger(), "BVC avoidance released (setpoint passthrough)");
+  }
 }
 
 std::optional<Eigen::Vector3d> MultiAgentCoordinatorNode::ownFleetPosition()

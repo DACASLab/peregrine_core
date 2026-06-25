@@ -189,6 +189,7 @@ Px4Readiness HealthAggregator::evaluatePx4(const std::chrono::steady_clock::time
   readiness.offboard = px4Status_->status.offboard;
   readiness.failsafe = px4Status_->status.failsafe;
   readiness.navState = px4Status_->status.navState;
+  readiness.localPositionValid = px4Status_->status.localPositionValid;
   readiness.fresh = (now - px4Status_->receivedAt) <= config_.px4StatusTimeout;
 
   // PX4 freshness is checked before connected/failsafe to avoid acting on stale link state.

@@ -95,6 +95,10 @@ private:
   bool configured_{false};
   bool active_{false};
 
+  /// Previous health message, for edge-triggered logging of health transitions (OK <-> stale).
+  /// Empty until the first status is evaluated, so the first transition is always logged.
+  std::string prevHealthMessage_;
+
   /// Per-UAV base_link frame id (from frame_prefix), used to label body-rate outputs.
   std::string baseLinkFrame_{"base_link"};
 

@@ -717,6 +717,10 @@ StatusSnapshot TuiNode::buildSnapshot() const
       }
     }
     snapshot.has_motor_data = anyMotor;
+    snapshot.has_px4_status = true;
+    snapshot.local_position_valid = latestPx4Status_->local_position_valid;
+    snapshot.dead_reckoning = latestPx4Status_->dead_reckoning;
+    snapshot.local_position_eph = latestPx4Status_->eph;
   }
 
   if (latestGpsStatus_.has_value()) {

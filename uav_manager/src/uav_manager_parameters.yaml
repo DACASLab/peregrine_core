@@ -53,6 +53,14 @@ uav_manager:
     validation:
       gt<>: [0.0]
 
+  position_estimate_wait_s:
+    type: double
+    default_value: 3.0
+    description: "Pre-arm grace window to wait for a valid EKF local-position estimate (PX4's OFFBOARD precondition) before takeoff. Rides out transient GPS/EKF flicker; if it stays invalid, takeoff fails with POSITION_ESTIMATE_INVALID instead of an opaque OFFBOARD_TIMEOUT."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
   auto_start:
     type: bool
     default_value: true

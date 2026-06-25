@@ -34,6 +34,13 @@ struct StatusSnapshot
   bool connected{false};
   bool failsafe{false};
 
+  // EKF position-estimate validity (mirrors PX4's OFFBOARD gate). When invalid, PX4 refuses an
+  // OFFBOARD switch that requests position control, so this is the real "why can't I take off".
+  bool has_px4_status{false};
+  bool local_position_valid{false};
+  bool dead_reckoning{false};
+  float local_position_eph{99.0F};
+
   bool dependencies_ready{false};
   bool safety_ready{false};
   std::string readiness_detail;

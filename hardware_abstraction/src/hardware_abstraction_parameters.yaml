@@ -78,3 +78,19 @@ hardware_abstraction:
     read_only: true
     validation:
       gt<>: [0.0]
+
+  local_position_eph_threshold_m:
+    type: double
+    default_value: 5.0
+    description: "Max horizontal position error (eph, m) for local_position_valid. Mirror of PX4 COM_POS_FS_EPH; keep in sync with the airframe's value. Widened 2.5x by hysteresis once valid."
+    read_only: true
+    validation:
+      gt<>: [0.0]
+
+  local_position_timeout_s:
+    type: double
+    default_value: 1.0
+    description: "Max age of the last VehicleLocalPosition sample before local_position_valid is forced false (staleness guard)."
+    read_only: true
+    validation:
+      gt<>: [0.0]

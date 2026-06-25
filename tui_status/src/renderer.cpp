@@ -208,7 +208,8 @@ std::string overallHealthString(const StatusSnapshot & snapshot)
     return "CRITICAL";
   }
   if (snapshot.safety_level == 1 || !snapshot.estimation_healthy ||
-      !snapshot.control_healthy || !snapshot.trajectory_healthy)
+      !snapshot.control_healthy || !snapshot.trajectory_healthy ||
+      (snapshot.has_px4_status && !snapshot.local_position_valid))
   {
     return "WARNING";
   }
@@ -683,6 +684,26 @@ void Renderer::render(
   } else {
     printBadge(hasColors_, row, col + 8, kColorPairLabel, "OFF", A_DIM);
     printDim(hasColors_, row, col + 13, "not enabled in this launch");
+  }
+
+  // Position-estimate validity (right-aligned on the Safety row). This is the EKF signal PX4
+  // uses to permit OFFBOARD: when INVALID, takeoff is blocked (POSITION_ESTIMATE_INVALID) and a
+  // running OFFBOARD flight would failsafe. Distinct from raw GPS (shown on the battery row).
+  {
+    char pos[48];
+    if (!snapshot.has_px4_status) {
+      formatTo(pos, sizeof(pos), "Pos:--");
+    } else if (snapshot.local_position_valid) {
+      formatTo(pos, sizeof(pos), "Pos:OK%s", snapshot.dead_reckoning ? " DR" : "");
+    } else {
+      formatTo(pos, sizeof(pos), "Pos:INVALID eph=%.1f%s",
+        snapshot.local_position_eph, snapshot.dead_reckoning ? " DR" : "");
+    }
+    const int pos_len = static_cast<int>(std::strlen(pos));
+    const short posColor = snapshot.has_px4_status
+      ? boolColorPair(snapshot.local_position_valid) : kColorPairLabel;
+    printBadge(hasColors_, row, col + right_w - pos_len - 3, posColor, pos,
+      snapshot.has_px4_status ? A_BOLD : A_DIM);
   }
 
   // Compute stats row — CPU%, freq, temp, RAM from onboard computer

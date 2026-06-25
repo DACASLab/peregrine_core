@@ -63,6 +63,26 @@ std::string toLower(std::string input)
   return input;
 }
 
+/// Human-readable PX4 nav_state name for logs (covers the modes we command/observe).
+const char * navStateName(uint8_t navState)
+{
+  using VS = px4_msgs::msg::VehicleStatus;
+  switch (navState) {
+    case VS::NAVIGATION_STATE_MANUAL: return "MANUAL";
+    case VS::NAVIGATION_STATE_ALTCTL: return "ALTCTL";
+    case VS::NAVIGATION_STATE_POSCTL: return "POSCTL";
+    case VS::NAVIGATION_STATE_AUTO_LOITER: return "AUTO_LOITER";
+    case VS::NAVIGATION_STATE_AUTO_RTL: return "AUTO_RTL";
+    case VS::NAVIGATION_STATE_OFFBOARD: return "OFFBOARD";
+    case VS::NAVIGATION_STATE_STAB: return "STAB";
+    case VS::NAVIGATION_STATE_AUTO_TAKEOFF: return "AUTO_TAKEOFF";
+    case VS::NAVIGATION_STATE_AUTO_LAND: return "AUTO_LAND";
+    case VS::NAVIGATION_STATE_DESCEND: return "DESCEND";
+    case VS::NAVIGATION_STATE_TERMINATION: return "TERMINATION";
+    default: return "OTHER";
+  }
+}
+
 // Offboard mode flags are bit-packed into a single uint32_t so the offboard heartbeat timer
 // can atomically load the latest control mode without a mutex. The heartbeat timer and the
 // control_output subscription callback may run concurrently on the same executor, and a
@@ -428,6 +448,37 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
 {
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
 
+  // Surface the EKF position-validity view that PX4's commander uses to permit OFFBOARD, so the
+  // takeoff gate and TUI watch the same signal instead of raw GPS quality. (This is independent
+  // of the anchoring math below; it only mirrors PX4 telemetry.)
+  lposXyValid_.store(msg->xy_valid, std::memory_order_relaxed);
+  lposZValid_.store(msg->z_valid, std::memory_order_relaxed);
+  lposVxyValid_.store(msg->v_xy_valid, std::memory_order_relaxed);
+  lposDeadReckoning_.store(msg->dead_reckoning, std::memory_order_relaxed);
+  lposEph_.store(msg->eph, std::memory_order_relaxed);
+  lposEvh_.store(msg->evh, std::memory_order_relaxed);
+  const bool wasValid = lposValidHysteresis_;
+  const bool levelValid =
+      evaluateLocalPositionValidity(msg->xy_valid, msg->eph, wasValid);
+  lposValidHysteresis_ = levelValid;
+  localPositionValidLatched_.store(levelValid, std::memory_order_relaxed);
+  lastLposRxNs_.store(this->now().nanoseconds(), std::memory_order_relaxed);
+  // Edge-triggered: this transition is the single most useful line for diagnosing OFFBOARD
+  // timeouts after the fact — it pins exactly when (and why) PX4 would accept/refuse position mode.
+  if (levelValid != wasValid) {
+    if (levelValid) {
+      RCLCPP_INFO(
+          get_logger(),
+          "EKF local position VALID (xy_valid=%d eph=%.2fm dead_reckoning=%d) — position OFFBOARD permitted",
+          msg->xy_valid, static_cast<double>(msg->eph), msg->dead_reckoning);
+    } else {
+      RCLCPP_WARN(
+          get_logger(),
+          "EKF local position INVALID (xy_valid=%d eph=%.2fm dead_reckoning=%d) — PX4 will refuse position OFFBOARD",
+          msg->xy_valid, static_cast<double>(msg->eph), msg->dead_reckoning);
+    }
+  }
+
   peregrine_interfaces::msg::FrameAnchor anchorMsg;
   {
     std::scoped_lock lock(anchorMutex_);
@@ -452,6 +503,11 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
       anchor_.xyResetCounter = msg->xy_reset_counter;
       anchor_.zResetCounter = msg->z_reset_counter;
       anchor_.headingResetCounter = msg->heading_reset_counter;
+      RCLCPP_WARN(
+          get_logger(),
+          "EKF reinit detected (reset counter ran backward) — dropped accumulated map->odom anchor "
+          "and re-baselined to xy/z/heading=#%u/#%u/#%u",
+          msg->xy_reset_counter, msg->z_reset_counter, msg->heading_reset_counter);
     }
     else
     {
@@ -465,6 +521,11 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
         anchor_.mapToOdomX -= dEnu.x();
         anchor_.mapToOdomY -= dEnu.y();
         anchor_.xyResetCounter = msg->xy_reset_counter;
+        RCLCPP_INFO(
+            get_logger(),
+            "EKF XY reset #%u: delta_ned=(%.2f,%.2f)m — absorbed into map->odom anchor (world pose continuous)",
+            msg->xy_reset_counter, static_cast<double>(msg->delta_xy[0]),
+            static_cast<double>(msg->delta_xy[1]));
       }
       if (msg->z_reset_counter != anchor_.zResetCounter)
       {
@@ -472,6 +533,8 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
             frame_transforms::nedToEnu(Eigen::Vector3d(0.0, 0.0, msg->delta_z));
         anchor_.mapToOdomZ -= dEnu.z();
         anchor_.zResetCounter = msg->z_reset_counter;
+        RCLCPP_INFO(get_logger(), "EKF Z reset #%u: delta_z=%.2fm — absorbed into anchor",
+                    msg->z_reset_counter, static_cast<double>(msg->delta_z));
       }
       if (msg->heading_reset_counter != anchor_.headingResetCounter)
       {
@@ -501,6 +564,12 @@ void PX4HardwareAbstraction::onVehicleLocalPosition(const px4_msgs::msg::Vehicle
         anchor_.worldToMapX = e.x();
         anchor_.worldToMapY = e.y();
       }
+      RCLCPP_INFO(
+          get_logger(),
+          "Latched EKF global ref (world->map): ref=(%.7f,%.7f,%.2f) world_datum_set=%d "
+          "world->map=(%.2f,%.2f)m",
+          anchor_.refLat, anchor_.refLon, anchor_.refAlt, params_.world_datum_set,
+          anchor_.worldToMapX, anchor_.worldToMapY);
     }
 
     // Ground datum: map-frame Z of the vehicle while disarmed (on the ground). Frozen at arm so
@@ -621,11 +690,28 @@ void PX4HardwareAbstraction::onVehicleStatus(const px4_msgs::msg::VehicleStatus:
   lastPx4RxTimeNs_.store(this->now().nanoseconds());
 
   // Cache latest PX4 mode/arming/failsafe state for services, gating, and status output.
-  navState_.store(msg->nav_state);
-  armingState_.store(msg->arming_state);
+  // `exchange` returns the previous value so we can log edge transitions only (not every sample),
+  // which is exactly what we need to reconstruct what PX4 did during a flight from the logs.
+  const uint8_t prevNav = navState_.exchange(msg->nav_state);
+  const uint8_t prevArming = armingState_.exchange(msg->arming_state);
+  const bool prevFailsafe = failsafe_.exchange(msg->failsafe);
   vehicleArmed_.store(msg->arming_state == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED);
   failureDetectorStatus_.store(msg->failure_detector_status);
-  failsafe_.store(msg->failsafe);
+
+  if (msg->nav_state != prevNav) {
+    RCLCPP_INFO(
+      get_logger(), "PX4 nav_state: %s(%u) -> %s(%u)",
+      navStateName(prevNav), prevNav, navStateName(msg->nav_state), msg->nav_state);
+  }
+  if (msg->arming_state != prevArming) {
+    const bool armed = msg->arming_state == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED;
+    RCLCPP_INFO(get_logger(), "PX4 arming_state: %u -> %u (%s)", prevArming, msg->arming_state,
+                armed ? "ARMED" : "DISARMED/other");
+  }
+  if (msg->failsafe != prevFailsafe) {
+    RCLCPP_WARN(get_logger(), "PX4 failsafe %s (failure_detector=0x%04x)",
+                msg->failsafe ? "ACTIVATED" : "cleared", msg->failure_detector_status);
+  }
 
   // Push an immediate status update instead of waiting for periodic timer tick.
   publishStatus();
@@ -871,6 +957,8 @@ void PX4HardwareAbstraction::onArmService(const std::shared_ptr<peregrine_interf
   vehicleCommandPub_->publish(
       makeVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, armValue, 0.0f));
 
+  RCLCPP_INFO(get_logger(), "Sent PX4 %s command (current nav_state=%s)",
+              request->arm ? "ARM" : "DISARM", navStateName(navState_.load()));
   response->success = true;
   response->message = request->arm ? "Arm command sent." : "Disarm command sent.";
 }
@@ -898,6 +986,14 @@ void PX4HardwareAbstraction::onSetModeService(const std::shared_ptr<peregrine_in
   vehicleCommandPub_->publish(
       makeVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_SET_NAV_STATE, static_cast<float>(navState), 0.0f));
 
+  // Log the request and the current position-validity context. If a requested OFFBOARD switch is
+  // about to be silently refused by PX4, this line plus the local_position_valid transitions make
+  // the cause obvious in hindsight.
+  RCLCPP_INFO(
+      get_logger(),
+      "Sent PX4 set_mode '%s' -> nav_state=%s(%u) [from %s; local_position_valid=%s eph=%.2f]",
+      request->mode.c_str(), navStateName(navState), navState, navStateName(navState_.load()),
+      localPositionValidLatched_.load() ? "true" : "false", lposEph_.load());
   response->success = true;
   response->message = "Mode command sent: " + request->mode;
 }
@@ -950,8 +1046,39 @@ void PX4HardwareAbstraction::publishStatus()
   status.motor_output[2] = motorOutput2_.load();
   status.motor_output[3] = motorOutput3_.load();
 
+  // Position-estimate validity (mirrors PX4's OFFBOARD gate). The level check (xy_valid + eph)
+  // is latched from the last VehicleLocalPosition sample; here we additionally force it false if
+  // that sample is stale, since publishStatus() is also driven by the (faster) VehicleStatus path.
+  status.xy_valid = lposXyValid_.load(std::memory_order_relaxed);
+  status.z_valid = lposZValid_.load(std::memory_order_relaxed);
+  status.v_xy_valid = lposVxyValid_.load(std::memory_order_relaxed);
+  status.dead_reckoning = lposDeadReckoning_.load(std::memory_order_relaxed);
+  status.eph = lposEph_.load(std::memory_order_relaxed);
+  status.evh = lposEvh_.load(std::memory_order_relaxed);
+  const int64_t lposRxNs = lastLposRxNs_.load(std::memory_order_relaxed);
+  // Raw nanosecond subtraction (mirrors isConnected()) avoids constructing an rclcpp::Time with a
+  // possibly-mismatched clock source, which would throw under sim time.
+  const double lposAgeS = static_cast<double>(this->now().nanoseconds() - lposRxNs) * 1e-9;
+  const bool lposFresh = lposRxNs != 0 && lposAgeS <= params_.local_position_timeout_s;
+  status.local_position_valid =
+      lposFresh && localPositionValidLatched_.load(std::memory_order_relaxed);
+
   // This message is the single readiness contract consumed by uav_manager.
   statusPub_->publish(status);
+}
+
+bool PX4HardwareAbstraction::evaluateLocalPositionValidity(bool xyValid, float eph, bool wasValid) const
+{
+  if (!xyValid) {
+    return false;
+  }
+  // Unknown accuracy: trust the EKF flag rather than over-blocking.
+  if (!std::isfinite(eph)) {
+    return true;
+  }
+  // 2.5x band once valid, matching PX4's checkPosVelValidity() hysteresis (estimatorCheck.cpp).
+  const double threshold = params_.local_position_eph_threshold_m * (wasValid ? 2.5 : 1.0);
+  return static_cast<double>(eph) < threshold;
 }
 
 px4_msgs::msg::VehicleCommand PX4HardwareAbstraction::makeVehicleCommand(uint32_t command, float param1, float param2) const

@@ -254,6 +254,10 @@ private:
   /// True while node is lifecycle-active.
   bool active_{false};
 
+  /// Previous health message, for edge-triggered logging of health transitions (OK <-> stale).
+  /// Touched only in publishStatus() (single timer callback), so it needs no extra locking.
+  std::string prevHealthMessage_;
+
   /// Tracks the last supervisor state to detect LANDED/IDLE transitions.
   uint8_t lastUavState_{peregrine_interfaces::msg::UAVState::STATE_IDLE};
 

@@ -526,6 +526,19 @@ void TrajectoryManagerNode::publishStatus()
     }
   }
 
+  // Edge-triggered health-transition logging. This drives the TUI "trajectory BAD" badge, so a
+  // logged transition here is the authoritative record of when/why the trajectory pipeline lost
+  // its estimated_state input during a flight.
+  if (status.message != prevHealthMessage_) {
+    if (status.healthy) {
+      RCLCPP_INFO(get_logger(), "trajectory health -> OK (was: %s)",
+                  prevHealthMessage_.empty() ? "init" : prevHealthMessage_.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "trajectory health -> UNHEALTHY: %s", status.message.c_str());
+    }
+    prevHealthMessage_ = status.message;
+  }
+
   statusPub_->publish(status);
 }
 

@@ -61,6 +61,11 @@ private:
   std::unique_ptr<RuleEngine> ruleEngine_;
   std::unique_ptr<SafetyActionExecutor> actionExecutor_;
 
+  /// Previous overall safety level + reason, for edge-triggered logging of safety transitions.
+  /// -1 sentinel so the first evaluation is always logged. Touched only in evaluateAndPublish().
+  int prevSafetyLevel_{-1};
+  std::string prevSafetyReason_;
+
   rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;
   rclcpp::Subscription<peregrine_interfaces::msg::GpsStatus>::SharedPtr gpsStatusSub_;
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr estimatedStateSub_;

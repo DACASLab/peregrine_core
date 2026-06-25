@@ -120,6 +120,9 @@ private:
   /// True while node is lifecycle-active.
   bool active_{false};
 
+  /// Previous health message, for edge-triggered logging of estimator health transitions.
+  std::string prevHealthMessage_;
+
   /// Upstream state input from hardware abstraction.
   rclcpp::Subscription<peregrine_interfaces::msg::State>::SharedPtr stateSub_;
   /// Lifecycle-gated estimate output for downstream managers.

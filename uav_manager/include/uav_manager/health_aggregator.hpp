@@ -93,6 +93,9 @@ struct Px4StatusInput
   bool offboard{false};
   bool failsafe{false};
   uint8_t navState{0};
+  /// EKF horizontal-position validity (mirrors PX4's OFFBOARD gate). Used only by the
+  /// position-offboard readiness check, NOT by general dependenciesReady().
+  bool localPositionValid{false};
 };
 
 /**
@@ -138,6 +141,9 @@ struct Px4Readiness
   bool offboard{false};
   bool failsafe{false};
   uint8_t navState{0};
+  /// EKF horizontal-position validity (mirrors PX4's OFFBOARD gate). Deliberately NOT part of
+  /// ready(): a bad position estimate must not block land/descend/manual recovery mid-air.
+  bool localPositionValid{false};
   bool fresh{false};
   ReadinessCode code{ReadinessCode::Missing};
   std::string reasonCode{"PX4_STATUS_MISSING"};
@@ -148,6 +154,18 @@ struct Px4Readiness
   bool ready() const
   {
     return present && connected && !failsafe && fresh;
+  }
+
+  /**
+   * @brief True when PX4 is ready AND the EKF reports a usable horizontal position estimate.
+   *
+   * This is the precondition for OFFBOARD with position setpoints (e.g. takeoff). PX4 will
+   * silently refuse such an OFFBOARD switch when local position is invalid, so gating here
+   * lets us fail fast with a clear reason instead of timing out.
+   */
+  bool readyForPositionOffboard() const
+  {
+    return ready() && localPositionValid;
   }
 };
 

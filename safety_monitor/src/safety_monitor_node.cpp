@@ -367,6 +367,24 @@ void SafetyMonitorNode::evaluateAndPublish()
   statusMsg.reason = overallReason.empty() ? "nominal" : overallReason;
   safetyStatusPub_->publish(statusMsg);
 
+  // Edge-triggered safety-level logging. The TUI safety badge is driven by this level; logging
+  // the transition (with the contributing checker reasons) records exactly when a checker (GPS,
+  // battery, geofence, envelope) escalated or recovered during a flight.
+  const int level = static_cast<int>(statusMsg.level);
+  if (level != prevSafetyLevel_ || statusMsg.reason != prevSafetyReason_) {
+    if (level >= static_cast<int>(SafetyLevel::Critical)) {
+      RCLCPP_ERROR(get_logger(), "safety level %d -> %d: %s",
+                   prevSafetyLevel_, level, statusMsg.reason.c_str());
+    } else if (level > static_cast<int>(SafetyLevel::Nominal)) {
+      RCLCPP_WARN(get_logger(), "safety level %d -> %d: %s",
+                  prevSafetyLevel_, level, statusMsg.reason.c_str());
+    } else {
+      RCLCPP_INFO(get_logger(), "safety level -> NOMINAL (recovered from %d)", prevSafetyLevel_);
+    }
+    prevSafetyLevel_ = level;
+    prevSafetyReason_ = statusMsg.reason;
+  }
+
   // Action execution — only request land when vehicle is armed (in flight or
   // about to fly). Sending land to a grounded vehicle causes PX4 health issues
   // that block subsequent arming attempts.

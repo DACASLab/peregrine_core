@@ -10,6 +10,13 @@
     world_datum_lon: 77.565041
     world_datum_alt: 0.0
 
+    # local_position_valid (hardware_abstraction) mirrors PX4's OFFBOARD precondition so the
+    # takeoff gate and TUI watch the EKF's xy_valid+eph instead of raw GPS. Keep this threshold
+    # equal to the airframe's COM_POS_FS_EPH (PX4 default 5.0 m) or the gate may disagree with
+    # what PX4 actually enforces.
+    local_position_eph_threshold_m: 5.0
+    local_position_timeout_s: 1.0
+
     # GPS quality thresholds — used by safety_monitor (continuous flight safety).
     # NOTE: frame_transforms no longer uses GPS/home for frames; it anchors to PX4's
     # FrameAnchor (ref_*) instead.

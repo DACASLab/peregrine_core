@@ -356,6 +356,19 @@ void ControlManagerNode::publishStatus()
     }
   }
 
+  // Edge-triggered health-transition logging. control_manager health flips on estimated_state
+  // staleness, which is the same root cause as the TUI "trajectory BAD" badge — logging the
+  // transition (with the message) makes post-flight diagnosis of estimator dropouts direct.
+  if (status.message != prevHealthMessage_) {
+    if (status.healthy) {
+      RCLCPP_INFO(get_logger(), "control health -> OK (was: %s)",
+                  prevHealthMessage_.empty() ? "init" : prevHealthMessage_.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "control health -> UNHEALTHY: %s", status.message.c_str());
+    }
+    prevHealthMessage_ = status.message;
+  }
+
   statusPub_->publish(status);
 }
 

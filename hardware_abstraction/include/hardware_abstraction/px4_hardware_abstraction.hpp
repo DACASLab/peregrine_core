@@ -244,6 +244,33 @@ private:
   /// See packOffboardModeFlags() in the .cpp for the bit layout.
   std::atomic<uint32_t> offboardModeFlags_{0};
 
+  // ── Local-position validity (mirrors PX4's offboard gate) ──────────────────────────────
+  // Written in onVehicleLocalPosition(), read lock-free in publishStatus(). These surface the
+  // EKF view that PX4's commander uses to permit OFFBOARD (offboardCheck.cpp/estimatorCheck.cpp),
+  // so our pre-arm gate and TUI watch the SAME signal instead of raw GPS quality.
+  std::atomic<bool> lposXyValid_{false};
+  std::atomic<bool> lposZValid_{false};
+  std::atomic<bool> lposVxyValid_{false};
+  std::atomic<bool> lposDeadReckoning_{false};
+  std::atomic<float> lposEph_{NAN};
+  std::atomic<float> lposEvh_{NAN};
+  std::atomic<int64_t> lastLposRxNs_{0};
+  /// Hysteresis-aware horizontal-position validity from the last VehicleLocalPosition sample
+  /// (eph compared against threshold; freshness is applied separately in publishStatus()).
+  std::atomic<bool> localPositionValidLatched_{false};
+  /// Previous validity, for the accuracy hysteresis band. Mutated only in onVehicleLocalPosition.
+  bool lposValidHysteresis_{false};
+
+  /**
+   * @brief Mirror of PX4's checkPosVelValidity() accuracy gate (estimatorCheck.cpp).
+   *
+   * Returns whether horizontal position is usable: the EKF flag is set AND the reported error
+   * (eph) is below the configured threshold, widened by 2.5x once already valid to avoid
+   * chattering at the boundary (matching PX4's hysteresis). An unknown (non-finite) eph falls
+   * back to the raw flag so we don't over-block when the estimator doesn't populate accuracy.
+   */
+  bool evaluateLocalPositionValidity(bool xyValid, float eph, bool wasValid) const;
+
   rclcpp::Publisher<peregrine_interfaces::msg::State>::SharedPtr statePub_;
   rclcpp::Publisher<peregrine_interfaces::msg::PX4Status>::SharedPtr statusPub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometryPub_;

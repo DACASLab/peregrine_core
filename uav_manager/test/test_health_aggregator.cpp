@@ -147,3 +147,31 @@ TEST(HealthAggregatorTest, FailsafeIsReported)
   EXPECT_EQ(snap.px4.reasonCode, "PX4_FAILSAFE");
   EXPECT_FALSE(snap.px4.ready());
 }
+
+// readyForPositionOffboard() is the takeoff precondition mirroring PX4's OFFBOARD gate. It must
+// require BOTH general PX4 readiness AND a valid EKF local position, while NOT affecting the
+// general dependenciesReady() path (so a bad estimate never blocks land/recovery).
+TEST(HealthAggregatorTest, PositionOffboardRequiresValidLocalPosition)
+{
+  uav_manager::FreshnessConfig config;
+  config.px4StatusTimeout = 1000ms;
+  uav_manager::HealthAggregator agg(config);
+  const auto now = std::chrono::steady_clock::now();
+
+  // PX4 is connected/fresh/non-failsafe but the EKF local position is INVALID.
+  uav_manager::Px4StatusInput px4;
+  px4.connected = true;
+  px4.failsafe = false;
+  px4.localPositionValid = false;
+  agg.updatePx4Status(now, px4);
+
+  auto snap = agg.snapshot(now);
+  EXPECT_TRUE(snap.px4.ready());                      // general readiness unaffected
+  EXPECT_FALSE(snap.px4.readyForPositionOffboard());  // but takeoff is gated
+
+  // Once the EKF reports a valid local position, the takeoff gate opens.
+  px4.localPositionValid = true;
+  agg.updatePx4Status(now, px4);
+  snap = agg.snapshot(now);
+  EXPECT_TRUE(snap.px4.readyForPositionOffboard());
+}

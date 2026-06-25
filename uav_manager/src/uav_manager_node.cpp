@@ -405,6 +405,7 @@ void UavManagerNode::onPx4Status(const peregrine_interfaces::msg::PX4Status::Sha
     input.offboard = msg->offboard;
     input.failsafe = msg->failsafe;
     input.navState = msg->nav_state;
+    input.localPositionValid = msg->local_position_valid;
     healthAggregator_->updatePx4Status(nowSteady(), input);
   }
 
@@ -683,6 +684,37 @@ void UavManagerNode::onTakeoffAccepted(const std::shared_ptr<GoalHandleTakeoff> 
   }
 
   const auto svcTimeout = secondsToMillis(params_.service_timeout_s);
+
+  // Pre-arm position-estimate gate (mirrors PX4's OFFBOARD precondition). PX4 silently refuses an
+  // OFFBOARD switch whose setpoints request position control while its EKF local position is
+  // invalid (degraded/lost GPS). We check the SAME signal here, BEFORE arming, with a short grace
+  // window to ride out transient GPS/EKF flicker. On a sustained invalid estimate we fail fast
+  // and legibly (POSITION_ESTIMATE_INVALID) instead of arming and hitting an opaque
+  // OFFBOARD_TIMEOUT + recovery-land cycle. Scoped to the takeoff path only; landing/recovery are
+  // intentionally not gated on position validity. See safety-vs-px4-offboard-gate analysis.
+  if (healthAggregator_) {
+    const auto positionWait = secondsToMillis(params_.position_estimate_wait_s);
+    RCLCPP_INFO(
+      get_logger(),
+      "Takeoff: waiting up to %.1fs for valid EKF local position (PX4 OFFBOARD precondition)",
+      params_.position_estimate_wait_s);
+    StepResult posStep = pollUntil(
+      "POSITION_ESTIMATE_INVALID", positionWait,
+      [this]() {
+        return healthAggregator_->snapshot(nowSteady()).px4.readyForPositionOffboard();
+      },
+      preempted, emergency);
+    if (!posStep.success) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Takeoff blocked: no valid EKF local position within %.1fs — PX4 would refuse OFFBOARD. "
+        "Likely degraded/lost GPS or estimator not converged (reason=%s).",
+        params_.position_estimate_wait_s, posStep.describe().c_str());
+      failGoal(posStep.describe());
+      return;
+    }
+    RCLCPP_INFO(get_logger(), "Takeoff: EKF local position valid — proceeding to arm");
+  }
 
   if (currentState != SupervisorState::Armed) {
     const TransitionOutcome armTransition = applyEvent(SupervisorEvent::ArmRequested);

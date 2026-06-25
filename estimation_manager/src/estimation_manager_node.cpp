@@ -225,6 +225,19 @@ void EstimationManagerNode::publishStatus()
     status.message = status.healthy ? "OK" : "STATE_STALE";
   }
 
+  // Edge-triggered health-transition logging. estimation_manager sits at the head of the
+  // estimated_state pipeline, so a transition here typically precedes control/trajectory going
+  // unhealthy and PX4 losing its position estimate — log it to anchor the causal timeline.
+  if (status.message != prevHealthMessage_) {
+    if (status.healthy) {
+      RCLCPP_INFO(get_logger(), "estimation health -> OK (was: %s)",
+                  prevHealthMessage_.empty() ? "init" : prevHealthMessage_.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "estimation health -> UNHEALTHY: %s", status.message.c_str());
+    }
+    prevHealthMessage_ = status.message;
+  }
+
   statusPub_->publish(status);
 }
 
