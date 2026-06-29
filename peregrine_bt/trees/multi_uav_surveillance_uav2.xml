@@ -8,20 +8,19 @@
 
     This is the diametrically opposite pattern to UAV1's 0->1->2->5->4->3.
 
-    UAV2 flies at 4m (vs UAV1's 2m) for vertical separation. Steps 1 and 4
+    UAV2 flies at 8m (vs UAV1's 5m) for vertical separation. Steps 1 and 4
     have the UAVs in adjacent cells (same column), where lateral separation
-    within the lawnmower pattern can drop below safe thresholds. The 2m
+    within the lawnmower pattern can drop below safe thresholds. The 3m
     altitude offset (plus BVC) provides an additional safety margin.
   -->
 
   <BehaviorTree ID="MultiUavSurveillanceUav2">
     <Fallback>
       <Sequence>
-        <SubTree ID="PreflightAndTakeoff" altitude_m="4.0"/>
+        <SubTree ID="PreflightAndTakeoff" altitude_m="8.0"/>
         <WaitAction duration_s="2.0"/>
-        <ExecuteTrajectoryAction
-          trajectory_type="coverage_sweep"
-          params="13.018481,77.564971,5.0,3,2,4.0,0.5,1.5,6,5,4,3,0,1,2"/>
+        <ExecuteTrajectoryAction trajectory_type="coverage_sweep"
+          params="13.015581, 77.561373,5.0,3,2,8.0,0.5,1.5,6,5,4,3,0,1,2"/>
         <WaitAction duration_s="2.0"/>
         <LandAction descent_velocity_mps="0.8"/>
       </Sequence>
