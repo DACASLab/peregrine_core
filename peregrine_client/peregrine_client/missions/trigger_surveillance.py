@@ -9,6 +9,7 @@ Usage:
 
   Multi-agent (2 UAVs):
     python3 -m peregrine_client.missions.trigger_surveillance --mode multi
+    python3 -m peregrine_client.missions.trigger_surveillance --mode multi --uavs uav2,uav4
 """
 
 from __future__ import annotations
@@ -93,17 +94,32 @@ def run_single(namespace: str):
         node.destroy_node()
 
 
-def run_multi(timeout_s: float = 600.0) -> bool:
+# Ordered multi-agent sweep patterns. The i-th UAV passed via --uavs runs the i-th tree:
+# Uav1 = 5 m / cells 0,1,2,5,4,3; Uav2 = 8 m / cells 5,4,3,0,1,2 (opposite sweep). The tree
+# IDs are namespace-agnostic, so any drone can run any pattern.
+MULTI_TREES = ["MultiUavSurveillanceUav1", "MultiUavSurveillanceUav2"]
+
+
+def run_multi(namespaces: list[str], timeout_s: float = 600.0) -> bool:
     """Dispatch each UAV's surveillance tree concurrently from one spinning executor.
+
+    `namespaces` are mapped positionally to MULTI_TREES (i-th UAV runs the i-th pattern), so
+    the same command works for any drone IDs (e.g. --uavs uav2,uav4).
 
     All trigger nodes share a single SingleThreadedExecutor spun on one background thread, so
     there is exactly one wait set (no cross-thread race). Goals are sent up front, then we
-    block on every UAV's result future in parallel. Generalizes to N UAVs by extending `specs`.
+    block on every UAV's result future in parallel.
     """
-    specs = [
-        ("uav1", "MultiUavSurveillanceUav1"),
-        ("uav2", "MultiUavSurveillanceUav2"),
-    ]
+    if len(namespaces) != len(MULTI_TREES):
+        print(
+            "Error: --mode multi needs exactly %d UAV namespaces (got %d: %s). "
+            "The i-th UAV runs the i-th sweep pattern %s."
+            % (len(MULTI_TREES), len(namespaces), namespaces, MULTI_TREES),
+            file=sys.stderr,
+        )
+        return False
+
+    specs = list(zip(namespaces, MULTI_TREES))
 
     nodes = [Node("surveillance_trigger_%s" % ns, namespace=ns) for ns, _ in specs]
     executor = SingleThreadedExecutor()
@@ -167,6 +183,13 @@ def main():
         default="uav1",
         help="UAV namespace for single mode, for example uav1. Use '' for root namespace.",
     )
+    parser.add_argument(
+        "--uavs",
+        default="uav1,uav2",
+        help="Comma-separated UAV namespaces for multi mode; the i-th UAV runs the i-th "
+        "sweep pattern (1st -> MultiUavSurveillanceUav1 @5m, 2nd -> "
+        "MultiUavSurveillanceUav2 @8m). Example: --uavs uav2,uav4",
+    )
     args = parser.parse_args()
 
     rclpy.init()
@@ -174,7 +197,8 @@ def main():
         if args.mode == "single":
             success = run_single(args.namespace)
         else:
-            success = run_multi()
+            namespaces = [ns.strip() for ns in args.uavs.split(",") if ns.strip()]
+            success = run_multi(namespaces)
     finally:
         rclpy.shutdown()
 
