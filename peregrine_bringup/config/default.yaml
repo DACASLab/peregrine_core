@@ -6,8 +6,8 @@
     # the fleet. Single-agent is unaffected (z is anchored to the per-UAV ground datum, not
     # world_datum_alt; only horizontal placement uses the datum). Matches the SITL home.
     world_datum_set: true
-    world_datum_lat: 13.018526
-    world_datum_lon: 77.565041
+    world_datum_lat: 13.015581
+    world_datum_lon: 77.561373
     world_datum_alt: 0.0
 
     # local_position_valid (hardware_abstraction) mirrors PX4's OFFBOARD precondition so the

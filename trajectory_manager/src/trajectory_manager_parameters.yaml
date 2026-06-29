@@ -31,12 +31,12 @@ trajectory_manager:
 
   home_lat_deg:
     type: double
-    default_value: 13.018526
+    default_value: 13.015581
     description: "Home GPS latitude for geodetic-to-ENU conversion"
     read_only: true
 
   home_lon_deg:
     type: double
-    default_value: 77.565041
+    default_value: 77.561373
     description: "Home GPS longitude for geodetic-to-ENU conversion"
     read_only: true

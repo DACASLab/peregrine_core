@@ -23,8 +23,8 @@ from launch.actions import (
     TimerAction,
 )
 
-SITL_HOME_LAT = "13.018526"
-SITL_HOME_LON = "77.565041"
+SITL_HOME_LAT = "13.015581"
+SITL_HOME_LON = "77.561373"
 
 
 def generate_launch_description() -> LaunchDescription:
