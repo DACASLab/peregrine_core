@@ -6,8 +6,8 @@
     # the fleet. Single-agent is unaffected (z is anchored to the per-UAV ground datum, not
     # world_datum_alt; only horizontal placement uses the datum). Matches the SITL home.
     world_datum_set: true
-    world_datum_lat: 13.015581
-    world_datum_lon: 77.561373
+    world_datum_lat: 13.015445
+    world_datum_lon: 77.561347
     world_datum_alt: 0.0
 
     # trajectory_manager geodetic->ENU home. Overriding it here (rather than only
@@ -16,8 +16,8 @@
     # compiled default, but declare_parameter() still honors this launch-time
     # override as the initial value (same mechanism world_datum_* relies on).
     # Keep equal to world_datum_* / the surveillance grid origin.
-    home_lat_deg: 13.015581
-    home_lon_deg: 77.561373
+    home_lat_deg: 13.015445
+    home_lon_deg: 77.561347
 
     # local_position_valid (hardware_abstraction) mirrors PX4's OFFBOARD precondition so the
     # takeoff gate and TUI watch the EKF's xy_valid+eph instead of raw GPS. Keep this threshold
