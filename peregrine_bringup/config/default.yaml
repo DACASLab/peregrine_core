@@ -10,6 +10,15 @@
     world_datum_lon: 77.561373
     world_datum_alt: 0.0
 
+    # trajectory_manager geodetic->ENU home. Overriding it here (rather than only
+    # in trajectory_manager_parameters.yaml) lets the survey home be retargeted
+    # without rebuilding trajectory_manager: gpl declares these read-only with a
+    # compiled default, but declare_parameter() still honors this launch-time
+    # override as the initial value (same mechanism world_datum_* relies on).
+    # Keep equal to world_datum_* / the surveillance grid origin.
+    home_lat_deg: 13.015581
+    home_lon_deg: 77.561373
+
     # local_position_valid (hardware_abstraction) mirrors PX4's OFFBOARD precondition so the
     # takeoff gate and TUI watch the EKF's xy_valid+eph instead of raw GPS. Keep this threshold
     # equal to the airframe's COM_POS_FS_EPH (PX4 default 5.0 m) or the gate may disagree with
